@@ -1,8 +1,15 @@
 {
   "name": "node-red-contrib-quackquack",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Node-RED nodes for the Quack Quack IoT platform: send telemetry to dashboards and receive their commands",
-  "keywords": ["node-red", "quackquack", "iot", "dashboard", "telemetry", "websocket"],
+  "keywords": [
+    "node-red",
+    "quackquack",
+    "iot",
+    "dashboard",
+    "telemetry",
+    "websocket"
+  ],
   "license": "MIT",
   "author": "Taha Samy Mohammed",
   "homepage": "https://github.com/taha2samy-3/qauk-qauk/tree/main/integrations/node-red#readme",
@@ -13,12 +20,22 @@
   },
   "bugs": "https://github.com/taha2samy-3/qauk-qauk/issues",
   "packageManager": "pnpm@11.22.0",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "node-red": {
     "version": ">=3.0.0",
-    "nodes": { "quackquack": "nodes/quack.js" }
+    "nodes": {
+      "quackquack": "nodes/quack.js"
+    }
   },
-  "files": ["nodes", "lib", "examples", "README.md", "LICENSE"],
+  "files": [
+    "nodes",
+    "lib",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
     "lint": "node --check lib/*.js nodes/*.js"

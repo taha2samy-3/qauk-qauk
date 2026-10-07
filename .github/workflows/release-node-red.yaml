@@ -35,10 +35,6 @@ concurrency:
   group: release-node-red-${{ github.ref }}
   cancel-in-progress: false
 
-defaults:
-  run:
-    working-directory: integrations/node-red
-
 jobs:
   test:
     name: Test (Node-RED runtime)
@@ -58,6 +54,9 @@ jobs:
     permissions:
       contents: write # GitHub release
       id-token: write # npm provenance / trusted publishing
+    defaults:
+      run:
+        working-directory: integrations/node-red # the test job runs `task` from the root
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
