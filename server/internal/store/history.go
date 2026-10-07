@@ -77,3 +77,23 @@ func InsertEvents(ctx context.Context, db DBTX, rows []EventRow) (int64, error) 
 		ON CONFLICT DO NOTHING`, times, ids, elems, devs, sources, actorIDs, actorNames, clientTS, payloads, values)
 	return tag.RowsAffected(), mapErr(err)
 }
+
+// FieldBuckets aggregates an arbitrary numeric attribute of the stored
+// messages (payload #> path) per time bucket. Numbers, booleans (1/0) and
+// numeric strings count; anything else is skipped. It reads the raw
+// hypertable, so it costs more than Buckets on long ranges.
+func FieldBuckets(ctx context.Context, db DBTX, elementID uuid.UUID, from, to time.Time, step time.Duration, path []string) ([]Bucket, error) {
+	return many[Bucket](db.Query(ctx, `SELECT time_bucket($4::interval, time) AS bucket,
+			avg(v) AS avg, min(v) AS min, max(v) AS max, count(*)::bigint AS n
+		FROM (
+			SELECT time, CASE jsonb_typeof(payload #> $5::text[])
+				WHEN 'number'  THEN (payload #>> $5::text[])::float8
+				WHEN 'boolean' THEN CASE WHEN (payload #>> $5::text[])::boolean THEN 1 ELSE 0 END
+				WHEN 'string'  THEN CASE WHEN (payload #>> $5::text[]) ~ '^\s*-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?\s*$'
+					THEN (payload #>> $5::text[])::float8 END
+				END AS v
+			FROM element_event WHERE element_id = $1 AND time >= $2 AND time < $3
+		) s
+		WHERE v IS NOT NULL
+		GROUP BY 1 ORDER BY 1`, elementID, from, to, step, path))
+}

@@ -21,6 +21,7 @@ type HistoryInput struct {
 	To    time.Time `query:"to" doc:"End (RFC 3339, exclusive). Default: now."`
 	Step  string    `query:"step" enum:"raw,1m,5m,15m,1h,1d" default:"raw" doc:"raw events, or numeric aggregates per bucket"`
 	Limit int       `query:"limit" minimum:"1" maximum:"10000" default:"1000" doc:"Max raw events"`
+	Field string    `query:"field" maxLength:"200" doc:"Aggregate this message attribute (e.g. temperature, gps.lat, sensors[0].temp) instead of message.value. Raw events always return the full message."`
 }
 
 type HistoryEvent struct {
@@ -102,7 +103,16 @@ func (a *API) history(ctx context.Context, in *HistoryInput) (*HistoryOutput, er
 		}
 		return out, nil
 	}
-	b, err := store.Buckets(ctx, a.pool, in.ID, from, to, steps[in.Step])
+	var b []store.Bucket
+	if in.Field == "" || in.Field == "value" {
+		b, err = store.Buckets(ctx, a.pool, in.ID, from, to, steps[in.Step])
+	} else {
+		path, perr := store.ParseFieldPath(in.Field)
+		if perr != nil {
+			return nil, huma.Error422UnprocessableEntity("field must be a path like temperature, gps.lat or sensors[0].temp")
+		}
+		b, err = store.FieldBuckets(ctx, a.pool, in.ID, from, to, steps[in.Step], path)
+	}
 	if err != nil {
 		return nil, a.fail(err)
 	}

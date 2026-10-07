@@ -24,6 +24,31 @@ tasks:
     cmds: [task --list]
     silent: true
 
+  start:
+    desc: "Run the whole platform locally: infra, API+gateway (:8080), ingester, demo devices, web app (:5173). Ctrl+C stops it."
+    preconditions:
+      - sh: "! curl -s -o /dev/null --max-time 1 http://127.0.0.1:8080/healthz"
+        msg: "The platform already seems to be running (port 8080). Use it, or run `task stop` first."
+      - sh: "! curl -s -o /dev/null --max-time 1 http://127.0.0.1:5173/"
+        msg: "Something is already serving the web app on port 5173. Run `task stop` first."
+    cmds:
+      - task: infra:up
+      - task: demo          # idempotent: seeds the demo once (admin/admin12345)
+      - task: start:procs
+  stop:
+    desc: Stop everything `task start` runs (keeps the database and Redpanda running; `task infra:down` stops those)
+    cmds:
+      - cmd: pkill -f "server/bin/quack (serve|ingest|dev simulate)"
+        ignore_error: true
+      - cmd: pkill -f "web/node_modules/.bin/../vite/bin/vite.js|nodered/web.*vite"
+        ignore_error: true
+      - echo "stopped"
+
+  start:procs:
+    internal: true
+    # deps run in parallel; the simulator retries until the gateway is up
+    deps: [dev, ingest, simulate, web:dev]
+
   tools:
     desc: Install pinned tools (go, task, golangci-lint, node, pnpm)
     cmds: [mise install]
