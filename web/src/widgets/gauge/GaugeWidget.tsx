@@ -7,7 +7,8 @@ import { useTheme } from '@/lib/theme'
 import { useSize } from '@/lib/useSize'
 import { formatNumber } from '@/lib/utils'
 import { EChart } from '../EChart'
-import { colorFor, elementDefaults, num, str, thresholds } from '../options'
+import { readNumber } from '@/realtime/messages'
+import { binding, colorFor, elementDefaults, NUMERIC_BINDING_FIELDS, num, str, thresholds } from '../options'
 import type { WidgetDefinition, WidgetRenderProps } from '../types'
 
 function withAlpha(hex: string, alpha: number): string {
@@ -27,7 +28,8 @@ function GaugeWidget({ options, rt }: WidgetRenderProps) {
   const decimals = num(options, 'decimals')
   const base = resolveColor(str(options, 'baseColor', 'blue')!, resolved)
   const ts = thresholds(options).map((t) => ({ ...t, color: resolveColor(t.color, resolved) }))
-  const value = rt.value
+  const b = binding(options)
+  const value = readNumber(rt.message, b.field, b)
   const clamped = value === undefined ? min : Math.min(max, Math.max(min, value))
   const color = colorFor(value, ts, base)
   const dim = Math.min(size.width, size.height * 1.25)
@@ -115,6 +117,7 @@ export const gaugeWidget: WidgetDefinition = {
     return { unit: d.unit, min: d.min ?? 0, max: d.max ?? 100, baseColor: 'blue', thresholds: [] }
   },
   fields: [
+    ...NUMERIC_BINDING_FIELDS,
     { key: 'unit', label: 'Unit', kind: 'text', placeholder: '°C' },
     { key: 'min', label: 'Minimum', kind: 'number' },
     { key: 'max', label: 'Maximum', kind: 'number' },

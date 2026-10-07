@@ -97,3 +97,34 @@ export function useElementFrames(elementId: string | undefined | null, fn: (f: F
     [rt, elementId],
   )
 }
+
+/**
+ * Live state of several elements (e.g. the extra series of a chart). Returns
+ * a stable array that only changes when one of the elements changes.
+ */
+export function useElementStates(ids: readonly string[]): readonly ElementState[] {
+  const rt = useRealtimeClient()
+  const key = ids.join(',')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stable = React.useMemo(() => ids.slice(), [key])
+  React.useEffect(() => {
+    const releases = stable.map((id) => rt.retain(id))
+    return () => releases.forEach((r) => r())
+  }, [rt, stable])
+  const cache = React.useRef<readonly ElementState[]>([])
+  const subscribe = React.useCallback(
+    (fn: () => void) => {
+      const offs = stable.map((id) => rt.listen(id, fn))
+      return () => offs.forEach((o) => o())
+    },
+    [rt, stable],
+  )
+  const getSnapshot = React.useCallback(() => {
+    const next = stable.map((id) => rt.getSnapshot(id))
+    const prev = cache.current
+    if (prev.length === next.length && prev.every((st, i) => st === next[i])) return prev
+    cache.current = next
+    return next
+  }, [rt, stable])
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}

@@ -8,7 +8,7 @@ export const qk = {
   myElements: ['me', 'elements'] as const,
   dashboards: ['dashboards'] as const,
   dashboard: (id: string) => ['dashboards', id] as const,
-  history: (elementId: string, range: string) => ['history', elementId, range] as const,
+  history: (elementId: string, range: string, field = '') => ['history', elementId, range, field] as const,
   deviceNames: (ids: string[]) => ['device-names', ...ids] as const,
   admin: (resource: string, params?: unknown) =>
     (params === undefined ? ['admin', resource] : ['admin', resource, params]) as readonly unknown[],

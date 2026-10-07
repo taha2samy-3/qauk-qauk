@@ -5,9 +5,10 @@ import { resolveColor } from '@/lib/chartTheme'
 import { useTheme } from '@/lib/theme'
 import { useSize } from '@/lib/useSize'
 import { cn, formatNumber } from '@/lib/utils'
-import { messageValue } from '@/realtime/messages'
+import { readNumber, readRaw } from '@/realtime/messages'
+import { mapValue, readMappings } from '@/lib/valueMap'
 import { Sparkline } from '../Sparkline'
-import { bool, colorFor, elementDefaults, num, str, thresholds } from '../options'
+import { binding, bool, colorFor, elementDefaults, MAPPINGS_FIELD, NUMERIC_BINDING_FIELDS, num, str, thresholds } from '../options'
 import type { WidgetDefinition, WidgetRenderProps } from '../types'
 
 function StatWidget({ options, rt }: WidgetRenderProps) {
@@ -18,16 +19,28 @@ function StatWidget({ options, rt }: WidgetRenderProps) {
   const showSpark = bool(options, 'sparkline', true)
   const ts = thresholds(options).map((t) => ({ ...t, color: resolveColor(t.color, resolved) }))
   const sparkColor = resolveColor(str(options, 'color', 'blue')!, resolved)
-  const value = rt.value
-  const valueColor = ts.length ? colorFor(value, ts, 'inherit') : 'inherit'
+  const b = binding(options)
+  const value = readNumber(rt.message, b.field, b)
+  const mapped = mapValue(readRaw(rt.message, b.field), readMappings(options.mappings))
+  const valueColor = mapped?.color
+    ? resolveColor(mapped.color, resolved)
+    : ts.length
+      ? colorFor(value, ts, 'inherit')
+      : 'inherit'
 
+  // a mapping wins; a non-numeric attribute is shown as text
+  const raw = readRaw(rt.message, b.field)
+  const textual = !!mapped || (value === undefined && typeof raw === 'string' && raw !== '')
+  const display = mapped ? mapped.label : textual ? String(raw) : formatNumber(value, decimals)
+
+  const { field, scale, offset } = b
   const series = useMemo(
     () =>
       rt.history
         .slice(-60)
-        .map((f) => messageValue(f.message))
+        .map((f) => readNumber(f.message, field, { scale, offset }))
         .filter((v): v is number => v !== undefined),
-    [rt.history],
+    [rt.history, field, scale, offset],
   )
   const first = series[0]
   const delta = value !== undefined && first !== undefined ? value - first : undefined
@@ -50,8 +63,10 @@ function StatWidget({ options, rt }: WidgetRenderProps) {
           className="tabular flex items-baseline gap-1.5 leading-none font-semibold tracking-tight"
           style={{ color: valueColor }}
         >
-          <span style={{ fontSize }}>{formatNumber(value, decimals)}</span>
-          {unit && (
+          <span style={{ fontSize }} data-testid="stat-text">
+            {display}
+          </span>
+          {unit && !textual && (
             <span className="text-muted-foreground" style={{ fontSize: Math.max(12, fontSize * 0.38) }}>
               {unit}
             </span>
@@ -88,6 +103,8 @@ export const statWidget: WidgetDefinition = {
     thresholds: [],
   }),
   fields: [
+    ...NUMERIC_BINDING_FIELDS,
+    MAPPINGS_FIELD,
     { key: 'unit', label: 'Unit', kind: 'text' },
     {
       key: 'decimals',

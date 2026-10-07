@@ -1,6 +1,6 @@
 import { asNumber, asString, isRecord } from '@/lib/utils'
 import type { MyElement } from '@/api/types'
-import type { Options } from './types'
+import type { OptionField, Options } from './types'
 
 export interface Threshold {
   value: number
@@ -39,4 +39,33 @@ export function elementDefaults(el: MyElement) {
     step: asNumber(d.step),
     title: asString(d.title),
   }
+}
+
+/** Attribute binding of a single-value widget. */
+export function binding(o: Options): { field?: string; scale?: number; offset?: number } {
+  const field = str(o, 'field')?.trim()
+  return { field: field || undefined, scale: num(o, 'scale'), offset: num(o, 'offset') }
+}
+
+/** Data-section fields shared by read-only numeric widgets. */
+export const NUMERIC_BINDING_FIELDS: OptionField[] = [
+  {
+    key: 'field',
+    label: 'Attribute',
+    kind: 'attribute',
+    section: 'data',
+    accepts: ['number', 'boolean'],
+    placeholder: 'auto (value)',
+    help: 'Which attribute of the message to show. Click one below or type a path like gps.lat.',
+  },
+  { key: 'scale', label: 'Multiply by', kind: 'number', section: 'data', placeholder: '1' },
+  { key: 'offset', label: 'Then add', kind: 'number', section: 'data', placeholder: '0' },
+]
+
+export const MAPPINGS_FIELD: OptionField = {
+  key: 'mappings',
+  label: 'Value mappings',
+  kind: 'mappings',
+  section: 'data',
+  help: 'Show a value under another name, e.g. 1 → Running, OFF → Stopped.',
 }

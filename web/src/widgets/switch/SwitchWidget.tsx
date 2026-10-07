@@ -3,14 +3,36 @@ import { widgetHint } from '@/api/types'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { str } from '../options'
+import { readRaw } from '@/realtime/messages'
+import { normalize, parseLiteral } from '@/lib/valueMap'
+import { asNumber } from '@/lib/utils'
 import { usePendingCommand } from '../usePendingCommand'
 import type { WidgetDefinition, WidgetRenderProps } from '../types'
 
+/** On/off state of a raw attribute; explicit on/off values win, then common conventions. */
+export function switchState(raw: unknown, onVal: unknown, offVal: unknown, explicit: boolean): boolean | undefined {
+  if (raw === undefined || raw === null) return undefined
+  const n = normalize(raw)
+  if (n === normalize(onVal)) return true
+  if (n === normalize(offVal)) return false
+  if (explicit) return undefined
+  if (['on', 'true', 'open', 'yes', 'high'].includes(n)) return true
+  if (['off', 'false', 'closed', 'no', 'low'].includes(n)) return false
+  const num = asNumber(raw)
+  return num === undefined ? undefined : num !== 0
+}
+
 function SwitchWidget({ widget, element, options, rt, editing }: WidgetRenderProps) {
   const title = widget.title || element.name
-  const { pending, command } = usePendingCommand(element.id, rt, title)
-  const actual = rt.value === undefined ? undefined : rt.value !== 0
-  const shown = pending !== undefined ? pending !== 0 : (actual ?? false)
+  const field = str(options, 'field')?.trim() || undefined
+  const onText = str(options, 'onValue')?.trim()
+  const offText = str(options, 'offValue')?.trim()
+  const onVal = onText ? parseLiteral(onText) : 1
+  const offVal = offText ? parseLiteral(offText) : 0
+  const { pending, command } = usePendingCommand(element.id, rt, title, field)
+  const actual = switchState(readRaw(rt.message, field), onVal, offVal, !!(onText || offText))
+  const pendingOn = pending === undefined ? undefined : normalize(pending) === normalize(onVal)
+  const shown = pendingOn ?? actual ?? false
   const canControl = rt.permission === 'RC' && rt.status === 'subscribed' && rt.deviceConnected !== false
   const onLabel = str(options, 'onLabel') || 'On'
   const offLabel = str(options, 'offLabel') || 'Off'
@@ -34,7 +56,7 @@ function SwitchWidget({ widget, element, options, rt, editing }: WidgetRenderPro
         size="lg"
         checked={shown}
         disabled={!canControl || pending !== undefined || editing}
-        onCheckedChange={(v) => command(v ? 1 : 0)}
+        onCheckedChange={(v) => command(v ? onVal : offVal)}
         aria-label={`${title}: ${shown ? onLabel : offLabel}`}
         className={cn(shown && 'data-[state=checked]:bg-success', pending !== undefined && 'opacity-70')}
       />
@@ -43,7 +65,7 @@ function SwitchWidget({ widget, element, options, rt, editing }: WidgetRenderPro
           <>
             <Loader2 className="text-muted-foreground size-3.5 animate-spin" />
             <span className="text-muted-foreground">
-              Turning {pending ? onLabel.toLowerCase() : offLabel.toLowerCase()}…
+              Turning {pendingOn ? onLabel.toLowerCase() : offLabel.toLowerCase()}…
             </span>
           </>
         ) : actual === undefined ? (
@@ -73,6 +95,16 @@ export const switchWidget: WidgetDefinition = {
   },
   defaultOptions: () => ({ onLabel: 'On', offLabel: 'Off' }),
   fields: [
+    {
+      key: 'field',
+      label: 'Attribute',
+      kind: 'attribute',
+      section: 'data',
+      placeholder: 'auto (value)',
+      help: 'Read the state from this attribute and send commands to it, in the device’s own format.',
+    },
+    { key: 'onValue', label: 'On value', kind: 'text', section: 'data', placeholder: '1', help: 'e.g. 1, true, ON' },
+    { key: 'offValue', label: 'Off value', kind: 'text', section: 'data', placeholder: '0', help: 'e.g. 0, false, OFF' },
     { key: 'onLabel', label: 'On label', kind: 'text', placeholder: 'On' },
     { key: 'offLabel', label: 'Off label', kind: 'text', placeholder: 'Off' },
   ],

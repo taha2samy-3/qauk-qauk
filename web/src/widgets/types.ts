@@ -6,7 +6,12 @@ import type { Widget } from '@/features/dashboards/layout'
 
 export type Fit = 'suggested' | 'ok' | 'no'
 
-export type OptionField =
+/** Where a field is shown in the configuration sheet. */
+export type FieldSection = 'data' | 'display'
+
+export type OptionFieldBase = { section?: FieldSection }
+
+export type OptionField = OptionFieldBase & (
   | { key: string; label: string; kind: 'text'; placeholder?: string; help?: string }
   | {
       key: string
@@ -23,6 +28,13 @@ export type OptionField =
   | { key: string; label: string; kind: 'select'; choices: { value: string; label: string }[]; help?: string }
   | { key: string; label: string; kind: 'thresholds'; help?: string }
   | { key: string; label: string; kind: 'color'; help?: string }
+  /** an attribute path in the element's messages; `accepts` filters the suggestions */
+  | { key: string; label: string; kind: 'attribute'; help?: string; accepts?: ('number' | 'boolean' | 'string' | 'time')[]; placeholder?: string; xAxis?: boolean }
+  /** value → label/color table */
+  | { key: string; label: string; kind: 'mappings'; help?: string }
+  /** extra chart series from other elements */
+  | { key: string; label: string; kind: 'series'; help?: string }
+)
 
 export type Options = Record<string, unknown>
 

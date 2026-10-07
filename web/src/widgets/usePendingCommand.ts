@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { UseElementResult } from '@/realtime/hooks'
 import { useElementFrames } from '@/realtime/hooks'
-import { messageValue } from '@/realtime/messages'
+import { readRaw } from '@/realtime/messages'
+import { buildMessage } from '@/lib/fieldPath'
+import { normalize } from '@/lib/valueMap'
 
 const CONFIRM_TIMEOUT_MS = 8000
 
@@ -10,9 +12,12 @@ const CONFIRM_TIMEOUT_MS = 8000
  * Optimistic command helper: after `command(v)` the widget shows `v` as
  * pending until the device echoes a frame with that value, or the timeout
  * expires (then it reverts and warns).
+ *
+ * With `field` the command is sent in the device's own shape
+ * ({"relay": "OFF"}) and the echo is read from the same attribute.
  */
-export function usePendingCommand(elementId: string, rt: UseElementResult, label: string) {
-  const [pending, setPending] = useState<number | undefined>(undefined)
+export function usePendingCommand(elementId: string, rt: UseElementResult, label: string, field?: string) {
+  const [pending, setPending] = useState<unknown>(undefined)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const errorAtSend = useRef(rt.error)
 
@@ -26,8 +31,7 @@ export function usePendingCommand(elementId: string, rt: UseElementResult, label
 
   useElementFrames(elementId, (f) => {
     if (pending === undefined || f.by.source !== 'device') return
-    const v = messageValue(f.message)
-    if (v !== undefined && Math.abs(v - pending) < 1e-9) clear()
+    if (normalize(readRaw(f.message, field)) === normalize(pending)) clear()
   })
 
   // A rejected command (error frame) or losing the subscription ends the wait.
@@ -41,8 +45,8 @@ export function usePendingCommand(elementId: string, rt: UseElementResult, label
   }, [rt.error, rt.status, pending, clear, label])
 
   const command = useCallback(
-    (value: number) => {
-      if (!rt.send({ value })) {
+    (value: unknown) => {
+      if (!rt.send(buildMessage(field ?? 'value', value))) {
         toast.error(`Could not send to ${label}`, {
           description: 'You may lack control permission or the connection is down.',
         })
@@ -59,7 +63,7 @@ export function usePendingCommand(elementId: string, rt: UseElementResult, label
       }, CONFIRM_TIMEOUT_MS)
       return true
     },
-    [rt, label],
+    [rt, label, field],
   )
 
   return { pending, command }
