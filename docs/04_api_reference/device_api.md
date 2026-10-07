@@ -42,7 +42,32 @@ If authentication fails, the upgrade is refused with **HTTP 403** `Device authen
 
 The token is only checked during the handshake. An open socket stays open after the token expires; use a fresh token when you reconnect.
 
-Examples: [Node.js with `jose`](../03_getting_started.md#device-example-in-javascript-jose), [Node-RED](../03_getting_started.md#node-red).
+Examples: [Node.js with `jose`](../03_getting_started.md#device-example-in-javascript-jose), [Node-RED](../03_getting_started.md#node-red). For Node-RED, the [`node-red-contrib-quackquack` nodes](../09_node_red.md) handle tokens, reconnects and element names for you.
+
+## Listing elements
+
+`GET /device/elements` returns the calling device's own elements, authenticated with the **same bearer JWT** as the socket. Use it to address elements by name instead of hard-coding UUIDs; the Node-RED nodes do this on every connect.
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/device/elements
+```
+
+```json
+{
+  "device": { "id": "01a117df-e03e-76a5-8234-005322891808", "name": "Greenhouse" },
+  "elements": [
+    { "id": "01a117df-e06c-75b5-a03c-50331c6a9707", "name": "Climate", "description": "", "points": 200, "details": { "widget": "chart" } },
+    { "id": "01a117df-e099-7292-9770-1005eef2b944", "name": "Gate relay", "description": "", "points": 50, "details": { "widget": "switch" } }
+  ]
+}
+```
+
+| Status | When |
+|---|---|
+| 200 | The token is valid (same rules as the handshake). The list can be empty. |
+| 403 | `Device authentication failed`, for the same reasons as a [rejected handshake](#rejection) |
+
+The response is `Cache-Control: no-store`. The endpoint is served wherever the device socket is (the `gateway` role), and it is new in the Go server: servers without it answer with the web app, and clients should fall back to element IDs.
 
 ## Telemetry: device to server
 

@@ -5,12 +5,9 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Image tag to build and push (e.g., v1.0.0)'
-        required: true
-        default: 'latest'
-        type: string
+
+# Releases live in their own workflows: release-image.yaml (tags v*) and
+# release-node-red.yaml (tags node-red-v*).
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -52,110 +49,31 @@ jobs:
       - run: task web:test
       - run: task web:build
 
-  build-scan-push:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [backend, frontend]
+  node-red:
+    name: Node-RED nodes (Node-RED runtime tests, pack)
     runs-on: ubuntu-latest
-    environment:
-      name: export docker
-      url: https://hub.docker.com/repository/docker/taha2samy/quack_quack
-    outputs:
-      result: ${{ job.status }}
-      image_tag: ${{ steps.docker_tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/login-action@v4
+      - uses: jdx/mise-action@v5
+      - run: task nodered:pack
+      - uses: actions/upload-artifact@v7
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - id: docker_tag
-        run: echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./server/Dockerfile
-          push: true
-          tags: taha2samy/quack_quack:${{ steps.docker_tag.outputs.tag }}-scan
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Run Trivy and append summary to Actions run summary
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-      
-          if ! command -v trivy >/dev/null 2>&1; then
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
-            export PATH=$PWD/bin:$PATH
-          fi
-      
-          IMAGE="taha2samy/quack_quack:${{ steps.docker_tag.outputs.tag }}-scan"
-          OUT="trivy-report.json"
-      
-          trivy image --format json -o "$OUT" "$IMAGE" || true
-      
-          TOTAL_CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$OUT")
-          TOTAL_HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "$OUT")
-          TOTAL_MEDIUM=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' "$OUT")
-          TOTAL_LOW=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="LOW")] | length' "$OUT")
-          TOTAL_ALL=$(jq '[.Results[].Vulnerabilities[]?] | length' "$OUT")
-      
-          echo "## 🔒 Trivy Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`$IMAGE\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total vulnerabilities found:** **$TOTAL_ALL**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Breakdown by Severity" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔴 **Critical:** $TOTAL_CRITICAL" >> $GITHUB_STEP_SUMMARY
-          echo "- 🟠 **High:** $TOTAL_HIGH" >> $GITHUB_STEP_SUMMARY
-          echo "- 🟡 **Medium:** $TOTAL_MEDIUM" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔵 **Low:** $TOTAL_LOW" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-      
-          if [ "$TOTAL_ALL" -eq 0 ]; then
-            echo "No vulnerabilities found ✅" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-      
-          echo "### Top Security Findings (CRITICAL / HIGH / MEDIUM)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          jq -r '
-            [.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH" or .Severity=="MEDIUM") ] 
-            | group_by(.VulnerabilityID) 
-            | map({
-                id: .[0].VulnerabilityID,
-                severity: .[0].Severity,
-                pkg: (.[0].PkgName // .[0].Target),
-                installed: (.[0].InstalledVersion // "-"),
-                fixed: (.[0].FixedVersion // "n/a"),
-                title: (.[0].Title // .[0].Description // ""),
-                link: ("https://avd.aquasec.com/nvd/" + .[0].VulnerabilityID)
-              })
-            | sort_by(.severity) 
-            | reverse
-            | .[:15]
-            | map("- **\(.id)** (\(.severity)) — `\(.pkg)` — installed: `\(.installed)` — fixed: `\(.fixed)`\n  \n  \(.title)\n  \n  [Details](\(.link))\n")
-            | .[]' "$OUT" \
-          | sed 's/^/ /' \
-          >> $GITHUB_STEP_SUMMARY
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: node-red-contrib-quackquack
+          path: integrations/node-red/dist/*.tgz
+          retention-days: 14
 
   generate-summary:
-    needs: [backend, frontend, build-scan-push]
+    needs: [backend, frontend, node-red]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - run: |
-          echo "## 🚀 CI/CD Run Summary" >> $GITHUB_STEP_SUMMARY
-          for job in backend frontend build-scan-push; do
+          echo "## 🚀 CI Run Summary" >> $GITHUB_STEP_SUMMARY
+          for job in backend frontend node-red; do
             case "$job" in
               backend) r="${{ needs.backend.result }}" ;;
               frontend) r="${{ needs.frontend.result }}" ;;
-              build-scan-push) r="${{ needs.build-scan-push.result }}" ;;
+              node-red) r="${{ needs.node-red.result }}" ;;
             esac
             case "$r" in
               success) icon="✅" ;; failure) icon="❌" ;; *) icon="⚠️" ;;

@@ -20,8 +20,8 @@ updates:
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
 
-  - package-ecosystem: npm            # web app + docs site (pnpm lockfiles)
-    directories: [/web, /docs]
+  - package-ecosystem: npm            # web app, docs site, Node-RED nodes (pnpm lockfiles)
+    directories: [/web, /docs, /integrations/node-red]
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
 

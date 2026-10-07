@@ -57,3 +57,13 @@ old Django admin.
 Empty and error states show a duck that fits the situation. Here is the lost duck on the "page not found" screen:
 
 ![Page not found, with the lost duck](./imgs/screenshots/not-found-light.webp)
+
+## Node-RED integration
+
+The [Node-RED nodes](./09_node_red.md) feeding a dashboard. The switch was flipped in the browser, applied in Node-RED, and confirmed back.
+
+![Node-RED and the live dashboard side by side](./imgs/screenshots/nodered-with-dashboard.webp)
+
+| Device settings with a connection test | Elements loaded from the server |
+|---|---|
+| ![quack-device configuration](./imgs/screenshots/nodered-device-config.webp) | ![quack in node with its element picker](./imgs/screenshots/nodered-in-node.webp) |

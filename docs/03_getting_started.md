@@ -220,7 +220,17 @@ A rejected token fails the handshake with **HTTP 403**. The token is only checke
 
 ### Node-RED
 
-Node-RED's **websocket** nodes (Node-RED 4.0+) can send an `Authorization` header from the client config node.
+**Recommended:** install the [Quack Quack nodes](./09_node_red.md) (`node-red-contrib-quackquack`, from **Manage palette**). They sign tokens, reconnect, pick elements by name, and receive commands, with an example flow included. To try them against this checkout without installing anything:
+
+```sh
+task nodered:dev   # Node-RED on http://127.0.0.1:1880 with the nodes loaded from source
+```
+
+![Node-RED next to the dashboard it feeds](./imgs/screenshots/nodered-with-dashboard.webp)
+
+#### Without the nodes: plain websocket nodes
+
+Node-RED's built-in **websocket** nodes (Node-RED 4.0+) can send an `Authorization` header from the client config node.
 
 1. Create a token once (or on a schedule) with the device key:
 

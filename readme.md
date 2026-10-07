@@ -48,6 +48,7 @@
 - **CloudEvents everywhere.** Bus events are CloudEvents 1.0 with JSON Schema payloads. The REST API is OpenAPI 3.1 with RFC 9457 error bodies.
 - **Admin UI, CLI and audit log.** Manage users, groups, keys, devices, elements and permissions in the web app, through the REST API, or with `quack admin`. Every admin change is recorded in an audit log.
 - **Drop-in replacement for the legacy Django server.** Device paths, frames and JWTs are unchanged, so existing devices and Node-RED flows keep working. `quack import-django` migrates the old database with UUIDs, keys and passwords intact.
+- **Node-RED nodes.** [`node-red-contrib-quackquack`](integrations/node-red) adds *quack out* and *quack in* to the palette. They handle token signing, reconnects, element names and command confirmation. Install it from **Manage palette**.
 
 ## Architecture
 
@@ -133,6 +134,10 @@ Run `task --list` to see every task.
 | ![Sign in page](docs/imgs/screenshots/login-light.webp) | ![Permissions administration](docs/imgs/screenshots/admin-permissions-dark.webp) |
 | **Sign in** | **Administration**: users, groups, keys, devices, permissions, audit log |
 
+![Node-RED with the Quack Quack nodes next to the live dashboard they feed](docs/imgs/screenshots/nodered-with-dashboard.webp)
+
+**Node-RED integration**: a flow sends readings to the dashboard, and the dashboard's switch is applied in Node-RED and confirmed back.
+
 More in the [screenshot tour](https://taha2samy-3.github.io/qauk-qauk/guide/screenshots). Logos and brand files are on the [brand page](https://taha2samy-3.github.io/qauk-qauk/guide/brand).
 
 ## Documentation
@@ -145,6 +150,7 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 | [Architecture](docs/02_architecture.md) | Components, data flows, scaling |
 | [Getting started](docs/03_getting_started.md) | Local dev, containers, connecting devices and Node-RED, configuration, migrating from Django |
 | [Device WebSocket API](docs/04_api_reference/device_api.md) | For firmware and Node-RED authors |
+| [Node-RED integration](docs/09_node_red.md) | The `node-red-contrib-quackquack` nodes: install, connect a device, send telemetry, receive commands |
 | [Browser WebSocket API](docs/04_api_reference/browser_api.md) | For frontend developers |
 | [REST API](docs/04_api_reference/rest_api.md) | Auth, CSRF, errors, resources (live docs at `/api/docs`) |
 | [Core concepts](docs/05_core_concepts/README.md) | Authentication, permissions, realtime events, dashboards |
