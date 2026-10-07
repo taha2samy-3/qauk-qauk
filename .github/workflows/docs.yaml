@@ -1,10 +1,15 @@
 name: Docs
 
 # Builds the VitePress site in docs/ and publishes it to GitHub Pages.
-# One-time repo setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+#
+# One-time repo setup (the default GITHUB_TOKEN is not allowed to do this):
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions"
+#
+# The build job never depends on that setting, so pull requests (and a repo
+# without Pages yet) still get the dead-link / render check.
 on:
   push:
-    branches: [master]
+    branches: [main, master]
     paths: ['docs/**', 'branding/**', 'mise.toml', '.github/workflows/docs.yaml']
   pull_request:
     paths: ['docs/**', 'branding/**', 'mise.toml', '.github/workflows/docs.yaml']
@@ -19,22 +24,19 @@ concurrency:
 
 jobs:
   build:
-    name: Build docs (fails on dead links)
+    name: Build docs (fails on dead links and render errors)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # "last updated" timestamps come from git history
       - uses: jdx/mise-action@v5
-      - name: Configure Pages
-        id: pages
-        if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
       - name: Build
         run: task docs:build
         env:
-          # project pages live under /<repo>/; a custom domain gives an empty base_path
-          DOCS_BASE: ${{ steps.pages.outputs.base_path }}/
+          # Project pages are served under /<repo>/. For a custom domain set the
+          # repository variable DOCS_BASE to "/".
+          DOCS_BASE: ${{ vars.DOCS_BASE || format('/{0}/', github.event.repository.name) }}
       - name: Upload site
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
@@ -53,6 +55,14 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Check that GitHub Pages is enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
+            echo "::error title=GitHub Pages is not enabled::Open ${{ github.server_url }}/${{ github.repository }}/settings/pages and set 'Build and deployment → Source' to 'GitHub Actions', then re-run this workflow. The docs were built successfully; only publishing is blocked."
+            exit 1
+          fi
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
