@@ -14,6 +14,12 @@ const (
 	TopicElementEvents = "element-events.v1"
 	TopicControlEvents = "control-events.v1"
 	TopicPresence      = "presence.v1"
+	// TopicElementState holds the latest stored device message per element
+	// (compacted, keyed by element id): gateways warm up from it on start.
+	TopicElementState = "element-state.v1"
+	// TopicElementEventsDLQ receives element events the history store
+	// rejected, unchanged, with the reason in the "error" header.
+	TopicElementEventsDLQ = "element-events.dlq.v1"
 
 	TypeElementMessage = "io.quack.element.message.v1"
 	TypeControlChanged = "io.quack.control.changed.v1"

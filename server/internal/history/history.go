@@ -93,6 +93,8 @@ type Store interface {
 	// Migrate creates or upgrades the schema and applies settings
 	// (retention, compression). It is idempotent.
 	Migrate(ctx context.Context) error
+	// Reset deletes all history. Dev seeding and tests only.
+	Reset(ctx context.Context) error
 	Close() error
 }
 
@@ -219,6 +221,15 @@ func (m *multi) Buckets(ctx context.Context, q BucketQuery) ([]Bucket, error) {
 func (m *multi) Migrate(ctx context.Context) error {
 	for _, s := range m.stores {
 		if err := s.Migrate(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *multi) Reset(ctx context.Context) error {
+	for _, s := range m.stores {
+		if err := s.Reset(ctx); err != nil {
 			return err
 		}
 	}

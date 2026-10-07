@@ -304,3 +304,12 @@ func mustSub(f embed.FS, dir string) fs.FS {
 	}
 	return sub
 }
+
+func (st *Store) Reset(ctx context.Context) error {
+	_, err := st.pool.Exec(ctx, `TRUNCATE element_event, element_point`)
+	if err == nil {
+		// drop the rollup's materialized rows too
+		_, err = st.pool.Exec(ctx, `CALL refresh_continuous_aggregate('element_point_1m', NULL, NULL)`)
+	}
+	return err
+}

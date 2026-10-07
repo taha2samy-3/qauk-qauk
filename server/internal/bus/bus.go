@@ -30,6 +30,8 @@ var Topics = []TopicSpec{
 	{Name: events.TopicElementEvents, Partitions: 12, Configs: map[string]*string{"retention.ms": ptr("604800000")}},
 	{Name: events.TopicControlEvents, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("604800000")}},
 	{Name: events.TopicPresence, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact")}},
+	{Name: events.TopicElementState, Partitions: 12, Configs: map[string]*string{"cleanup.policy": ptr("compact")}},
+	{Name: events.TopicElementEventsDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}}, // 30 days
 }
 
 // EnsureTopics creates missing topics. Existing topics are left untouched.
@@ -66,6 +68,11 @@ func NewProducer(brokers []string, acksAll bool, log *slog.Logger) (*Producer, e
 		kgo.ProducerLinger(5 * time.Millisecond),
 		kgo.ProducerBatchCompression(kgo.Lz4Compression()),
 		kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)),
+		// Bounded: if Redpanda is down, records fail after the timeout and
+		// TryProduce refuses new ones once the buffer is full, instead of
+		// blocking every socket's read loop (and buffering gigabytes).
+		kgo.RecordDeliveryTimeout(30 * time.Second),
+		kgo.MaxBufferedBytes(64 << 20),
 	}
 	if acksAll {
 		opts = append(opts, kgo.RequiredAcks(kgo.AllISRAcks()))
@@ -96,14 +103,21 @@ func RawRecord(topic, key string, value []byte) *kgo.Record {
 	}
 }
 
-// Publish sends asynchronously; failures are logged and reported to OnError.
+// Publish sends asynchronously and never blocks; failures (including a full
+// buffer while Redpanda is unreachable) are logged and reported to OnError.
 func (p *Producer) Publish(ctx context.Context, topic string, ev *events.Event) {
 	rec, err := Record(topic, ev)
 	if err != nil {
 		p.log.Error("bus: encode event", "err", err)
 		return
 	}
-	p.cl.Produce(ctx, rec, func(_ *kgo.Record, err error) {
+	p.PublishRecord(ctx, rec)
+}
+
+// PublishRecord is Publish for a prepared record.
+func (p *Producer) PublishRecord(ctx context.Context, rec *kgo.Record) {
+	topic := rec.Topic
+	p.cl.TryProduce(ctx, rec, func(_ *kgo.Record, err error) {
 		if err != nil {
 			p.log.Warn("bus: produce failed", "topic", topic, "err", err)
 			if p.OnError != nil {
@@ -216,6 +230,65 @@ func (g *GroupConsumer) Run(ctx context.Context, log *slog.Logger, maxRecords in
 		}
 		g.cl.AllowRebalance()
 	}
+}
+
+// ReadAll calls fn for every record of a (compacted) topic, from the start up
+// to the end offsets at the time of the call, then returns.
+func ReadAll(ctx context.Context, brokers []string, topic string, fn func(*kgo.Record)) error {
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	ends, err := kadm.NewClient(cl).ListEndOffsets(ctx, topic)
+	if err != nil {
+		return err
+	}
+	if err := ends.Error(); err != nil {
+		return err
+	}
+	starts := map[string]map[int32]kgo.Offset{topic: {}}
+	pending := map[int32]int64{}
+	ends.Each(func(o kadm.ListedOffset) {
+		if o.Offset > 0 {
+			starts[topic][o.Partition] = kgo.NewOffset().AtStart()
+			pending[o.Partition] = o.Offset
+		}
+	})
+	if len(pending) == 0 {
+		return nil
+	}
+	rd, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumePartitions(starts), kgo.FetchMaxWait(200*time.Millisecond))
+	if err != nil {
+		return err
+	}
+	defer rd.Close()
+	for len(pending) > 0 {
+		fetches := rd.PollFetches(ctx)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var ferr error
+		fetches.EachError(func(_ string, _ int32, err error) { ferr = err })
+		if ferr != nil {
+			return ferr
+		}
+		fetches.EachRecord(func(r *kgo.Record) {
+			if end, ok := pending[r.Partition]; ok {
+				fn(r)
+				if r.Offset+1 >= end {
+					delete(pending, r.Partition)
+				}
+			}
+		})
+		// compaction can leave the last offsets empty: stop at the high watermark
+		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
+			if end, ok := pending[p.Partition]; ok && p.HighWatermark >= end && len(p.Records) == 0 {
+				delete(pending, p.Partition)
+			}
+		})
+	}
+	return nil
 }
 
 // debugLogger enables franz-go client logs when QUACK_KAFKA_DEBUG is set.

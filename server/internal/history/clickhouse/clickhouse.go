@@ -393,3 +393,12 @@ func (st *Store) Buckets(ctx context.Context, q history.BucketQuery) ([]history.
 	}
 	return out, rows.Err()
 }
+
+func (st *Store) Reset(ctx context.Context) error {
+	for _, t := range []string{"element_event", "element_point", "element_point_1m"} {
+		if err := st.conn.Exec(ctx, "TRUNCATE TABLE IF EXISTS "+t); err != nil {
+			return err
+		}
+	}
+	return nil
+}

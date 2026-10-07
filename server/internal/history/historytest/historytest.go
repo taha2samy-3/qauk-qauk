@@ -35,6 +35,7 @@ func Run(t *testing.T, open func(t *testing.T) history.Store) {
 		{"BucketsAlignment", bucketsAlignment},
 		{"BucketsSubMinute", bucketsSubMinute},
 		{"BigBatch", bigBatch},
+		{"Reset", reset}, // last: it wipes the database
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,6 +373,24 @@ func bigBatch(t *testing.T, s history.Store) {
 	got, _ := s.Events(ctx(t), history.EventQuery{ElementID: g.el, From: at, To: at.Add(time.Hour), Limit: 10, Newest: true})
 	if ids(got) != ids(evs[n-10:]) {
 		t.Fatal("newest 10 of a big batch")
+	}
+}
+
+func reset(t *testing.T, s history.Store) {
+	g := newGen()
+	at := base().Add(8 * time.Hour)
+	mustAppend(t, s, g.ev(at, history.SourceDevice, `{"value": 1}`))
+	if err := s.Reset(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	evs, _ := s.Events(ctx(t), history.EventQuery{ElementID: g.el, From: at.Add(-time.Hour), To: at.Add(time.Hour), Limit: 10})
+	bs, _ := s.Buckets(ctx(t), history.BucketQuery{ElementID: g.el, Field: "value", From: at.Add(-time.Hour), To: at.Add(time.Hour), Step: time.Hour})
+	if len(evs) != 0 || len(bs) != 0 {
+		t.Fatalf("after Reset: %d events, %d buckets", len(evs), len(bs))
+	}
+	// the store keeps working after a reset
+	if n := mustAppend(t, s, g.ev(at, history.SourceDevice, `{"value": 2}`)); n != 1 {
+		t.Fatalf("append after reset: %d", n)
 	}
 }
 
