@@ -2349,7 +2349,9 @@ export interface operations {
                 step?: "raw" | "1m" | "5m" | "15m" | "1h" | "1d";
                 /** @description Max raw events */
                 limit?: number;
-                /** @description Aggregate this message attribute (e.g. temperature, gps.lat, sensors[0].temp) instead of message.value. Raw events always return the full message. */
+                /** @description Raw events: return the newest 'limit' events of the range instead of the oldest (still in ascending order). */
+                newest?: boolean;
+                /** @description Aggregate this message attribute (e.g. temperature, gps.lat, sensors[0].temp) instead of the element's value. Raw events always return the full message. */
                 field?: string;
             };
             header?: never;
