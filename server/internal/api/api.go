@@ -14,6 +14,7 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/config"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
@@ -21,13 +22,16 @@ import (
 type API struct {
 	cfg     *config.Config
 	pool    *pgxpool.Pool
+	hist    history.Store
+	histSem chan struct{} // bounds concurrent history queries
 	svc     *service.Service
 	log     *slog.Logger
 	limiter *loginLimiter
 }
 
-func New(cfg *config.Config, pool *pgxpool.Pool, log *slog.Logger) *API {
-	return &API{cfg: cfg, pool: pool, svc: service.New(pool), log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
+func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
+	return &API{cfg: cfg, pool: pool, hist: hist, histSem: make(chan struct{}, max(cfg.HistoryMaxQueries, 1)),
+		svc: service.New(pool), log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
 }
 
 type ctxKey int

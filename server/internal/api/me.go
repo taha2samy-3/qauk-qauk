@@ -2,12 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -16,12 +19,13 @@ type MyElementsOutput struct {
 }
 
 type HistoryInput struct {
-	ID    uuid.UUID `path:"id"`
-	From  time.Time `query:"from" doc:"Start (RFC 3339). Default: to - 1h."`
-	To    time.Time `query:"to" doc:"End (RFC 3339, exclusive). Default: now."`
-	Step  string    `query:"step" enum:"raw,1m,5m,15m,1h,1d" default:"raw" doc:"raw events, or numeric aggregates per bucket"`
-	Limit int       `query:"limit" minimum:"1" maximum:"10000" default:"1000" doc:"Max raw events"`
-	Field string    `query:"field" maxLength:"200" doc:"Aggregate this message attribute (e.g. temperature, gps.lat, sensors[0].temp) instead of message.value. Raw events always return the full message."`
+	ID     uuid.UUID `path:"id"`
+	From   time.Time `query:"from" doc:"Start (RFC 3339). Default: to - 1h."`
+	To     time.Time `query:"to" doc:"End (RFC 3339, exclusive). Default: now."`
+	Step   string    `query:"step" enum:"raw,1m,5m,15m,1h,1d" default:"raw" doc:"raw events, or numeric aggregates per bucket"`
+	Limit  int       `query:"limit" minimum:"1" maximum:"10000" default:"1000" doc:"Max raw events"`
+	Newest bool      `query:"newest" doc:"Raw events: return the newest 'limit' events of the range instead of the oldest (still in ascending order)."`
+	Field  string    `query:"field" maxLength:"200" doc:"Aggregate this message attribute (e.g. temperature, gps.lat, sensors[0].temp) instead of the element's value. Raw events always return the full message."`
 }
 
 type HistoryEvent struct {
@@ -35,10 +39,10 @@ type HistoryEvent struct {
 
 type HistoryOutput struct {
 	Body struct {
-		ElementID uuid.UUID      `json:"element_id"`
-		Step      string         `json:"step"`
-		Events    []HistoryEvent `json:"events,omitempty"`
-		Buckets   []store.Bucket `json:"buckets,omitempty"`
+		ElementID uuid.UUID        `json:"element_id"`
+		Step      string           `json:"step"`
+		Events    []HistoryEvent   `json:"events,omitempty"`
+		Buckets   []history.Bucket `json:"buckets,omitempty"`
 	}
 }
 
@@ -89,33 +93,67 @@ func (a *API) history(ctx context.Context, in *HistoryInput) (*HistoryOutput, er
 	if !from.Before(to) {
 		return nil, huma.Error422UnprocessableEntity("from must be before to")
 	}
+	field := in.Field
+	if field == "" {
+		field = history.ValueField
+	}
+	if !history.ValidField(field) {
+		return nil, huma.Error422UnprocessableEntity("field must be a path like temperature, gps.lat or sensors[0].temp")
+	}
+	if step, ok := steps[in.Step]; ok {
+		if n := to.Sub(from) / step; int(n) > a.cfg.HistoryMaxBuckets {
+			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
+				"%s buckets over this range would be %d; the limit is %d. Use a larger step or a shorter range", in.Step, n, a.cfg.HistoryMaxBuckets))
+		}
+	}
+
+	// Bound the cost: a limited number of history queries per instance, each
+	// with a timeout, so heavy requests can't starve the database pool.
+	release, err := a.acquireHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	qctx, cancel := context.WithTimeout(ctx, a.cfg.HistoryQueryTimeout)
+	defer cancel()
+
 	out := &HistoryOutput{}
 	out.Body.ElementID, out.Body.Step = in.ID, in.Step
 	if in.Step == "raw" {
-		rows, err := store.EventsInRange(ctx, a.pool, in.ID, from, to, in.Limit)
+		evs, err := a.hist.Events(qctx, history.EventQuery{ElementID: in.ID, From: from, To: to, Limit: in.Limit, Newest: in.Newest})
 		if err != nil {
-			return nil, a.fail(err)
+			return nil, a.historyFail(qctx, err)
 		}
-		out.Body.Events = make([]HistoryEvent, len(rows))
-		for i, r := range rows {
-			out.Body.Events[i] = HistoryEvent{Time: r.Time, Source: r.Source, ActorID: r.ActorID, ActorName: r.ActorName,
-				Message: r.Payload, Value: r.Value}
+		out.Body.Events = make([]HistoryEvent, len(evs))
+		for i, e := range evs {
+			out.Body.Events[i] = HistoryEvent{Time: e.Time, Source: e.Source, ActorID: e.ActorID, ActorName: e.ActorName,
+				Message: e.Payload, Value: e.Value}
 		}
 		return out, nil
 	}
-	var b []store.Bucket
-	if in.Field == "" || in.Field == "value" {
-		b, err = store.Buckets(ctx, a.pool, in.ID, from, to, steps[in.Step])
-	} else {
-		path, perr := store.ParseFieldPath(in.Field)
-		if perr != nil {
-			return nil, huma.Error422UnprocessableEntity("field must be a path like temperature, gps.lat or sensors[0].temp")
-		}
-		b, err = store.FieldBuckets(ctx, a.pool, in.ID, from, to, steps[in.Step], path)
-	}
+	b, err := a.hist.Buckets(qctx, history.BucketQuery{ElementID: in.ID, Field: field, From: from, To: to, Step: steps[in.Step]})
 	if err != nil {
-		return nil, a.fail(err)
+		return nil, a.historyFail(qctx, err)
 	}
 	out.Body.Buckets = b
 	return out, nil
+}
+
+func (a *API) acquireHistory(ctx context.Context) (func(), error) {
+	wait, cancel := context.WithTimeout(ctx, a.cfg.HistoryQueryTimeout)
+	defer cancel()
+	select {
+	case a.histSem <- struct{}{}:
+		return func() { <-a.histSem }, nil
+	case <-wait.Done():
+		return nil, huma.Error503ServiceUnavailable("too many history queries; try again")
+	}
+}
+
+func (a *API) historyFail(qctx context.Context, err error) error {
+	if errors.Is(qctx.Err(), context.DeadlineExceeded) {
+		return huma.Error503ServiceUnavailable("the history query took too long; use a shorter range or a larger step")
+	}
+	a.log.Error("api: history query", "err", err)
+	return huma.Error500InternalServerError("internal error")
 }
