@@ -9,7 +9,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/quack ./cmd/quack
 FROM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/ ./
-RUN if [ -f package.json ]; then corepack enable && pnpm install --frozen-lockfile && pnpm build; else mkdir -p dist; fi
+# Node 25+ ships without corepack: install the pnpm pinned in package.json's "packageManager".
+RUN if [ -f package.json ]; then \
+      npm install -g --no-fund --no-audit "$(node -p "require('./package.json').packageManager")" \
+      && pnpm install --frozen-lockfile && pnpm build; \
+    else mkdir -p dist; fi
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/quack /quack
