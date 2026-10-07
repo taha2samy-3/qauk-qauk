@@ -29,7 +29,10 @@ var (
 		Name: "quack_outbox_published_total", Help: "Outbox rows relayed to the bus.",
 	})
 	IngestRows = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "quack_ingest_rows_total", Help: "Element events written to the TSDB.",
+		Name: "quack_ingest_rows_total", Help: "Element events written to the history store.",
+	})
+	IngestDeadLetters = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "quack_ingest_dead_letters_total", Help: "Element events the history store rejected (sent to element-events.dlq.v1).",
 	})
 	IngestLag = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "quack_ingest_lag_seconds", Help: "Age of the newest event in the last ingested batch.",

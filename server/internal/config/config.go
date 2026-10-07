@@ -42,6 +42,22 @@ type Config struct {
 	PresenceHeartbeat time.Duration `env:"QUACK_PRESENCE_HEARTBEAT" envDefault:"10s"`
 	PresenceTTL       time.Duration `env:"QUACK_PRESENCE_TTL" envDefault:"30s"`
 
+	// History (time-series) store: see internal/history. Comma-separated
+	// drivers write to every store and read from the first (for moving
+	// between backends). An empty URL means QUACK_DATABASE_URL.
+	HistoryDriver        string        `env:"QUACK_HISTORY_DRIVER" envDefault:"timescale"`
+	HistoryURL           string        `env:"QUACK_HISTORY_URL"`
+	HistoryRetention     time.Duration `env:"QUACK_HISTORY_RETENTION" envDefault:"8760h"`
+	HistoryCompressAfter time.Duration `env:"QUACK_HISTORY_COMPRESS_AFTER" envDefault:"168h"`
+	// Guards for the history API: per-query timeout, concurrent queries per
+	// instance, and the most buckets one request may ask for.
+	HistoryQueryTimeout time.Duration `env:"QUACK_HISTORY_QUERY_TIMEOUT" envDefault:"10s"`
+	HistoryMaxQueries   int           `env:"QUACK_HISTORY_MAX_QUERIES" envDefault:"16"`
+	HistoryMaxBuckets   int           `env:"QUACK_HISTORY_MAX_BUCKETS" envDefault:"1500"`
+	// HistoryReplayWindow bounds how far back the gateway looks for the last
+	// values of an element when a dashboard subscribes.
+	HistoryReplayWindow time.Duration `env:"QUACK_HISTORY_REPLAY_WINDOW" envDefault:"720h"`
+
 	// WebDir is the built frontend (web/dist) served at "/"; empty disables it.
 	WebDir   string `env:"QUACK_WEB_DIR"`
 	LogLevel string `env:"QUACK_LOG_LEVEL" envDefault:"info"`
