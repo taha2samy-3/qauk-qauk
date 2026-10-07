@@ -89,7 +89,8 @@ jobs:
           fi
           flags="--provenance --access public --tag ${{ steps.version.outputs.dist_tag }}"
           if [ "$DRY_RUN" = "true" ]; then flags="$flags --dry-run"; fi
-          npm publish dist/*.tgz $flags
+          # the ./ matters: npm reads "dist/x.tgz" as the GitHub repo "dist/x.tgz"
+          npm publish ./dist/*.tgz $flags
 
       - name: GitHub release
         if: github.ref_type == 'tag'
