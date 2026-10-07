@@ -37,7 +37,7 @@ jobs:
           DOCS_BASE: ${{ steps.pages.outputs.base_path }}/
       - name: Upload site
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/.vitepress/dist
 
