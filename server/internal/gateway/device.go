@@ -11,6 +11,7 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
@@ -149,6 +150,11 @@ func (g *Gateway) onDeviceFrame(d *deviceClient, data []byte) {
 	var f deviceFrameIn
 	if err := json.Unmarshal(data, &f); err != nil || f.ElementID == "" || f.Message == nil {
 		g.log.Warn("gateway: invalid device frame", "device", d.deviceID, "err", err)
+		return
+	}
+	if err := history.ValidateMessage(f.Message); err != nil {
+		g.log.Warn("gateway: unstorable device message dropped", "device", d.deviceID, "err", err)
+		metrics.Dropped.WithLabelValues("unstorable").Inc()
 		return
 	}
 	elementID, err := uuid.Parse(f.ElementID)

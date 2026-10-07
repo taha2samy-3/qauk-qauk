@@ -17,6 +17,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -28,6 +29,8 @@ type Gateway struct {
 	hub      *Hub
 	verifier *authn.DeviceVerifier
 	origins  *OriginPolicy
+	hist     history.Store
+	replayCh chan replayReq
 
 	ctx    context.Context // lifetime of the gateway; parent of every socket
 	ctrlCh chan *events.Event
@@ -35,10 +38,12 @@ type Gateway struct {
 }
 
 // New builds a gateway; ctx bounds the lifetime of every socket it accepts.
-func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *bus.Producer, log *slog.Logger) *Gateway {
+func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *bus.Producer, hist history.Store, log *slog.Logger) *Gateway {
 	g := &Gateway{
 		cfg: cfg, pool: pool, producer: producer, log: log.With("gateway_id", cfg.GatewayID),
-		hub:     NewHub(),
+		hist:     hist,
+		replayCh: make(chan replayReq, 1024),
+		hub:      NewHub(),
 		origins: NewOriginPolicy(cfg.AllowedOrigins),
 		ctx:     ctx,
 		ctrlCh:  make(chan *events.Event, 1024),
@@ -64,6 +69,8 @@ func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1
 func (g *Gateway) Run(ctx context.Context) error {
 	go g.controlWorker(ctx)
 	go g.presenceLoop(ctx)
+	go g.replayLoop(ctx)
+	go g.warmLatest(ctx)
 	err := bus.Broadcast(ctx, g.cfg.KafkaBrokers,
 		[]string{events.TopicElementEvents, events.TopicPresence, events.TopicControlEvents}, g.log, g.onBusEvent)
 	g.shutdown()

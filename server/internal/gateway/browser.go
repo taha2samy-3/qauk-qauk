@@ -150,30 +150,13 @@ func (g *Gateway) subscribe(ctx context.Context, b *browserClient, raw string) {
 		g.log.Warn("gateway: presence lookup", "err", err)
 	}
 	info := elementInfo{ID: el.ID, DeviceID: el.DeviceID, Points: el.Points}
-	var history []ringEntry
+	var stored []ringEntry
+	loaded := false
 	if g.hub.NeedsHistory(info) {
-		history = g.loadHistory(ctx, el)
+		stored, loaded = g.loadHistory(ctx, info)
 	}
 	b.SetPerm(id, perm)
-	g.hub.Subscribe(b, info, subscribeFrame(id.String(), perm, el.Details, connected), history)
-}
-
-// loadHistory reads the newest `points` device events from the TSDB. On error
-// it returns an empty (non-nil) slice so the replay still proceeds from memory.
-func (g *Gateway) loadHistory(ctx context.Context, el store.Element) []ringEntry {
-	rows, err := store.LastDeviceEvents(ctx, g.pool, el.ID, el.Points)
-	if err != nil {
-		g.log.Warn("gateway: history hydrate failed", "element", el.ID, "err", err)
-		return []ringEntry{}
-	}
-	out := make([]ringEntry, 0, len(rows))
-	for _, r := range rows {
-		m := &events.ElementMessage{ElementID: r.ElementID, DeviceID: r.DeviceID, Source: r.Source,
-			Actor: events.Actor{ID: r.ActorID, Name: r.ActorName}, Message: r.Payload}
-		_, br := renderMessage(m, events.Time{Time: r.Time})
-		out = append(out, ringEntry{id: r.EventID, at: r.Time, frame: br})
-	}
-	return out
+	g.hub.Subscribe(b, info, subscribeFrame(id.String(), perm, el.Details, connected), stored, loaded)
 }
 
 func (g *Gateway) browserPublish(b *browserClient, raw string, message json.RawMessage) {
@@ -188,6 +171,11 @@ func (g *Gateway) browserPublish(b *browserClient, raw string, message json.RawM
 	}
 	if message == nil {
 		b.Send(errorFrame("invalid_format", "'message'", raw))
+		return
+	}
+	if err := history.ValidateMessage(message); err != nil {
+		metrics.Dropped.WithLabelValues("unstorable").Inc()
+		b.Send(errorFrame("invalid_format", "'message' "+err.Error(), raw))
 		return
 	}
 	st := g.hub.get(id)

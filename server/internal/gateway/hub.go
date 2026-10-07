@@ -24,7 +24,8 @@ type elementState struct {
 	deviceID uuid.UUID
 	points   int
 	ring     []ringEntry
-	merged   bool // TSDB history merged into ring
+	merged   bool // stored history merged into ring
+	dropped  bool // removed from the hub (no audience left): callers must re-ensure
 	devices  map[string]*deviceClient
 	browsers map[string]*browserClient
 }
@@ -36,13 +37,21 @@ func (s *elementState) trimLocked() {
 }
 
 // Hub routes element messages and presence to local sockets. State only
-// exists for elements with local interest (a connected device or a subscriber).
+// exists for elements with local interest (a connected device or a
+// subscriber) and is freed when the last one leaves. Separately, the hub
+// remembers the latest device message of every element it has seen (one
+// frame each), so a new subscriber gets a value at once.
+//
+// Lock order: h.mu before st.mu; h.lmu is independent.
 type Hub struct {
 	mu       sync.RWMutex
 	elements map[uuid.UUID]*elementState
 	byDevice map[uuid.UUID]map[uuid.UUID]struct{}   // device -> elements with state
 	devices  map[uuid.UUID]map[string]*deviceClient // device -> sockets
 	users    map[int64]map[string]*browserClient    // user -> sockets
+
+	lmu    sync.RWMutex
+	latest map[uuid.UUID]ringEntry // element -> newest device message
 }
 
 func NewHub() *Hub {
@@ -51,6 +60,68 @@ func NewHub() *Hub {
 		byDevice: map[uuid.UUID]map[uuid.UUID]struct{}{},
 		devices:  map[uuid.UUID]map[string]*deviceClient{},
 		users:    map[int64]map[string]*browserClient{},
+		latest:   map[uuid.UUID]ringEntry{},
+	}
+}
+
+func newer(a, b ringEntry) bool {
+	if c := a.at.Compare(b.at); c != 0 {
+		return c > 0
+	}
+	return bytes.Compare(a.id[:], b.id[:]) > 0
+}
+
+// Remember records an element's device message if it is the newest seen.
+func (h *Hub) Remember(elementID uuid.UUID, e ringEntry) {
+	h.lmu.Lock()
+	if cur, ok := h.latest[elementID]; !ok || newer(e, cur) {
+		h.latest[elementID] = e
+	}
+	h.lmu.Unlock()
+}
+
+// Latest returns the newest device message seen for an element.
+func (h *Hub) Latest(elementID uuid.UUID) (ringEntry, bool) {
+	h.lmu.RLock()
+	defer h.lmu.RUnlock()
+	e, ok := h.latest[elementID]
+	return e, ok
+}
+
+func (h *Hub) forget(elementID uuid.UUID) {
+	h.lmu.Lock()
+	delete(h.latest, elementID)
+	h.lmu.Unlock()
+}
+
+// lockLive returns the element's state, locked and still registered.
+func (h *Hub) lockLive(e elementInfo) *elementState {
+	for {
+		st := h.ensure(e.ID, e.DeviceID, e.Points)
+		st.mu.Lock()
+		if !st.dropped {
+			return st
+		}
+		st.mu.Unlock()
+	}
+}
+
+// maybeDrop frees an element's state once no device or browser uses it.
+func (h *Hub) maybeDrop(st *elementState) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.dropped || len(st.devices) > 0 || len(st.browsers) > 0 {
+		return
+	}
+	st.dropped = true
+	if h.elements[st.id] == st {
+		delete(h.elements, st.id)
+		delete(h.byDevice[st.deviceID], st.id)
+		if len(h.byDevice[st.deviceID]) == 0 {
+			delete(h.byDevice, st.deviceID)
+		}
 	}
 }
 
@@ -86,6 +157,9 @@ func (h *Hub) ensure(id, deviceID uuid.UUID, points int) *elementState {
 // Deliver fans a message out to every local socket in the element's audience
 // except the origin socket, and appends device data to the history window.
 func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame, browserFrame []byte, localOrigin string) {
+	if m.Source == events.SourceDevice {
+		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame})
+	}
 	st := h.get(m.ElementID)
 	if st == nil {
 		return
@@ -123,9 +197,8 @@ func (h *Hub) AddDevice(d *deviceClient, elems []elementInfo) {
 }
 
 func (h *Hub) attachDevice(d *deviceClient, e elementInfo) {
-	st := h.ensure(e.ID, e.DeviceID, e.Points)
 	d.Allow(e.ID)
-	st.mu.Lock()
+	st := h.lockLive(e)
 	st.devices[d.id] = d
 	st.mu.Unlock()
 }
@@ -136,6 +209,7 @@ func (h *Hub) RemoveDevice(d *deviceClient) {
 			st.mu.Lock()
 			delete(st.devices, d.id)
 			st.mu.Unlock()
+			h.maybeDrop(st)
 		}
 	}
 	h.mu.Lock()
@@ -213,27 +287,51 @@ func (h *Hub) AllBrowserClients() []*browserClient {
 	return out
 }
 
-// NeedsHistory reports whether the TSDB history must be merged before replay.
+// NeedsHistory reports whether stored history must be loaded before replay.
+// It never creates state: Subscribe does, once the subscriber is known.
 func (h *Hub) NeedsHistory(e elementInfo) bool {
-	st := h.ensure(e.ID, e.DeviceID, e.Points)
+	st := h.get(e.ID)
+	if st == nil {
+		return true
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return !st.merged && st.points > 0
+	return !st.merged || st.dropped
 }
 
-// Subscribe atomically queues the confirm frame and the history replay, then
+// Subscribe atomically queues the confirm frame and the replay, then
 // registers the subscriber, so no live frame can overtake the replay.
-func (h *Hub) Subscribe(b *browserClient, e elementInfo, confirm []byte, history []ringEntry) {
-	st := h.ensure(e.ID, e.DeviceID, e.Points)
-	st.mu.Lock()
+// loaded reports whether stored history was read successfully; on failure
+// the element is re-hydrated by a later subscribe.
+//
+// The replay is the element's window (`points` newest device messages). An
+// element with points = 0 still gets its latest value, so value widgets
+// don't stay empty until the device sends again.
+func (h *Hub) Subscribe(b *browserClient, e elementInfo, confirm []byte, stored []ringEntry, loaded bool) {
+	st := h.lockLive(e)
 	defer st.mu.Unlock()
-	if history != nil && !st.merged {
-		st.ring = mergeHistory(st.ring, history, st.points)
+	if loaded && !st.merged {
+		if st.points > 0 {
+			st.ring = mergeHistory(st.ring, stored, st.points)
+		}
+		if n := len(stored); n > 0 {
+			h.Remember(e.ID, stored[n-1])
+		}
 		st.merged = true
 	}
+	latest, hasLatest := h.Latest(e.ID)
+	if hasLatest && st.points > 0 {
+		// the newest message seen on the bus may not be stored yet (ingest lag)
+		st.ring = mergeHistory(st.ring, []ringEntry{latest}, st.points)
+	}
 	b.Send(confirm)
-	for _, r := range st.ring {
-		b.Send(r.frame)
+	switch {
+	case len(st.ring) > 0:
+		for _, r := range st.ring {
+			b.Send(r.frame)
+		}
+	case hasLatest:
+		b.Send(latest.frame)
 	}
 	st.browsers[b.id] = b
 }
@@ -243,6 +341,7 @@ func (h *Hub) Unsubscribe(b *browserClient, elementID uuid.UUID) {
 		st.mu.Lock()
 		delete(st.browsers, b.id)
 		st.mu.Unlock()
+		h.maybeDrop(st)
 	}
 }
 
@@ -280,6 +379,7 @@ func (h *Hub) UpdateElement(e elementInfo) {
 
 // RemoveElement drops all local state; subscribers get a forced unsubscribe.
 func (h *Hub) RemoveElement(id uuid.UUID) {
+	h.forget(id)
 	h.mu.Lock()
 	st := h.elements[id]
 	if st != nil {
@@ -295,6 +395,7 @@ func (h *Hub) RemoveElement(id uuid.UUID) {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.dropped = true
 	for _, d := range st.devices {
 		d.Disallow(id)
 	}
