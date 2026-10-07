@@ -22,15 +22,38 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { THRESHOLD_COLORS } from '@/lib/chartTheme'
-import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { getWidget, widgetsFor, WIDGETS } from '@/widgets/registry'
 import type { OptionField, Options, WidgetDefinition } from '@/widgets/types'
 import { ElementList } from './ElementList'
+import { ColorSwatches } from './ColorSwatches'
+import { AttributeInput, MappingsEditor, SeriesEditor, useDiscoveredFields } from './DataBindingInputs'
+import { isValidPath, type DiscoveredField } from '@/lib/fieldPath'
+import { X_RECEIVED } from '@/realtime/messages'
 import type { Widget } from './layout'
 
 const thresholdSchema = z.object({ value: z.number({ error: 'Enter a number' }), color: z.string().min(1) })
+
+const attributeSchema = z
+  .string()
+  .max(200)
+  .refine(
+    (v) => v === '' || v === X_RECEIVED || isValidPath(v),
+    'Use a path like temperature, gps.lat or sensors[0].temp',
+  )
+
+const mappingSchema = z.object({
+  match: z.string().max(100),
+  label: z.string().max(60),
+  color: z.string().optional(),
+})
+
+const seriesSchema = z.object({
+  element_id: z.string({ error: 'Choose an element' }).min(1, 'Choose an element'),
+  field: attributeSchema.optional(),
+  label: z.string().max(60).optional(),
+  color: z.string().optional(),
+})
 
 function optionSchema(field: OptionField): z.ZodType {
   switch (field.kind) {
@@ -47,6 +70,12 @@ function optionSchema(field: OptionField): z.ZodType {
       return z.array(thresholdSchema).optional()
     case 'select':
       return z.enum(field.choices.map((c) => c.value) as [string, ...string[]]).optional()
+    case 'attribute':
+      return attributeSchema.optional()
+    case 'mappings':
+      return z.array(mappingSchema).optional()
+    case 'series':
+      return z.array(seriesSchema).optional()
     default:
       return z.string().max(200).optional()
   }
@@ -146,6 +175,9 @@ function ConfigForm({
   const [pickerOpen, setPickerOpen] = useState(!widget.element_id)
   const { byId: deviceById } = useDevices()
   const errors = form.formState.errors
+  const discovered = useDiscoveredFields(elementId || undefined)
+  const dataFields = def.fields.filter((f) => f.section === 'data')
+  const displayFields = def.fields.filter((f) => f.section !== 'data')
 
   // re-validate with the new type's schema
   useEffect(() => {
@@ -172,8 +204,14 @@ function ConfigForm({
 
   const submit = form.handleSubmit((v) => {
     const clean: Options = {}
-    for (const [k, val] of Object.entries(v.options))
-      if (val !== undefined && val !== '' && !Number.isNaN(val)) clean[k] = val
+    for (const [k, val] of Object.entries(v.options)) {
+      if (val === undefined || val === '' || Number.isNaN(val)) continue
+      if (k === 'mappings' && Array.isArray(val))
+        clean[k] = val.filter(
+          (m) => m && String(m.match ?? '').trim() !== '' && String(m.label ?? '').trim() !== '',
+        )
+      else clean[k] = val
+    }
     // the parent closes the sheet once the change is applied
     onApply(widget.id, { element_id: v.element_id, type, title: v.title.trim() || undefined, options: clean })
   })
@@ -261,22 +299,27 @@ function ConfigForm({
           />
         </Field>
 
-        {def.fields.length > 0 && (
-          <div className="space-y-4 border-t pt-5">
-            <h3 className="text-sm font-semibold">Display</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {def.fields.map((f) => (
-                <OptionInput
-                  key={`${type}-${f.key}`}
-                  field={f}
-                  control={form.control}
-                  error={
-                    (errors.options as Record<string, { message?: string }> | undefined)?.[f.key]?.message
-                  }
-                />
-              ))}
-            </div>
-          </div>
+        {dataFields.length > 0 && (
+          <FieldSection
+            title="Data"
+            fields={dataFields}
+            type={type}
+            control={form.control}
+            errors={errors}
+            discovered={discovered}
+            elements={elements}
+          />
+        )}
+        {displayFields.length > 0 && (
+          <FieldSection
+            title="Display"
+            fields={displayFields}
+            type={type}
+            control={form.control}
+            errors={errors}
+            discovered={discovered}
+            elements={elements}
+          />
         )}
       </SheetBody>
       <SheetFooter>
@@ -291,14 +334,54 @@ function ConfigForm({
   )
 }
 
+function FieldSection({
+  title,
+  fields,
+  type,
+  control,
+  errors,
+  discovered,
+  elements,
+}: {
+  title: string
+  fields: OptionField[]
+  type: string
+  control: Control<Values>
+  errors: ReturnType<typeof useForm<Values>>['formState']['errors']
+  discovered: DiscoveredField[]
+  elements: Map<string, MyElement>
+}) {
+  return (
+    <div className="space-y-4 border-t pt-5" data-testid={`section-${title.toLowerCase()}`}>
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="grid grid-cols-2 gap-4">
+        {fields.map((f) => (
+          <OptionInput
+            key={`${type}-${f.key}`}
+            field={f}
+            control={control}
+            discovered={discovered}
+            elements={elements}
+            error={(errors.options as Record<string, { message?: string }> | undefined)?.[f.key]?.message}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function OptionInput({
   field,
   control,
   error,
+  discovered,
+  elements,
 }: {
   field: OptionField
   control: Control<Values>
   error?: string
+  discovered: DiscoveredField[]
+  elements: Map<string, MyElement>
 }) {
   const id = `opt-${field.key}`
   const name = `options.${field.key}` as const
@@ -359,6 +442,50 @@ function OptionInput({
                 />
               </Field>
             )
+          case 'attribute':
+            return (
+              <Field
+                label={field.label}
+                htmlFor={id}
+                error={error}
+                description={field.help}
+                className="col-span-2"
+              >
+                <AttributeInput
+                  id={id}
+                  value={typeof v === 'string' ? v : ''}
+                  onChange={f.onChange}
+                  discovered={discovered}
+                  accepts={field.accepts}
+                  placeholder={field.placeholder}
+                  xAxis={field.xAxis}
+                  invalid={!!error}
+                />
+              </Field>
+            )
+          case 'mappings':
+            return (
+              <div className="col-span-2">
+                <MappingsEditor
+                  control={control as never}
+                  name={name}
+                  label={field.label}
+                  help={field.help}
+                />
+              </div>
+            )
+          case 'series':
+            return (
+              <div className="col-span-2">
+                <SeriesEditor
+                  control={control as never}
+                  name={name}
+                  label={field.label}
+                  help={field.help}
+                  elements={elements}
+                />
+              </div>
+            )
           case 'thresholds':
             return (
               <div className="col-span-2">
@@ -367,10 +494,15 @@ function OptionInput({
             )
           default:
             return (
-              <Field label={field.label} htmlFor={id} error={error}>
+              <Field
+                label={field.label}
+                htmlFor={id}
+                error={error}
+                description={'help' in field ? field.help : undefined}
+              >
                 <Input
                   id={id}
-                  placeholder={field.placeholder}
+                  placeholder={'placeholder' in field ? field.placeholder : undefined}
                   value={typeof v === 'string' ? v : ''}
                   onChange={(e) => f.onChange(e.target.value)}
                 />
@@ -379,38 +511,6 @@ function OptionInput({
         }
       }}
     />
-  )
-}
-
-function ColorSwatches({
-  value,
-  onChange,
-  label,
-}: {
-  value: string
-  onChange: (c: string) => void
-  label: string
-}) {
-  const { resolved } = useTheme()
-  return (
-    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
-      {THRESHOLD_COLORS.map((c) => (
-        <button
-          key={c.name}
-          type="button"
-          role="radio"
-          aria-checked={value === c.name}
-          aria-label={c.name}
-          title={c.name}
-          onClick={() => onChange(c.name)}
-          className={cn(
-            'ring-offset-popover focus-visible:ring-ring size-6 rounded-full ring-offset-2 transition-shadow focus-visible:ring-2 focus-visible:outline-none',
-            value === c.name && 'ring-foreground/70 ring-2',
-          )}
-          style={{ background: resolved === 'dark' ? c.dark : c.light }}
-        />
-      ))}
-    </div>
   )
 }
 

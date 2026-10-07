@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { applyTransform, asTime, buildMessage, discoverFields, getPath, isValidPath, parsePath } from './fieldPath'
+import {
+  applyTransform,
+  asTime,
+  buildMessage,
+  discoverFields,
+  getPath,
+  isValidPath,
+  parsePath,
+} from './fieldPath'
 import { mapValue, normalize, parseLiteral, readMappings } from './valueMap'
 
 describe('field paths', () => {
@@ -26,7 +34,9 @@ describe('field paths', () => {
   })
 
   it('discovers attributes with kinds', () => {
-    const fields = discoverFields([{ ...msg, ts: 1_791_000_000_000, at: '2026-10-07T10:00:00Z', ok: true, level: '3.5' }])
+    const fields = discoverFields([
+      { ...msg, ts: 1_791_000_000_000, at: '2026-10-07T10:00:00Z', ok: true, level: '3.5' },
+    ])
     const byPath = Object.fromEntries(fields.map((f) => [f.path, f.kind]))
     expect(byPath).toMatchObject({
       temperature: 'number',

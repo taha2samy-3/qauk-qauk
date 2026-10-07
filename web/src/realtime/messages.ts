@@ -61,7 +61,11 @@ export interface PointOptions extends Transform {
 }
 
 /** A chart point from a message, honoring field/x bindings. */
-export function bindPoint(message: unknown, receivedAt: string | number | undefined, o: PointOptions): Point | undefined {
+export function bindPoint(
+  message: unknown,
+  receivedAt: string | number | undefined,
+  o: PointOptions,
+): Point | undefined {
   const v = readNumber(message, o.field, o)
   if (v === undefined) return undefined
   let t: number | undefined

@@ -10,7 +10,12 @@ import { usePendingCommand } from '../usePendingCommand'
 import type { WidgetDefinition, WidgetRenderProps } from '../types'
 
 /** On/off state of a raw attribute; explicit on/off values win, then common conventions. */
-export function switchState(raw: unknown, onVal: unknown, offVal: unknown, explicit: boolean): boolean | undefined {
+export function switchState(
+  raw: unknown,
+  onVal: unknown,
+  offVal: unknown,
+  explicit: boolean,
+): boolean | undefined {
   if (raw === undefined || raw === null) return undefined
   const n = normalize(raw)
   if (n === normalize(onVal)) return true
@@ -103,8 +108,22 @@ export const switchWidget: WidgetDefinition = {
       placeholder: 'auto (value)',
       help: 'Read the state from this attribute and send commands to it, in the device’s own format.',
     },
-    { key: 'onValue', label: 'On value', kind: 'text', section: 'data', placeholder: '1', help: 'e.g. 1, true, ON' },
-    { key: 'offValue', label: 'Off value', kind: 'text', section: 'data', placeholder: '0', help: 'e.g. 0, false, OFF' },
+    {
+      key: 'onValue',
+      label: 'On value',
+      kind: 'text',
+      section: 'data',
+      placeholder: '1',
+      help: 'e.g. 1, true, ON',
+    },
+    {
+      key: 'offValue',
+      label: 'Off value',
+      kind: 'text',
+      section: 'data',
+      placeholder: '0',
+      help: 'e.g. 0, false, OFF',
+    },
     { key: 'onLabel', label: 'On label', kind: 'text', placeholder: 'On' },
     { key: 'offLabel', label: 'Off label', kind: 'text', placeholder: 'Off' },
   ],

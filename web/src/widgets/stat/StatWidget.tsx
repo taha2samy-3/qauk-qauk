@@ -8,7 +8,17 @@ import { cn, formatNumber } from '@/lib/utils'
 import { readNumber, readRaw } from '@/realtime/messages'
 import { mapValue, readMappings } from '@/lib/valueMap'
 import { Sparkline } from '../Sparkline'
-import { binding, bool, colorFor, elementDefaults, MAPPINGS_FIELD, NUMERIC_BINDING_FIELDS, num, str, thresholds } from '../options'
+import {
+  binding,
+  bool,
+  colorFor,
+  elementDefaults,
+  MAPPINGS_FIELD,
+  NUMERIC_BINDING_FIELDS,
+  num,
+  str,
+  thresholds,
+} from '../options'
 import type { WidgetDefinition, WidgetRenderProps } from '../types'
 
 function StatWidget({ options, rt }: WidgetRenderProps) {
