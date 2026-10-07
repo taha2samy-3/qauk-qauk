@@ -6,7 +6,7 @@ RUN go mod download
 COPY server/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/quack ./cmd/quack
 
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/ ./
 RUN if [ -f package.json ]; then corepack enable && pnpm install --frozen-lockfile && pnpm build; else mkdir -p dist; fi
