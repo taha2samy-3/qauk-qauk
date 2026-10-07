@@ -21,6 +21,7 @@ const rewrites: Record<string, string> = {
   'refactor/GO_REDPANDA_TSDB_PLAN.md': 'design/refactor-plan.md',
   'refactor/MESSAGE_FORMATS.md': 'design/message-formats.md',
   'refactor/baseline.md': 'design/performance-baseline.md',
+  'refactor/PLATFORM_REVIEW.md': 'design/platform-review.md',
 }
 
 /** Site URL (without base) for a source file path relative to docs/. */
@@ -133,6 +134,7 @@ export default withMermaid(
             { text: 'Refactor plan', link: '/design/refactor-plan' },
             { text: 'Message formats', link: '/design/message-formats' },
             { text: 'Performance baseline', link: '/design/performance-baseline' },
+            { text: 'Platform review & roadmap', link: '/design/platform-review' },
           ],
         },
       ],

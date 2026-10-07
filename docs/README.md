@@ -44,4 +44,5 @@ The `refactor/` folder holds the engineering records of the Django → Go rewrit
 - [GO_REDPANDA_TSDB_PLAN.md](./refactor/GO_REDPANDA_TSDB_PLAN.md): the plan, implementation status and the legacy bug list (B1–B11).
 - [MESSAGE_FORMATS.md](./refactor/MESSAGE_FORMATS.md): why CloudEvents, JSON Schema, OpenAPI and RFC 9457.
 - [baseline.md](./refactor/baseline.md): Django vs Go load-test results.
+- [PLATFORM_REVIEW.md](./refactor/PLATFORM_REVIEW.md): platform review and roadmap. It covers Knative/KEDA, fixes, missing features, platforms and protocols.
 - [Contract suite README](https://github.com/taha2samy-3/qauk-qauk/blob/main/server/contracttest/README.md): the black-box WebSocket tests that define protocol behavior.
