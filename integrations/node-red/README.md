@@ -23,11 +23,14 @@ What the nodes handle for you:
 
 ## Install
 
-In Node-RED: **Menu → Manage palette → Install** and search for `node-red-contrib-quackquack`. Or, in your Node-RED user directory (usually `~/.node-red`):
+The package is released on GitHub (not on the npm registry). Each [release](https://github.com/taha2samy-3/qauk-qauk/releases) tagged `node-red-v…` has the tarball attached. Install it in the Node-RED user directory (usually `~/.node-red`), then restart Node-RED:
 
 ```sh
-npm install node-red-contrib-quackquack
+cd ~/.node-red
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
 ```
+
+Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Manage palette → Install → upload** (the icon next to the search box).
 
 Then restart Node-RED. The nodes appear in the **quack quack** palette category. Requirements: Node-RED 3.0 or later, Node.js 18 or later.
 

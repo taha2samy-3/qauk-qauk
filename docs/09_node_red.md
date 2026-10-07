@@ -1,6 +1,6 @@
 # Node-RED integration
 
-`node-red-contrib-quackquack` is a Node-RED package for Quack Quack. Install it from the palette manager, point it at your server, and a flow can:
+`node-red-contrib-quackquack` is a Node-RED package for Quack Quack. Install it from its GitHub release, point it at your server, and a flow can:
 
 - send readings to dashboards (*quack out*),
 - receive the commands people send from them (*quack in*).
@@ -32,12 +32,14 @@ The nodes use the [device protocol](./04_api_reference/device_api.md) and add th
 
 ## Install
 
-In Node-RED, open **Menu → Manage palette → Install** and search for `node-red-contrib-quackquack`. Or install it in the Node-RED user directory and restart:
+The package is released on GitHub (not on the npm registry). Each [release](https://github.com/taha2samy-3/qauk-qauk/releases) tagged `node-red-v…` has the tarball attached. Install it in the Node-RED user directory (usually `~/.node-red`), then restart Node-RED:
 
 ```sh
 cd ~/.node-red
-npm install node-red-contrib-quackquack
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
 ```
+
+Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Manage palette → Install → upload** (the icon next to the search box).
 
 Requirements: Node-RED 3.0 or later on Node.js 18 or later. The package's only dependency is `ws`. It is tested against Node-RED 5.
 
@@ -182,7 +184,7 @@ The package is versioned and released **separately** from the server image:
 
 | What | Tag | Workflow | Goes to |
 |---|---|---|---|
-| Server image | `v1.2.0` | `release-image.yaml` | Docker Hub `taha2samy/quack_quack` and GHCR, after tests and a Trivy scan |
-| Node-RED nodes | `node-red-v0.2.0` (must match `integrations/node-red/package.json`) | `release-node-red.yaml` | npm `node-red-contrib-quackquack`, with provenance, plus a GitHub release with the tarball |
+| Server image | `v1.2.0` | `release-image.yaml` | GitHub Container Registry `ghcr.io/taha2samy-3/quack_quack`, after tests and a Trivy scan, plus a GitHub release |
+| Node-RED nodes | `node-red-v0.2.0` (must match `integrations/node-red/package.json`) | `release-node-red.yaml` | A GitHub release with the npm tarball and its SHA-256 |
 
-Pre-release versions (`-rc.1`) don't move `latest` on either. npm publishing uses trusted publishing (OIDC) or an `NPM_TOKEN` secret on the `npm` environment. See the workflow header.
+Both are published on GitHub only: nothing goes to the npm registry or Docker Hub, and no secrets are needed. Pre-releases (`-alpha.1`, `-rc.1`) are marked as such and don't move `latest`. A new GHCR package starts private: make it public under the repository's **Packages → Package settings**.

@@ -11,7 +11,7 @@
 
 - **Docker** with the Compose plugin (for TimescaleDB and Redpanda).
 - **[mise](https://mise.jdx.dev/)**. `mise install` installs the pinned Go, [Task](https://taskfile.dev/) and golangci-lint from `mise.toml`.
-- **Node.js 22+ and pnpm** for the web app (`web/package.json` pins `pnpm@11`; `corepack enable` provides it).
+- **Node.js 22+ and pnpm** for the web app (`web/package.json` pins `pnpm@11`; mise installs it, or `npm install -g pnpm@11` (Node 25+ no longer ships corepack)).
 
 Every command is a task. Run `task --list` to see them all. The tasks set the development environment for you (`QUACK_DATABASE_URL`, `QUACK_KAFKA_BROKERS`, `QUACK_COOKIE_SECURE=false`, allowed origins for :5173 and :8080). If you run `server/bin/quack` directly, export those variables yourself (see [Configuration reference](#configuration-reference)).
 
@@ -220,7 +220,7 @@ A rejected token fails the handshake with **HTTP 403**. The token is only checke
 
 ### Node-RED
 
-**Recommended:** install the [Quack Quack nodes](./09_node_red.md) (`node-red-contrib-quackquack`, from **Manage palette**). They sign tokens, reconnect, pick elements by name, and receive commands, with an example flow included. To try them against this checkout without installing anything:
+**Recommended:** install the [Quack Quack nodes](./09_node_red.md) (`node-red-contrib-quackquack`, from its [GitHub release](./09_node_red.md#install)). They sign tokens, reconnect, pick elements by name, and receive commands, with an example flow included. To try them against this checkout without installing anything:
 
 ```sh
 task nodered:dev   # Node-RED on http://127.0.0.1:1880 with the nodes loaded from source

@@ -1,32 +1,21 @@
 name: Release Node-RED nodes
 
-# The npm package node-red-contrib-quackquack (integrations/node-red). It is released
-# separately from the server image, on its own tags:
+# The Node-RED package node-red-contrib-quackquack (integrations/node-red), released
+# on GitHub only, separately from the server image, on its own tags:
 #
 #   1. bump "version" in integrations/node-red/package.json (e.g. 0.2.0) and merge it
 #   2. git tag node-red-v0.2.0 && git push origin node-red-v0.2.0
 #
-# The tag must match package.json. The workflow tests, publishes to npm with
-# provenance, and attaches the tarball to a GitHub release. Pre-releases
-# (0.2.0-rc.1) are published under the npm dist-tag "next".
-#
-# npm auth (either one):
-#   - trusted publishing: on npmjs.com, package settings → Trusted publisher →
-#     GitHub Actions, this repository, workflow "release-node-red.yaml", environment "npm".
-#     No secret needed.
-#   - or a granular automation token in the NPM_TOKEN secret of the "npm" environment.
-#
-# Node-RED's flow library (flows.nodered.org) lists the package once it is on npm
-# with the "node-red" keyword; use "add a node" there to list it immediately.
+# The tag must match package.json. The workflow tests the nodes in a real Node-RED
+# runtime, packs the npm tarball, and attaches it to a GitHub release (pre-release
+# for versions like 0.2.0-alpha.1). Nothing is published to the npm registry.
+# Users install the tarball from the release:
+#   npm install https://github.com/<owner>/<repo>/releases/download/node-red-v0.2.0/node-red-contrib-quackquack-0.2.0.tgz
+# or upload it in Node-RED: Manage palette → Install → upload.
 on:
   push:
     tags: ['node-red-v*']
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Only test and pack (npm publish --dry-run); nothing is published'
-        type: boolean
-        default: true
+  workflow_dispatch: # test and pack only; the tarball is kept as a workflow artifact
 
 permissions:
   contents: read
@@ -44,16 +33,12 @@ jobs:
       - uses: jdx/mise-action@v5
       - run: task nodered:test
 
-  publish:
-    name: Publish to npm
+  release:
+    name: Pack and release on GitHub
     needs: test
     runs-on: ubuntu-latest
-    environment:
-      name: npm
-      url: https://www.npmjs.com/package/node-red-contrib-quackquack
     permissions:
       contents: write # GitHub release
-      id-token: write # npm provenance / trusted publishing
     defaults:
       run:
         working-directory: integrations/node-red # the test job runs `task` from the root
@@ -70,37 +55,48 @@ jobs:
             echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version} (expected node-red-v${version})"
             exit 1
           fi
-          case "$version" in *-*) echo "dist_tag=next" >> "$GITHUB_OUTPUT" ;; *) echo "dist_tag=latest" >> "$GITHUB_OUTPUT" ;; esac
 
       - name: Pack
+        id: pack
         run: |
           mkdir -p dist
           npm pack --pack-destination dist
-          tar -tzf dist/*.tgz | sed 's/^/  /'
+          file=$(ls dist/*.tgz)
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$file")" >> "$GITHUB_OUTPUT"
+          tar -tzf "$file" | sed 's/^/  /'
+          (cd dist && sha256sum ./*.tgz > SHA256SUMS && cat SHA256SUMS)
 
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        run: |
-          npm install -g npm@^11.5.1 # trusted publishing needs npm >= 11.5.1
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            npm config set //registry.npmjs.org/:_authToken '${NODE_AUTH_TOKEN}'
-          fi
-          flags="--provenance --access public --tag ${{ steps.version.outputs.dist_tag }}"
-          if [ "$DRY_RUN" = "true" ]; then flags="$flags --dry-run"; fi
-          # the ./ matters: npm reads "dist/x.tgz" as the GitHub repo "dist/x.tgz"
-          npm publish ./dist/*.tgz $flags
+      - uses: actions/upload-artifact@v7
+        with:
+          name: node-red-contrib-quackquack
+          path: |
+            integrations/node-red/dist/*.tgz
+            integrations/node-red/dist/SHA256SUMS
 
       - name: GitHub release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
+          ASSET: ${{ steps.pack.outputs.name }}
         run: |
           prerelease=""
           case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --latest=false $prerelease \
-            --title "Node-RED nodes $VERSION" \
-            --notes "Install in Node-RED (**Manage palette → Install**) or with \`npm install node-red-contrib-quackquack@$VERSION\` in your Node-RED user directory. See [the package README](https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}/integrations/node-red#readme)." \
-            || gh release upload "$GITHUB_REF_NAME" dist/*.tgz --clobber
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ASSET}"
+          cat > notes.md <<EOF
+          Node-RED nodes for Quack Quack (\`quack-device\`, \`quack out\`, \`quack in\`). Node-RED 3.0+, Node.js 18+.
+
+          **Install** in your Node-RED user directory (usually \`~/.node-red\`), then restart Node-RED:
+
+          \`\`\`sh
+          npm install ${url}
+          \`\`\`
+
+          Or download \`${ASSET}\` and upload it in Node-RED: **Manage palette → Install → upload** (the icon next to the search box).
+
+          Setup and usage: [Node-RED integration docs](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/09_node_red.md).
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/*.tgz dist/SHA256SUMS --verify-tag --latest=false $prerelease \
+            --title "Node-RED nodes $VERSION" --notes-file notes.md \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.tgz dist/SHA256SUMS --clobber

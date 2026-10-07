@@ -48,7 +48,7 @@
 - **CloudEvents everywhere.** Bus events are CloudEvents 1.0 with JSON Schema payloads. The REST API is OpenAPI 3.1 with RFC 9457 error bodies.
 - **Admin UI, CLI and audit log.** Manage users, groups, keys, devices, elements and permissions in the web app, through the REST API, or with `quack admin`. Every admin change is recorded in an audit log.
 - **Drop-in replacement for the legacy Django server.** Device paths, frames and JWTs are unchanged, so existing devices and Node-RED flows keep working. `quack import-django` migrates the old database with UUIDs, keys and passwords intact.
-- **Node-RED nodes.** [`node-red-contrib-quackquack`](integrations/node-red) adds *quack out* and *quack in* to the palette. They handle token signing, reconnects, element names and command confirmation. Install it from **Manage palette**.
+- **Node-RED nodes.** [`node-red-contrib-quackquack`](integrations/node-red) adds *quack out* and *quack in* to the palette. They handle token signing, reconnects, element names and command confirmation. Install it from its [GitHub release](docs/09_node_red.md#install).
 
 ## Architecture
 
