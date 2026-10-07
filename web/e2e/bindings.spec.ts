@@ -78,8 +78,9 @@ test('a dashboard bound to attributes renders live values, multi-series and mapp
   expect(created.status()).toBe(201)
   dashboardId = ((await created.json()) as { id: string }).id
 
-  await login(page, ADMIN)
+  // the API login above already put the session cookie in this browser context
   await page.goto(`/dashboards/${dashboardId}`)
+  await expect(page.getByTestId('connection-status')).toHaveAttribute('data-status', 'open')
 
   // single values read from named attributes
   const hum = widget(page, 'Humidity').getByTestId('stat')

@@ -237,11 +237,8 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 			if err != nil {
 				return
 			}
-			var in struct {
-				ElementID string          `json:"element_id"`
-				Message   json.RawMessage `json:"message"`
-			}
-			if json.Unmarshal(data, &in) == nil && in.ElementID != "" {
+			var in incomingFrame
+			if json.Unmarshal(data, &in) == nil && shouldEcho(in, d.ID) {
 				time.Sleep(150 * time.Millisecond) // actuator latency
 				_ = send(in.ElementID, in.Message)
 			}
@@ -288,4 +285,28 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 			}
 		}
 	}
+}
+
+// incomingFrame is what the gateway delivers to a device socket.
+type incomingFrame struct {
+	ElementID string          `json:"element_id"`
+	Message   json.RawMessage `json:"message"`
+	Auth      struct {
+		UserID json.RawMessage `json:"user_id"`
+	} `json:"auth"`
+}
+
+// shouldEcho reports whether a frame is a user command the simulated device
+// should acknowledge by reporting the new state. Frames from the device
+// itself (its other sockets receive them too) must not be echoed: two
+// simulators of one device would otherwise ping-pong forever.
+func shouldEcho(f incomingFrame, deviceID string) bool {
+	if f.ElementID == "" || len(f.Message) == 0 {
+		return false
+	}
+	var sender string
+	if json.Unmarshal(f.Auth.UserID, &sender) == nil && sender == deviceID {
+		return false
+	}
+	return true
 }
