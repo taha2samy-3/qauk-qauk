@@ -7,17 +7,20 @@
 # quack_contract on the dev Postgres) so the dev database is never wiped.
 # Env: QUACK_KAFKA_BROKERS,
 # CONTRACT_PORT (default 8766), CONTRACT_KNOWN_BUGS (default: none), GO_TEST_FLAGS,
-# QUACK_BUILD_FLAGS (e.g. "-race" to run the server under the race detector).
+# QUACK_BUILD_FLAGS (e.g. "-race" to run the server under the race detector),
+# CONTRACT_BIN (where to build the server; default bin/quack-contract, so a
+# platform running from bin/quack is never overwritten). The history store
+# comes from QUACK_HISTORY_DRIVER / QUACK_HISTORY_URL as usual.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="$(cd "$HERE/../.." && pwd)"
 PORT="${CONTRACT_PORT:-8766}"
-BIN="$SERVER/bin/quack"
+BIN="${CONTRACT_BIN:-$SERVER/bin/quack-contract}"
 export QUACK_DATABASE_URL="${CONTRACT_DATABASE_URL:-postgres://quack:quack@127.0.0.1:5433/quack_contract?sslmode=disable}"
 WORK="$(mktemp -d)"
 trap 'kill "${PID:-}" 2>/dev/null || true; wait "${PID:-}" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
-(cd "$SERVER" && go build ${QUACK_BUILD_FLAGS:-} -o bin/quack ./cmd/quack)
+(cd "$SERVER" && go build ${QUACK_BUILD_FLAGS:-} -o "$BIN" ./cmd/quack)
 "$BIN" migrate
 "$BIN" dev seed --out "$WORK/fixture.json" --ws-base "ws://127.0.0.1:$PORT" --origin "http://127.0.0.1:$PORT"
 

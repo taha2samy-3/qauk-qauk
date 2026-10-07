@@ -20,6 +20,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -324,17 +325,17 @@ func TestHistoryByField(t *testing.T) {
 	f := setupRealtime(t, "fieldh", 10)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Minute).Add(-30 * time.Minute)
-	mk := func(i int, payload string) store.EventRow {
-		return store.EventRow{Time: now.Add(time.Duration(i) * time.Second), EventID: uuid.Must(uuid.NewV7()),
+	mk := func(i int, payload string) history.Event {
+		return history.Event{Time: now.Add(time.Duration(i) * time.Second), ID: uuid.Must(uuid.NewV7()),
 			ElementID: f.elem.ID, DeviceID: f.device.ID, Source: "device", ActorID: "d", ActorName: "d",
 			Payload: json.RawMessage(payload)}
 	}
-	rows := []store.EventRow{
+	rows := []history.Event{
 		mk(1, `{"climate":{"temp":20},"relay":"ON","level":"1.5","ok":true}`),
 		mk(2, `{"climate":{"temp":24},"relay":"OFF","level":"2.5","ok":false}`),
 		mk(3, `{"climate":{"temp":"n/a"},"sensors":[{"v":7}]}`),
 	}
-	if _, err := store.InsertEvents(ctx, pool, rows); err != nil {
+	if _, err := hist.Append(ctx, rows); err != nil {
 		t.Fatal(err)
 	}
 	c := newClient(t, in.URL)
@@ -373,5 +374,24 @@ func TestHistoryByField(t *testing.T) {
 	}
 	if r := c.do("GET", "/api/v1/elements/"+f.elem.ID.String()+"/history?step=1h&field="+url.QueryEscape("a;drop table x"), nil); r.Status != 422 {
 		t.Fatalf("bad field path: %d", r.Status)
+	}
+
+	// cost guard: 1-minute buckets over two days is 2880 > QUACK_HISTORY_MAX_BUCKETS
+	long := "/api/v1/elements/" + f.elem.ID.String() + "/history?step=1m&from=" +
+		url.QueryEscape(now.Add(-48*time.Hour).Format(time.RFC3339)) + "&to=" + url.QueryEscape(now.Format(time.RFC3339))
+	if r := c.do("GET", long, nil); r.Status != 422 || !strings.Contains(string(r.Body), "limit is 1500") {
+		t.Fatalf("too many buckets: %d %s", r.Status, r.Body)
+	}
+
+	// newest: the most recent events of a range, still in ascending order
+	var raw struct {
+		Events []struct {
+			Message json.RawMessage `json:"message"`
+		} `json:"events"`
+	}
+	c.must(200, "GET", "/api/v1/elements/"+f.elem.ID.String()+"/history?step=raw&limit=2&newest=true&from="+
+		url.QueryEscape(now.Format(time.RFC3339))+"&to="+url.QueryEscape(now.Add(time.Hour).Format(time.RFC3339)), nil, &raw)
+	if len(raw.Events) != 2 || !strings.Contains(string(raw.Events[0].Message), `"temp":24`) || !strings.Contains(string(raw.Events[1].Message), `"sensors"`) {
+		t.Fatalf("newest 2: %s", raw.Events)
 	}
 }

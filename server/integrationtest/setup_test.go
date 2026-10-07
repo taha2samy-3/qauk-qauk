@@ -38,6 +38,9 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/db"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/gateway"
+	"github.com/taha2samy/quackquack/server/internal/history"
+	_ "github.com/taha2samy/quackquack/server/internal/history/clickhouse"
+	_ "github.com/taha2samy/quackquack/server/internal/history/timescale"
 	"github.com/taha2samy/quackquack/server/internal/httpserver"
 	"github.com/taha2samy/quackquack/server/internal/ingest"
 	"github.com/taha2samy/quackquack/server/internal/outbox"
@@ -49,6 +52,11 @@ var (
 	brokers = strings.Split(env("QUACK_KAFKA_BROKERS", "127.0.0.1:19092"), ",")
 	pool    *pgxpool.Pool
 	logger  = newLogger()
+	// The history store under test: QUACK_IT_HISTORY_DRIVER=clickhouse runs the
+	// whole suite on ClickHouse (QUACK_IT_HISTORY_URL), the default on Timescale.
+	historyDriver = env("QUACK_IT_HISTORY_DRIVER", "timescale")
+	historyURL    = os.Getenv("QUACK_IT_HISTORY_URL")
+	hist          history.Store
 )
 
 func env(k, d string) string {
@@ -78,11 +86,21 @@ func TestMain(m *testing.M) {
 		fmt.Println("truncate:", err)
 		os.Exit(1)
 	}
-	if _, err := pool.Exec(ctx, `TRUNCATE element_event`); err != nil {
-		fmt.Println("truncate events:", err)
+	if hist, err = history.Open(ctx, history.ParseTargets(historyDriver, historyURL, dbURL), history.Settings{}); err != nil {
+		fmt.Println("history:", err)
 		os.Exit(1)
 	}
+	if err := hist.Migrate(ctx); err != nil {
+		fmt.Println("history migrate:", err)
+		os.Exit(1)
+	}
+	if err := hist.Reset(ctx); err != nil {
+		fmt.Println("history reset:", err)
+		os.Exit(1)
+	}
+	fmt.Println("history store:", historyDriver)
 	code := m.Run()
+	_ = hist.Close()
 	pool.Close()
 	os.Exit(code)
 }
@@ -101,12 +119,13 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		Roles: []string{"api", "gateway"}, GatewayID: gatewayID,
 		SessionTTL: time.Hour, DeviceJWTMaxLifetime: 24 * time.Hour, DeviceMsgRate: 1000, BrowserMsgRate: 1000,
 		PresenceHeartbeat: time.Second, PresenceTTL: 3 * time.Second,
+		HistoryQueryTimeout: 10 * time.Second, HistoryMaxQueries: 8, HistoryMaxBuckets: 1500, HistoryReplayWindow: 30 * 24 * time.Hour,
 	}
 	producer, err := bus.NewProducer(brokers, true, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := gateway.New(ctx, cfg, pool, producer, logger)
+	gw := gateway.New(ctx, cfg, pool, producer, hist, logger)
 	var wg sync.WaitGroup
 	run := func(fn func(context.Context) error) {
 		wg.Add(1)
@@ -122,9 +141,9 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		// which can exceed the test timeouts. Not an issue without -race.
 		group := env("QUACK_IT_INGEST_GROUP", "quack-ingest-it")
 		skipBacklog(t, group)
-		run((&ingest.Ingester{Group: group, Pool: pool, Brokers: brokers, Log: logger}).Run)
+		run((&ingest.Ingester{Group: group, Store: hist, Brokers: brokers, Publisher: producer, Log: logger}).Run)
 	}
-	srv := httptest.NewServer(httpserver.New(cfg, pool, gw, logger))
+	srv := httptest.NewServer(httpserver.New(cfg, pool, hist, gw, logger))
 	t.Cleanup(func() {
 		srv.CloseClientConnections()
 		srv.Close()

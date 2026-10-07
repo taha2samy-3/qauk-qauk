@@ -120,7 +120,8 @@ func TestHistoryFromTSDBAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		rows, _ := store.LastDeviceEvents(ctx, pool, f.elem.ID, 100)
+		last, _ := hist.Last(ctx, []uuid.UUID{f.elem.ID}, 100, time.Now().Add(-time.Hour))
+		rows := last[f.elem.ID]
 		if len(rows) == 8 {
 			break
 		}
@@ -261,4 +262,31 @@ func TestDeviceElementsEndpoint(t *testing.T) {
 	if r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("cache-control %q", r.Header.Get("Cache-Control"))
 	}
+}
+
+// A NUL character can't be stored by Postgres (and once stopped the whole
+// ingester): devices' frames are dropped, browsers get an error.
+func TestUnstorableMessagesAreRejected(t *testing.T) {
+	in := startInstance(t, "gw-nul", false)
+	f := setupRealtime(t, "nulmsg", 5)
+	br, err := dialWS(t, wsURL(in.URL, "/browser/simple/"), browserHeader(f.cookie(in.URL), in.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	br.send(map[string]any{"type": "subscribe", "element_id": f.elem.ID})
+	br.expect("subscribe", func(m map[string]any) bool { return m["type"] == "subscribe" })
+	dev, err := dialWS(t, wsURL(in.URL, "/device/node_red/"), deviceHeader(t, f.key, f.device.ID.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev.send(map[string]any{"element_id": f.elem.ID, "message": map[string]any{"value": "a\x00b"}})
+	dev.send(map[string]any{"element_id": f.elem.ID, "message": map[string]any{"value": 2.0}})
+	got := br.expect("the valid frame", func(m map[string]any) bool { return m["type"] == "message_element" })
+	if msg, _ := got["message"].(map[string]any); msg["value"] != 2.0 {
+		t.Fatalf("the NUL frame must be dropped, got %v", got)
+	}
+	br.send(map[string]any{"type": "message_element", "element_id": f.elem.ID, "message": map[string]any{"value": "x\x00"}})
+	br.expect("invalid_format error", func(m map[string]any) bool {
+		return m["type"] == "error" && m["error_code"] == "invalid_format"
+	})
 }
