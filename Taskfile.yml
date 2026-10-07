@@ -1,0 +1,119 @@
+# Quack Quack task runner. Tools are pinned in mise.toml (`mise install`).
+version: "3"
+
+includes:
+  contract: ./server/contracttest/Taskfile.yml
+  web: ./web/Taskfile.yml
+  docs: ./docs/Taskfile.yml
+
+vars:
+  COMPOSE: docker compose -f docker/compose.yaml
+  DEV_DB: postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable
+  DEV_KAFKA: 127.0.0.1:19092
+  BIN: "{{.ROOT_DIR}}/server/bin/quack"
+
+env:
+  QUACK_DATABASE_URL: '{{.QUACK_DATABASE_URL | default .DEV_DB}}'
+  QUACK_KAFKA_BROKERS: '{{.QUACK_KAFKA_BROKERS | default .DEV_KAFKA}}'
+  QUACK_COOKIE_SECURE: "false"
+  QUACK_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
+  QUACK_WEB_DIR: "{{.ROOT_DIR}}/web/dist"
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  tools:
+    desc: Install pinned tools (go, task, golangci-lint, node, pnpm)
+    cmds: [mise install]
+
+  # --- infrastructure ---
+  infra:up:
+    desc: Start TimescaleDB + Redpanda for local development
+    cmds: ["{{.COMPOSE}} up -d --wait db redpanda"]
+  infra:down:
+    desc: Stop local infrastructure (keeps volumes)
+    cmds: ["{{.COMPOSE}} --profile app --profile tools down"]
+  infra:reset:
+    desc: Stop infrastructure and delete all data volumes
+    prompt: This deletes the local database and Redpanda data. Continue?
+    cmds: ["{{.COMPOSE}} --profile app --profile tools down -v"]
+  console:
+    desc: Start Redpanda Console on http://127.0.0.1:8090
+    cmds: ["{{.COMPOSE}} --profile tools up -d console"]
+
+  # --- go backend ---
+  build:
+    desc: Build the quack binary into server/bin/
+    dir: server
+    sources: ["**/*.go", "migrations/*.sql", "schemas/*.json", go.mod, go.sum]
+    generates: [bin/quack]
+    cmds: [go build -o bin/quack ./cmd/quack]
+  migrate:
+    desc: Apply DB migrations and create Redpanda topics
+    deps: [build]
+    cmds: ["{{.BIN}} migrate"]
+  dev:
+    desc: Run api+gateway locally on :8080 (needs infra:up)
+    deps: [migrate]
+    cmds: ["{{.BIN}} serve"]
+  ingest:
+    desc: Run the TSDB ingester locally (metrics on :9100)
+    deps: [build]
+    env: {QUACK_HTTP_ADDR: ":9100"}
+    cmds: ["{{.BIN}} ingest"]
+  admin:create:
+    desc: "Create an admin user: task admin:create ADMIN=alice"
+    deps: [build]
+    requires: {vars: [ADMIN]}
+    cmds: ["{{.BIN}} admin create-user --admin --username {{.ADMIN}}"]
+  demo:
+    desc: "Seed demo devices/elements + admin (admin/admin12345) into the dev DB"
+    deps: [migrate]
+    cmds: ["{{.BIN}} dev demo --out {{.ROOT_DIR}}/server/bin/demo-devices.json"]
+  simulate:
+    desc: Stream live values from the demo devices to the local gateway
+    deps: [build]
+    cmds: ["{{.BIN}} dev simulate --file {{.ROOT_DIR}}/server/bin/demo-devices.json --ws-base ws://127.0.0.1:8080"]
+  import:django:
+    desc: "Import the legacy Django DB: task import:django FROM=postgres://..."
+    deps: [migrate]
+    requires: {vars: [FROM]}
+    cmds: ["{{.BIN}} import-django --from '{{.FROM}}'"]
+
+  # --- quality ---
+  fmt:
+    dir: server
+    cmds: [gofmt -w .]
+  lint:
+    desc: golangci-lint (incl. the contract suite)
+    dir: server
+    cmds: ["golangci-lint run --build-tags contract,load,integration ./..."]
+  test:
+    desc: Unit tests with the race detector
+    dir: server
+    cmds: [go test -race ./...]
+  test:integration:
+    desc: Integration tests against local infra (needs infra:up)
+    dir: server
+    cmds: [go test -race -tags integration -count=1 ./...]
+  contract:go:
+    desc: Run the WebSocket contract suite against the Go backend (needs infra:up)
+    deps: [build]
+    cmds: [bash server/contracttest/go/run.sh]
+  check:
+    desc: Everything CI runs
+    cmds:
+      - task: lint
+      - task: test
+      - task: test:integration
+      - task: contract:go
+
+  # --- containers ---
+  docker:build:
+    desc: Build the quack image (backend + frontend)
+    cmds: ["{{.COMPOSE}} --profile app build"]
+  up:
+    desc: Run the full stack in containers on http://127.0.0.1:8080
+    cmds: ["{{.COMPOSE}} --profile app up -d --build --wait"]

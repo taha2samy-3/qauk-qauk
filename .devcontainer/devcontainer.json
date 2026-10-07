@@ -1,0 +1,31 @@
+{
+  "name": "Quack Quack",
+  "build": { "dockerfile": "dockerfile", "context": ".." },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "forwardPorts": [8080, 5173, 8090],
+  "postCreateCommand": "~/.local/bin/mise trust && ~/.local/bin/mise install && ~/.local/bin/mise exec -- task web:install",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.fontFamily": "MesloLGS NF",
+        "workbench.iconTheme": "material-icon-theme",
+        "explorer.compactFolders": false,
+        "go.toolsManagement.autoUpdate": true
+      },
+      "extensions": [
+        "golang.go",
+        "task.vscode-task",
+        "hverlin.mise-vscode",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "ms-azuretools.vscode-docker",
+        "PKief.material-icon-theme"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}

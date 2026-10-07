@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:cloudevent",
+  "title": "Quack CloudEvents 1.0 profile",
+  "type": "object",
+  "required": ["specversion", "id", "source", "type", "subject", "time", "datacontenttype", "dataschema", "partitionkey", "data"],
+  "properties": {
+    "specversion": {"const": "1.0"},
+    "id": {"type": "string", "format": "uuid"},
+    "source": {"type": "string", "pattern": "^/quack/(api|gateway/.+)$"},
+    "type": {"enum": ["io.quack.element.message.v1", "io.quack.control.changed.v1", "io.quack.device.presence.v1"]},
+    "subject": {"type": "string", "minLength": 1},
+    "time": {"type": "string", "format": "date-time"},
+    "datacontenttype": {"const": "application/json"},
+    "dataschema": {"type": "string", "pattern": "^urn:quack:schema:"},
+    "partitionkey": {"type": "string", "minLength": 1},
+    "data": {"type": "object"}
+  }
+}

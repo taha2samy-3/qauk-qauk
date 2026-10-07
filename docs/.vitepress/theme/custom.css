@@ -1,0 +1,42 @@
+/* Brand: indigo-600 -> cyan-600, amber accent (see branding/README.md) */
+:root {
+  --vp-c-brand-1: #4f46e5;
+  --vp-c-brand-2: #4338ca;
+  --vp-c-brand-3: #4f46e5;
+  --vp-c-brand-soft: rgba(79, 70, 229, 0.12);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #4f46e5 20%, #0891b2);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(79, 70, 229, 0.25), rgba(8, 145, 178, 0.25));
+  --vp-home-hero-image-filter: blur(56px);
+}
+.dark {
+  --vp-c-brand-1: #818cf8;
+  --vp-c-brand-2: #a5b4fc;
+  --vp-c-brand-3: #6366f1;
+  --vp-c-brand-soft: rgba(129, 140, 248, 0.16);
+}
+.VPHero .image-container {
+  /* the duck carries its own ground shadow; keep the glow behind it */
+  transform: none;
+}
+
+/* Diagrams: never shrink text below readable size; scroll sideways on small screens instead. */
+.vp-doc .mermaid {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.vp-doc .mermaid svg {
+  min-width: min(680px, 100%);
+  height: auto;
+}
+.vp-doc .mermaid,
+.vp-doc .mermaid foreignObject div,
+.vp-doc .mermaid text {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+}
+/* VitePress prose styles (28px line-height, paragraph margins) must not leak into
+   diagram labels: Mermaid sizes its boxes for its own line-height. */
+.vp-doc .mermaid :is(p, span, div) {
+  line-height: 1.5;
+  margin: 0;
+}

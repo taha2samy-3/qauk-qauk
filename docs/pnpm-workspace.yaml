@@ -1,0 +1,4 @@
+packages: []
+# pnpm blocks dependency install scripts by default; allow only what the build needs.
+allowBuilds:
+  esbuild: true

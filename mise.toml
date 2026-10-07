@@ -1,0 +1,10 @@
+# Project toolchain. Run `mise install` once, then use `task` for everything.
+[tools]
+go = "1.26.4"
+"aqua:go-task/task" = "3.52.0"
+"aqua:golangci/golangci-lint" = "2"
+node = "22"
+pnpm = "11"
+
+[env]
+COMPOSE_FILE = "docker/compose.yaml"

@@ -1,0 +1,10 @@
+# Contract suite tasks. Included from the root Taskfile as namespace `contract`.
+version: "3"
+
+tasks:
+  vet:
+    desc: Vet/compile the contract suite without running it
+    dir: "{{.TASKFILE_DIR}}/.."
+    cmds:
+      - go vet -tags contract ./contracttest/...
+      - go vet -tags contract,load ./contracttest/...

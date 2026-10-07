@@ -1,0 +1,42 @@
+# Frontend tasks. Included from the root Taskfile as namespace `web`
+# (e.g. `task web:dev`). Node + pnpm come from mise.toml.
+version: "3"
+
+tasks:
+  install:
+    desc: Install frontend dependencies (pnpm, frozen lockfile)
+    dir: "{{.TASKFILE_DIR}}"
+    sources: [package.json, pnpm-lock.yaml]
+    cmds: [pnpm install --frozen-lockfile]
+  dev:
+    desc: Vite dev server on http://127.0.0.1:5173 (proxies /api and WebSockets to :8080)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm dev]
+  build:
+    desc: Production build into web/dist (served by `quack serve`)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm build]
+  test:
+    desc: Unit tests (vitest)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm test]
+  e2e:
+    desc: Playwright end-to-end tests against the live stack (needs `task dev`, `task demo`, `task simulate`)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds:
+      - pnpm exec playwright install chromium
+      - pnpm e2e
+  lint:
+    desc: ESLint + TypeScript type check
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm lint]
+  gen-api:
+    desc: Regenerate src/api/schema.d.ts from the running backend's OpenAPI spec
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm gen:api]

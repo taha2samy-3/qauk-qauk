@@ -1,0 +1,46 @@
+venv/*
+db.sqlite3
+*.pyc
+*/__pycache__/
+myproject/*
+.env
+
+# --- Go backend ---
+server/bin/
+*.test
+*.out
+coverage.*
+
+# --- Frontend (also in web/.gitignore) ---
+node_modules/
+web/dist/
+web/coverage/
+web/playwright-report/
+web/test-results/
+web/blob-report/
+web/e2e/.auth/
+.vite/
+
+# --- Local dev / secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+demo-devices.json
+fixture.json
+*.log
+
+# --- Editors / OS ---
+.idea/
+*.swp
+.DS_Store
+
+# --- Docs site ---
+
+# --- Docs site (VitePress) ---
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# --- Task runner checksum cache ---
+.task/

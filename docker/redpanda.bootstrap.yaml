@@ -1,0 +1,4 @@
+# Dev-only cluster config (applied on first start of a fresh volume).
+# Lowers the free-space guard so Redpanda keeps accepting writes on small dev disks.
+storage_min_free_bytes: 268435456
+auto_create_topics_enabled: false

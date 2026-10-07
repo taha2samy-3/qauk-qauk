@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.device.presence.v1",
+  "title": "Device presence",
+  "type": "object",
+  "required": ["device_id", "connected", "gateway_id"],
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {"type": "string", "format": "uuid"},
+    "connected": {"type": "boolean"},
+    "gateway_id": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,58 @@
+name: Docs
+
+# Builds the VitePress site in docs/ and publishes it to GitHub Pages.
+# One-time repo setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+on:
+  push:
+    branches: [master]
+    paths: ['docs/**', 'branding/**', 'mise.toml', '.github/workflows/docs.yaml']
+  pull_request:
+    paths: ['docs/**', 'branding/**', 'mise.toml', '.github/workflows/docs.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build docs (fails on dead links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # "last updated" timestamps come from git history
+      - uses: jdx/mise-action@v2
+      - name: Configure Pages
+        id: pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Build
+        run: task docs:build
+        env:
+          # project pages live under /<repo>/; a custom domain gives an empty base_path
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}/
+      - name: Upload site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320" role="img" aria-labelledby="wt"><title id="wt">A friendly duck waving hello</title><defs>
+  <radialGradient id="wbody" cx="0.36" cy="0.3" r="0.78"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.55" stop-color="#F5F7FF"/><stop offset="0.85" stop-color="#DCE2FF"/><stop offset="1" stop-color="#B9C3F7"/></radialGradient>
+  <radialGradient id="whead" cx="0.38" cy="0.3" r="0.75"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.6" stop-color="#F3F5FF"/><stop offset="0.9" stop-color="#D5DCFD"/><stop offset="1" stop-color="#BAC4F5"/></radialGradient>
+  <linearGradient id="wwing" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#D6DDFE"/><stop offset="0.6" stop-color="#F8F9FF"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient>
+  <linearGradient id="wbeak" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDE68A"/><stop offset="0.55" stop-color="#FBBF24"/><stop offset="1" stop-color="#F59E0B"/></linearGradient>
+  <linearGradient id="wbeakLow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#D97706"/></linearGradient>
+  <linearGradient id="wfeet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDBA74"/><stop offset="1" stop-color="#EA580C"/></linearGradient>
+  <linearGradient id="wbrand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4F46E5"/><stop offset="1" stop-color="#0891B2"/></linearGradient>
+  <radialGradient id="weye" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#3B3F6B"/><stop offset="1" stop-color="#0B1026"/></radialGradient>
+  <filter id="wsoft" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#312E81" flood-opacity="0.22"/></filter>
+  <filter id="wblur"><feGaussianBlur stdDeviation="6"/></filter>
+</defs>
+<ellipse class="shadow" cx="152" cy="292" rx="108" ry="13" fill="#1E1B4B" opacity="0.16" filter="url(#wblur)"/>
+<g class="bob"><g filter="url(#wsoft)">
+  <ellipse cx="120" cy="285" rx="27" ry="9" fill="url(#wfeet)"/>
+  <ellipse cx="184" cy="287" rx="27" ry="9" fill="url(#wfeet)"/>
+  <path d="M74 196Q52 160 66 148Q80 166 98 180Z" fill="url(#wbody)"/>
+  <ellipse cx="150" cy="222" rx="92" ry="66" fill="url(#wbody)"/>
+  <path d="M82 224Q98 196 134 206Q122 244 92 248Z" fill="#E3E8FF"/>
+  <path d="M86 228Q104 208 128 212" fill="none" stroke="#C3CCFB" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="165" cy="122" r="56" fill="url(#whead)"/>
+  <path d="M160 68Q148 46 166 38Q160 54 178 58Q172 68 160 68Z" fill="url(#whead)"/>
+  <path d="M112 168Q165 198 216 166L218 184Q165 216 110 186Z" fill="url(#wbrand)"/>
+  <path d="M200 182L224 218L206 222L192 188Z" fill="url(#wbrand)" opacity="0.9"/>
+  <path d="M116 176Q165 202 212 174" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2"/>
+  <path d="M209 139Q236 141 252 136Q244 147 228 150Q216 151 210 148Z" fill="#9A3412" opacity="0.85"/>
+  <g class="beaklow"><path d="M210 145Q236 150 250 140Q240 162 214 156Z" fill="url(#wbeakLow)"/></g>
+  <path d="M206 116Q246 108 264 126Q246 140 208 138Z" fill="url(#wbeak)"/>
+  <path d="M214 120Q236 115 252 122" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="3" stroke-linecap="round"/>
+  <g class="eyes">
+  <ellipse cx="150" cy="106" rx="8" ry="11" fill="url(#weye)"/>
+  <ellipse cx="187" cy="107" rx="9.5" ry="12.5" fill="url(#weye)"/>
+  <circle cx="153" cy="101" r="3" fill="#FFFFFF"/><circle cx="191" cy="101" r="3.8" fill="#FFFFFF"/>
+  <circle cx="148" cy="111" r="1.3" fill="#FFFFFF" opacity="0.8"/><circle cx="184" cy="113" r="1.6" fill="#FFFFFF" opacity="0.8"/>
+  </g>
+  <path d="M141 90Q150 84 158 89" fill="none" stroke="#6366F1" stroke-opacity="0.5" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M179 89Q189 83 198 89" fill="none" stroke="#6366F1" stroke-opacity="0.5" stroke-width="2.5" stroke-linecap="round"/>
+  <ellipse cx="136" cy="132" rx="11" ry="6.5" fill="#F9A8D4" opacity="0.55"/>
+  <ellipse cx="203" cy="138" rx="7" ry="4.5" fill="#F9A8D4" opacity="0.5"/>
+  <g class="wing" transform="rotate(14 228 206)">
+    <path d="M220 216Q232 160 268 128Q292 112 296 136Q290 176 244 226Z" fill="url(#wwing)"/>
+    <path d="M268 128Q292 112 296 136Q288 132 282 140Q284 128 276 132Q278 124 268 128Z" fill="#FFFFFF"/>
+    <path d="M236 206Q252 168 280 142" fill="none" stroke="#C3CCFB" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</g>
+</g>
+<g class="swoosh" fill="none" stroke="url(#wbrand)" stroke-width="4" stroke-linecap="round" opacity="0.6">
+  <path d="M300 104Q312 120 306 140"/><path d="M286 88Q306 92 316 108"/>
+</g></svg>

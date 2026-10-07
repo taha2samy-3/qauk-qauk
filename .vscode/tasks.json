@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Infra: up (TimescaleDB + Redpanda)", "type": "shell", "command": "task infra:up", "problemMatcher": [], "group": "build" },
+    { "label": "Infra: down", "type": "shell", "command": "task infra:down", "problemMatcher": [] },
+    { "label": "Backend: dev server", "type": "shell", "command": "task dev", "isBackground": true, "problemMatcher": [] },
+    { "label": "Backend: ingester", "type": "shell", "command": "task ingest", "isBackground": true, "problemMatcher": [] },
+    { "label": "Frontend: dev server", "type": "shell", "command": "task web:dev", "isBackground": true, "problemMatcher": [] },
+    { "label": "Demo: seed + simulate", "type": "shell", "command": "task demo && task simulate", "isBackground": true, "problemMatcher": [] },
+    { "label": "Check: everything CI runs", "type": "shell", "command": "task check", "problemMatcher": ["$go"], "group": { "kind": "test", "isDefault": true } },
+    { "label": "Stack: full stack in containers", "type": "shell", "command": "task up", "problemMatcher": [], "group": { "kind": "build", "isDefault": true } }
+  ]
+}

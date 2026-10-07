@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.control.changed.v1",
+  "title": "Control-plane change",
+  "description": "An entity changed. Carries ids only; consumers re-read Postgres.",
+  "type": "object",
+  "required": ["kind", "op", "id"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"enum": ["device", "element", "permission", "group_membership", "group", "user", "jwt_key"]},
+    "op": {"enum": ["create", "update", "delete"]},
+    "id": {"type": "string", "minLength": 1},
+    "element_id": {"type": "string", "format": "uuid"},
+    "device_id": {"type": "string", "format": "uuid"},
+    "user_id": {"type": "integer"},
+    "group_id": {"type": "integer"}
+  }
+}

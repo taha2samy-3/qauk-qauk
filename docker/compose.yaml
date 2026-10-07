@@ -1,0 +1,102 @@
+# Go stack: TimescaleDB + Redpanda + quack (api+gateway) + ingester.
+# Dev usage: `task infra:up` starts only db + redpanda; `task up` starts everything.
+name: quack
+
+x-quack-env: &quack-env
+  QUACK_DATABASE_URL: postgres://quack:quack@db:5432/quack?sslmode=disable
+  QUACK_KAFKA_BROKERS: redpanda:9092
+  QUACK_HTTP_ADDR: ":8080"
+  QUACK_LOG_LEVEL: info
+  QUACK_ALLOWED_ORIGINS: ${QUACK_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+  QUACK_COOKIE_SECURE: ${QUACK_COOKIE_SECURE:-false}
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_USER: quack
+      POSTGRES_PASSWORD: quack
+      POSTGRES_DB: quack
+    ports: ["127.0.0.1:5433:5432"]
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quack -d quack"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports: ["127.0.0.1:19092:19092", "127.0.0.1:18081:18081"]
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+      - ./redpanda.bootstrap.yaml:/etc/redpanda/.bootstrap.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info >/dev/null"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    profiles: [tools]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports: ["127.0.0.1:8090:8080"]
+    depends_on:
+      redpanda: {condition: service_healthy}
+
+  migrate:
+    build: {context: .., dockerfile: server/Dockerfile}
+    image: quack:dev
+    profiles: [app]
+    command: ["migrate"]
+    environment: *quack-env
+    depends_on:
+      db: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+
+  quack:
+    image: quack:dev
+    profiles: [app]
+    command: ["serve"]
+    environment:
+      <<: *quack-env
+      QUACK_ROLES: api,gateway
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  ingest:
+    image: quack:dev
+    profiles: [app]
+    command: ["ingest"]
+    environment:
+      <<: *quack-env
+      QUACK_HTTP_ADDR: ":9100"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  node-red:
+    image: nodered/node-red:latest-22
+    profiles: [tools]
+    ports: ["127.0.0.1:1880:1880"]
+    volumes: [node_red_data:/data]
+
+volumes:
+  db_data:
+  redpanda_data:
+  node_red_data:

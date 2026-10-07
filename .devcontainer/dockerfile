@@ -1,0 +1,20 @@
+# Dev container for the Go backend + React frontend. Toolchain comes from mise.toml.
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends zsh git curl postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+USER vscode
+RUN curl -fsSL https://mise.run | sh \
+    && echo 'eval "$(~/.local/bin/mise activate zsh)"' >> ~/.zshrc \
+    && echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
+
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/custom/themes/powerlevel10k \
+    && git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions \
+    && git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting \
+    && sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="powerlevel10k\/powerlevel10k"/' ~/.zshrc \
+    && sed -i 's/plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting docker)/' ~/.zshrc
+
+WORKDIR /workspace
+CMD ["zsh"]

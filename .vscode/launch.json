@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "quack serve (api + gateway)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/server/cmd/quack",
+      "args": ["serve"],
+      "env": {
+        "QUACK_DATABASE_URL": "postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable",
+        "QUACK_KAFKA_BROKERS": "127.0.0.1:19092",
+        "QUACK_COOKIE_SECURE": "false",
+        "QUACK_ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+        "QUACK_WEB_DIR": "${workspaceFolder}/web/dist"
+      }
+    },
+    {
+      "name": "quack ingest",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/server/cmd/quack",
+      "args": ["ingest"],
+      "env": {
+        "QUACK_DATABASE_URL": "postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable",
+        "QUACK_KAFKA_BROKERS": "127.0.0.1:19092",
+        "QUACK_HTTP_ADDR": ":9100"
+      }
+    },
+    {
+      "name": "Go: current test file",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}"
+    }
+  ]
+}

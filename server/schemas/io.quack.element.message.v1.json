@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.element.message.v1",
+  "title": "Element message",
+  "description": "A value sent by a device for one of its elements, or a command sent by a user to an element.",
+  "type": "object",
+  "required": ["element_id", "device_id", "source", "actor", "origin", "message", "client_ts"],
+  "additionalProperties": false,
+  "properties": {
+    "element_id": {"type": "string", "format": "uuid"},
+    "device_id": {"type": "string", "format": "uuid"},
+    "source": {"enum": ["device", "user"]},
+    "actor": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {"id": {"type": "string", "minLength": 1}, "name": {"type": "string"}}
+    },
+    "origin": {
+      "type": "object",
+      "required": ["gateway_id", "conn_id"],
+      "additionalProperties": false,
+      "properties": {"gateway_id": {"type": "string", "minLength": 1}, "conn_id": {"type": "string", "minLength": 1}}
+    },
+    "message": {"description": "Free-form JSON payload from the device or user."},
+    "client_ts": {"type": ["string", "null"], "format": "date-time"}
+  }
+}

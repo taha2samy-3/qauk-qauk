@@ -1,0 +1,287 @@
+asyncapi: 3.0.0
+info:
+  title: Quack Quack realtime API
+  version: 1.0.0
+  description: |
+    Message-driven interfaces of Quack Quack:
+
+    * **WebSocket** channels for devices (`/device/node_red/`) and browsers (`/browser/simple/`).
+      The frames are the legacy v1 protocol, kept byte-compatible with the original server.
+    * **Redpanda** topics between services. Every record value is a CloudEvents 1.0 event in structured
+      mode (`content-type: application/cloudevents+json`), and the record key is the event's `partitionkey`.
+      See docs/refactor/MESSAGE_FORMATS.md.
+
+    The REST API is described separately in OpenAPI (served at `/api/openapi.json`).
+  license:
+    name: MIT
+
+defaultContentType: application/json
+
+servers:
+  gateway:
+    host: localhost:8080
+    protocol: ws
+    description: |
+      `quack serve` with the gateway role. Devices authenticate with `Authorization: Bearer <JWT>` (RS256/ES256,
+      claims `id` and `exp`). Browsers authenticate with the `quack_session` cookie, and their `Origin` must be
+      same-host or allow-listed.
+  bus:
+    host: localhost:19092
+    protocol: kafka
+    description: Redpanda (Kafka API).
+
+channels:
+  device:
+    address: /device/node_red/
+    servers: [{ $ref: '#/servers/gateway' }]
+    messages:
+      deviceData: { $ref: '#/components/messages/deviceData' }
+      deviceDelivery: { $ref: '#/components/messages/deviceDelivery' }
+  browser:
+    address: /browser/simple/
+    servers: [{ $ref: '#/servers/gateway' }]
+    messages:
+      subscribe: { $ref: '#/components/messages/subscribe' }
+      unsubscribe: { $ref: '#/components/messages/unsubscribe' }
+      command: { $ref: '#/components/messages/command' }
+      subscribed: { $ref: '#/components/messages/subscribed' }
+      elementMessage: { $ref: '#/components/messages/elementMessage' }
+      permissionsUpdate: { $ref: '#/components/messages/permissionsUpdate' }
+      unsubscribed: { $ref: '#/components/messages/unsubscribed' }
+      connectionStatus: { $ref: '#/components/messages/connectionStatus' }
+      error: { $ref: '#/components/messages/error' }
+  elementEvents:
+    address: element-events.v1
+    servers: [{ $ref: '#/servers/bus' }]
+    description: Every device value and user command. 12 partitions, 7-day retention, key = element id.
+    messages:
+      elementEvent: { $ref: '#/components/messages/elementEvent' }
+  controlEvents:
+    address: control-events.v1
+    servers: [{ $ref: '#/servers/bus' }]
+    description: Control-plane changes written through the transactional outbox. They carry ids only.
+    messages:
+      controlEvent: { $ref: '#/components/messages/controlEvent' }
+  presence:
+    address: presence.v1
+    servers: [{ $ref: '#/servers/bus' }]
+    description: Device connected/disconnected transitions. Compacted, key = device id.
+    messages:
+      presenceEvent: { $ref: '#/components/messages/presenceEvent' }
+
+operations:
+  deviceSendsData:
+    action: receive
+    channel: { $ref: '#/channels/device' }
+    summary: A device publishes a value for one of its own elements.
+    messages: [{ $ref: '#/channels/device/messages/deviceData' }]
+  gatewayDeliversToDevice:
+    action: send
+    channel: { $ref: '#/channels/device' }
+    summary: Commands from users, and values from the device's other sockets.
+    messages: [{ $ref: '#/channels/device/messages/deviceDelivery' }]
+  browserSends:
+    action: receive
+    channel: { $ref: '#/channels/browser' }
+    messages:
+      - { $ref: '#/channels/browser/messages/subscribe' }
+      - { $ref: '#/channels/browser/messages/unsubscribe' }
+      - { $ref: '#/channels/browser/messages/command' }
+  gatewayDeliversToBrowser:
+    action: send
+    channel: { $ref: '#/channels/browser' }
+    messages:
+      - { $ref: '#/channels/browser/messages/subscribed' }
+      - { $ref: '#/channels/browser/messages/elementMessage' }
+      - { $ref: '#/channels/browser/messages/permissionsUpdate' }
+      - { $ref: '#/channels/browser/messages/unsubscribed' }
+      - { $ref: '#/channels/browser/messages/connectionStatus' }
+      - { $ref: '#/channels/browser/messages/error' }
+  publishElementEvents:
+    action: send
+    channel: { $ref: '#/channels/elementEvents' }
+    summary: Gateways publish; other gateways fan out, and the ingester writes to TimescaleDB.
+    messages: [{ $ref: '#/channels/elementEvents/messages/elementEvent' }]
+  publishControlEvents:
+    action: send
+    channel: { $ref: '#/channels/controlEvents' }
+    summary: The API's outbox relay publishes; gateways re-read Postgres and apply the change.
+    messages: [{ $ref: '#/channels/controlEvents/messages/controlEvent' }]
+  publishPresence:
+    action: send
+    channel: { $ref: '#/channels/presence' }
+    messages: [{ $ref: '#/channels/presence/messages/presenceEvent' }]
+
+components:
+  schemas:
+    uuid: { type: string, format: uuid }
+    timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339, UTC, millisecond precision (e.g. 2026-10-07T10:00:00.123Z)
+    auth:
+      type: object
+      required: [user_id, username]
+      properties:
+        user_id:
+          description: User id (number) for user commands, device UUID (string) for device data.
+          oneOf: [{ type: integer }, { type: string }]
+        username: { type: string, description: Username or device name, stamped by the server. }
+    cloudEvent:
+      type: object
+      description: CloudEvents 1.0 envelope (Quack profile).
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, partitionkey, data]
+      properties:
+        specversion: { const: '1.0' }
+        id: { $ref: '#/components/schemas/uuid', description: UUIDv7; idempotency key }
+        source: { type: string, examples: [/quack/gateway/gw-1, /quack/api] }
+        type: { type: string }
+        subject: { type: string }
+        time: { $ref: '#/components/schemas/timestamp' }
+        datacontenttype: { const: application/json }
+        dataschema: { type: string, examples: ['urn:quack:schema:io.quack.element.message.v1'] }
+        partitionkey: { type: string }
+        data: { type: object }
+
+  messages:
+    deviceData:
+      name: deviceData
+      title: Device → server value
+      summary: There is no `type` field. `auth` sent by the device is ignored; `last_edit_at` is kept only as client time.
+      payload:
+        type: object
+        required: [element_id, message]
+        properties:
+          element_id: { $ref: '#/components/schemas/uuid' }
+          message: { description: 'Free-form JSON, e.g. {"value": 21.5} or {"x": "...", "y": 3}' }
+          last_edit_at: { $ref: '#/components/schemas/timestamp' }
+    deviceDelivery:
+      name: deviceDelivery
+      title: Server → device frame
+      payload:
+        type: object
+        required: [element_id, message, auth, last_edit_at]
+        properties:
+          element_id: { $ref: '#/components/schemas/uuid' }
+          message: {}
+          auth: { $ref: '#/components/schemas/auth' }
+          last_edit_at: { $ref: '#/components/schemas/timestamp' }
+    subscribe:
+      name: subscribe
+      payload:
+        type: object
+        required: [type, element_id]
+        properties:
+          type: { const: subscribe }
+          element_id: { $ref: '#/components/schemas/uuid' }
+    unsubscribe:
+      name: unsubscribe
+      payload:
+        type: object
+        required: [type, element_id]
+        properties:
+          type: { const: unsubscribe }
+          element_id: { $ref: '#/components/schemas/uuid' }
+    command:
+      name: command
+      title: Browser → device command (requires RC)
+      payload:
+        type: object
+        required: [type, element_id, message]
+        properties:
+          type: { const: message_element }
+          element_id: { $ref: '#/components/schemas/uuid' }
+          message: { description: 'e.g. {"value": 1}' }
+    subscribed:
+      name: subscribed
+      summary: Confirmation, followed by up to `points` history frames (oldest first) and then live frames.
+      payload:
+        type: object
+        required: [type, element_id, subscribed, permissions, details, connected]
+        properties:
+          type: { const: subscribe }
+          element_id: { $ref: '#/components/schemas/uuid' }
+          subscribed: { const: true }
+          permissions: { enum: [R, RC] }
+          details: { description: Element widget configuration (JSON or null) }
+          connected: { type: boolean }
+    elementMessage:
+      name: elementMessage
+      payload:
+        type: object
+        required: [type, element_id, message, auth, last_edit_at]
+        properties:
+          type: { const: message_element }
+          element_id: { $ref: '#/components/schemas/uuid' }
+          message: {}
+          auth: { $ref: '#/components/schemas/auth' }
+          last_edit_at: { $ref: '#/components/schemas/timestamp' }
+    permissionsUpdate:
+      name: permissionsUpdate
+      payload:
+        type: object
+        required: [type, element_id, permissions]
+        properties:
+          type: { const: permissions_update }
+          element_id: { $ref: '#/components/schemas/uuid' }
+          permissions: { enum: [R, RC] }
+    unsubscribed:
+      name: unsubscribed
+      summary: Reply to `unsubscribe`, or a forced unsubscribe (with a reason) on revoke or element deletion.
+      payload:
+        type: object
+        required: [type, element_id, unsubscribe]
+        properties:
+          type: { const: unsubscribe }
+          element_id: { type: string }
+          unsubscribe: { const: true }
+          reason: { enum: [Permission revoked, Element deleted] }
+    connectionStatus:
+      name: connectionStatus
+      payload:
+        type: object
+        required: [type, status, element_id]
+        properties:
+          type: { const: element_connection_status }
+          status: { enum: [connected, disconnected] }
+          element_id: { $ref: '#/components/schemas/uuid' }
+    error:
+      name: error
+      payload:
+        type: object
+        required: [type, error_code, description]
+        properties:
+          type: { const: error }
+          error_code: { enum: [permission_denied, unauthorized, unknown_type, invalid_format, rate_limited] }
+          description: { type: string }
+          element_id: { type: string }
+    elementEvent:
+      name: io.quack.element.message.v1
+      contentType: application/cloudevents+json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - type: object
+            properties:
+              type: { const: io.quack.element.message.v1 }
+              data: { $ref: '../schemas/io.quack.element.message.v1.json' }
+    controlEvent:
+      name: io.quack.control.changed.v1
+      contentType: application/cloudevents+json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - type: object
+            properties:
+              type: { const: io.quack.control.changed.v1 }
+              data: { $ref: '../schemas/io.quack.control.changed.v1.json' }
+    presenceEvent:
+      name: io.quack.device.presence.v1
+      contentType: application/cloudevents+json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - type: object
+            properties:
+              type: { const: io.quack.device.presence.v1 }
+              data: { $ref: '../schemas/io.quack.device.presence.v1.json' }

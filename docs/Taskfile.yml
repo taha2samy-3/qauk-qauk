@@ -1,0 +1,25 @@
+# Documentation site (VitePress). Included from the root Taskfile as `docs`.
+# Content lives in ../docs; this folder only holds the site config and theme.
+version: "3"
+
+tasks:
+  install:
+    desc: Install docs-site dependencies
+    dir: "{{.TASKFILE_DIR}}"
+    sources: [package.json, pnpm-lock.yaml]
+    cmds: [pnpm install --frozen-lockfile]
+  dev:
+    desc: Docs site with live reload on http://127.0.0.1:5174
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm dev]
+  build:
+    desc: Build the static docs site into docs/.vitepress/dist (fails on dead links)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm build]
+  preview:
+    desc: Serve the built docs site on http://127.0.0.1:4174
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [build]
+    cmds: [pnpm preview]
