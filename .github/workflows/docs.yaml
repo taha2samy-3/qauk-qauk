@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # "last updated" timestamps come from git history
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v5
       - name: Configure Pages
         id: pages
         if: github.event_name != 'pull_request'
