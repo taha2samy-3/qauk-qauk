@@ -15,21 +15,34 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (lint, unit, integration, contract)
+    name: Backend (history on ${{ matrix.history }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every test runs against each history store. ClickHouse is started in
+        # both legs, so the history-store contract always covers both drivers.
+        history: [timescale, clickhouse]
+    env:
+      HISTORY: ${{ matrix.history }}
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
       - name: Lint
+        if: matrix.history == 'timescale'
         run: task lint
       - name: Unit tests (race)
+        if: matrix.history == 'timescale'
         run: task test
-      - name: Start TimescaleDB + Redpanda
-        run: task infra:up
+      - name: Start Postgres/TimescaleDB, Redpanda and ClickHouse
+        run: HISTORY=clickhouse task infra:up
       - name: Create test databases
         run: |
           docker compose -f docker/compose.yaml exec -T db psql -U quack -d quack -c "CREATE DATABASE quack_contract" || true
           docker compose -f docker/compose.yaml exec -T db psql -U quack -d quack -c "CREATE DATABASE quack_it" || true
+      - name: History-store contract (every driver)
+        if: matrix.history == 'timescale'
+        run: task test:history
       - name: Integration tests
         run: task test:integration
       - name: WebSocket contract suite (server built with -race)

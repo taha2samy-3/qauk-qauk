@@ -19,13 +19,11 @@ export function isRangeKey(v: unknown): v is RangeKey {
 }
 
 const RAW_LIMIT = 5000
-const SAMPLE_WINDOWS = 40
-const SAMPLE_PER_WINDOW = 25
 
 export interface HistoryResult {
   points: Point[]
-  /** How the points were obtained (see README → "History backfill"). */
-  mode: 'raw' | 'buckets' | 'sampled'
+  /** raw events, or server-side aggregates per bucket */
+  mode: 'raw' | 'buckets'
 }
 
 function eventsToPoints(events: HistoryEvent[] | null | undefined, o: PointOptions): Point[] {
@@ -39,35 +37,12 @@ function eventsToPoints(events: HistoryEvent[] | null | undefined, o: PointOptio
   return out.sort((a, b) => a[0] - b[0])
 }
 
-async function raw(id: string, from: Date, to: Date, limit: number) {
-  const body = await unwrap(
-    api.GET('/api/v1/elements/{id}/history', {
-      params: { path: { id }, query: { from: from.toISOString(), to: to.toISOString(), step: 'raw', limit } },
-    }),
-  )
-  return body.events ?? []
-}
-
-/**
- * Raw history returns the *oldest* `limit` events of a range, so a long range
- * would lose its most recent part. Sample it instead: split the range into
- * windows and take the first few events of each.
- */
-async function sampled(id: string, from: Date, to: Date, o: PointOptions): Promise<Point[]> {
-  const span = to.getTime() - from.getTime()
-  const size = span / SAMPLE_WINDOWS
-  const windows = Array.from({ length: SAMPLE_WINDOWS }, (_, i) => [
-    new Date(from.getTime() + i * size),
-    new Date(from.getTime() + (i + 1) * size),
-  ])
-  const parts = await Promise.all(windows.map(([a, b]) => raw(id, a!, b!, SAMPLE_PER_WINDOW).catch(() => [])))
-  return eventsToPoints(parts.flat(), o)
-}
-
 /**
  * History of one element for a chart series. `o.field` binds an attribute:
  * raw events are read client-side; aggregated ranges ask the server to
- * aggregate that attribute (`?field=`), always on the server receive time.
+ * aggregate that attribute (`?field=`; without one, the element's value:
+ * message.value, a chart's y, or a bare number), always on the server
+ * receive time.
  */
 export async function fetchHistory(
   id: string,
@@ -79,9 +54,16 @@ export async function fetchHistory(
   const to = new Date(now)
   const from = new Date(now - r.ms)
   if (r.step === 'raw') {
-    const events = await raw(id, from, to, RAW_LIMIT)
-    if (events.length < RAW_LIMIT) return { points: eventsToPoints(events, o), mode: 'raw' }
-    return { points: await sampled(id, from, to, o), mode: 'sampled' }
+    // the newest RAW_LIMIT events: a busy element keeps its most recent part
+    const body = await unwrap(
+      api.GET('/api/v1/elements/{id}/history', {
+        params: {
+          path: { id },
+          query: { from: from.toISOString(), to: to.toISOString(), step: 'raw', limit: RAW_LIMIT, newest: true },
+        },
+      }),
+    )
+    return { points: eventsToPoints(body.events, o), mode: 'raw' }
   }
   const body = await unwrap(
     api.GET('/api/v1/elements/{id}/history', {
@@ -101,8 +83,5 @@ export async function fetchHistory(
   const points: Point[] = (body.buckets ?? [])
     .filter((b) => b.avg !== null)
     .map((b) => [Date.parse(b.t), (b.avg as number) * scale + offset])
-  if (points.length > 0) return { points, mode: 'buckets' }
-  // No aggregates: chart payloads ({x,y}) are not aggregated server-side, or
-  // the continuous aggregate has not been refreshed yet. Fall back to sampling.
-  return { points: await sampled(id, from, to, o), mode: 'sampled' }
+  return { points, mode: 'buckets' }
 }

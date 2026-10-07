@@ -85,6 +85,18 @@ export function useConnectionStatus(): {
   return { status, nextRetryAt: rt.getNextRetryAt(), retry: () => rt.retryNow() }
 }
 
+/**
+ * Changes on every reconnect of the realtime socket (0 before the first).
+ * Put it in a query key to reload what the live stream can't backfill.
+ */
+export function useConnectionEpoch(): number {
+  const rt = useRealtimeClient()
+  return React.useSyncExternalStore(
+    React.useCallback((fn) => rt.onStatus(fn), [rt]),
+    () => rt.getOpenCount(),
+  )
+}
+
 /** Call `fn` for each frame of an element (replay + live). */
 export function useElementFrames(elementId: string | undefined | null, fn: (f: Frame) => void): void {
   const rt = useRealtimeClient()

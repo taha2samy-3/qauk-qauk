@@ -1,5 +1,5 @@
 import { LineChart as LineIcon } from 'lucide-react'
-import { useQueries } from '@tanstack/react-query'
+import { keepPreviousData, useQueries } from '@tanstack/react-query'
 import type { EChartsOption } from 'echarts'
 import { fetchHistory, isRangeKey, RANGE_KEYS, RANGES, type RangeKey } from '@/api/history'
 import { qk, useMyElements } from '@/api/queries'
@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme'
 import { formatNumber } from '@/lib/utils'
 import { useNow } from '@/lib/useNow'
 import { bindPoint, type Point, type PointOptions } from '@/realtime/messages'
-import { useElementStates } from '@/realtime/hooks'
+import { useConnectionEpoch, useElementStates } from '@/realtime/hooks'
 import type { Frame } from '@/realtime/client'
 import { isRecord } from '@/lib/utils'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -98,12 +98,18 @@ function LineChartWidget({ widget, element, options, rt, local }: WidgetRenderPr
     })),
   ]
 
+  // The live tail only holds what arrived while connected (and at most 1000
+  // frames): reload the history after every reconnect, and every few minutes,
+  // so no gap opens between the backfill and the live data.
+  const epoch = useConnectionEpoch()
   const histories = useQueries({
     queries: specs.map((sp) => ({
-      queryKey: qk.history(sp.elementId, range, JSON.stringify(sp.o)),
+      queryKey: [...qk.history(sp.elementId, range, JSON.stringify(sp.o)), epoch],
       queryFn: () => fetchHistory(sp.elementId, range, sp.o),
       staleTime: 60_000,
+      refetchInterval: 5 * 60_000,
       refetchOnWindowFocus: false,
+      placeholderData: keepPreviousData,
     })),
   })
   const extraStates = useElementStates(extras.map((x) => x.element_id))

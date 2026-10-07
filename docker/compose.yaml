@@ -1,5 +1,7 @@
-# Go stack: TimescaleDB + Redpanda + quack (api+gateway) + ingester.
-# Dev usage: `task infra:up` starts only db + redpanda; `task up` starts everything.
+# Go stack: Postgres/TimescaleDB + Redpanda + quack (api+gateway) + ingester,
+# and optionally ClickHouse as the history store (profile "clickhouse").
+# Dev usage: `task infra:up` starts only the infrastructure; `task up` starts
+# everything. Add HISTORY=clickhouse to either to keep history in ClickHouse.
 name: quack
 
 x-quack-env: &quack-env
@@ -9,6 +11,9 @@ x-quack-env: &quack-env
   QUACK_LOG_LEVEL: info
   QUACK_ALLOWED_ORIGINS: ${QUACK_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
   QUACK_COOKIE_SECURE: ${QUACK_COOKIE_SECURE:-false}
+  # History store: timescale (in the db service) or clickhouse (profile below).
+  QUACK_HISTORY_DRIVER: ${QUACK_HISTORY_DRIVER:-timescale}
+  QUACK_HISTORY_URL: ${QUACK_HISTORY_CONTAINER_URL:-}
 
 services:
   db:
@@ -50,6 +55,27 @@ services:
       timeout: 5s
       retries: 40
 
+  # History store alternative to TimescaleDB: QUACK_HISTORY_DRIVER=clickhouse,
+  # QUACK_HISTORY_URL=clickhouse://quack:quack@127.0.0.1:19000/quack (host) or
+  # clickhouse://quack:quack@clickhouse:9000/quack (containers).
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8
+    profiles: [clickhouse]
+    environment:
+      CLICKHOUSE_USER: quack
+      CLICKHOUSE_PASSWORD: quack
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: ["127.0.0.1:19000:9000", "127.0.0.1:18123:8123"]
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
   console:
     image: docker.redpanda.com/redpandadata/console:latest
     profiles: [tools]
@@ -68,6 +94,7 @@ services:
     depends_on:
       db: {condition: service_healthy}
       redpanda: {condition: service_healthy}
+      clickhouse: {condition: service_healthy, required: false}
 
   quack:
     image: quack:dev
@@ -97,6 +124,7 @@ services:
     volumes: [node_red_data:/data]
 
 volumes:
+  clickhouse_data:
   db_data:
   redpanda_data:
   node_red_data:

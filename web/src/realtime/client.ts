@@ -122,6 +122,8 @@ export class RealtimeClient {
   private readonly opts: Required<Omit<RealtimeClientOptions, 'backoff'>> & { backoff: BackoffOptions }
   private ws: WebSocket | null = null
   private status: ConnectionStatus = 'idle'
+  /** how many times the socket has opened (see getOpenCount) */
+  private opens = 0
   private attempt = 0
   private retryTimer: unknown = null
   private wanted = false
@@ -189,6 +191,15 @@ export class RealtimeClient {
     this.clearRetry()
     this.dropSocket()
     this.setStatus('offline')
+  }
+
+  /**
+   * Increments on every (re)connect. Frames sent while the socket was down
+   * are lost, so data built from the live stream (chart tails) must be
+   * reloaded when this changes.
+   */
+  getOpenCount(): number {
+    return this.opens
   }
 
   getStatus(): ConnectionStatus {
@@ -316,6 +327,7 @@ export class RealtimeClient {
       if (this.ws !== ws) return
       this.attempt = 0
       this.pendingUnsub.clear()
+      this.opens++
       this.setStatus('open')
       for (const id of this.refs.keys()) {
         // The server replays history on subscribe: start each element fresh.

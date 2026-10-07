@@ -12,6 +12,9 @@ vars:
   DEV_DB: postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable
   DEV_KAFKA: 127.0.0.1:19092
   BIN: "{{.ROOT_DIR}}/server/bin/quack"
+  # History store: timescale (default) or clickhouse, e.g. `task start HISTORY=clickhouse`.
+  HISTORY: '{{.HISTORY | default "timescale"}}'
+  CH_HOST_URL: clickhouse://quack:quack@127.0.0.1:19000/quack
 
 env:
   QUACK_DATABASE_URL: '{{.QUACK_DATABASE_URL | default .DEV_DB}}'
@@ -19,6 +22,9 @@ env:
   QUACK_COOKIE_SECURE: "false"
   QUACK_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
   QUACK_WEB_DIR: "{{.ROOT_DIR}}/web/dist"
+  QUACK_HISTORY_DRIVER: '{{.QUACK_HISTORY_DRIVER | default .HISTORY}}'
+  QUACK_HISTORY_URL: '{{if .QUACK_HISTORY_URL}}{{.QUACK_HISTORY_URL}}{{else if eq .HISTORY "clickhouse"}}{{.CH_HOST_URL}}{{end}}'
+  QUACK_HISTORY_CONTAINER_URL: '{{if eq .HISTORY "clickhouse"}}clickhouse://quack:quack@clickhouse:9000/quack{{end}}'
 
 tasks:
   default:
@@ -56,15 +62,15 @@ tasks:
 
   # --- infrastructure ---
   infra:up:
-    desc: Start TimescaleDB + Redpanda for local development
-    cmds: ["{{.COMPOSE}} up -d --wait db redpanda"]
+    desc: "Start Postgres/TimescaleDB + Redpanda (+ ClickHouse with HISTORY=clickhouse) for local development"
+    cmds: ['{{.COMPOSE}} up -d --wait db redpanda{{if eq .HISTORY "clickhouse"}} clickhouse{{end}}']
   infra:down:
     desc: Stop local infrastructure (keeps volumes)
-    cmds: ["{{.COMPOSE}} --profile app --profile tools down"]
+    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse down"]
   infra:reset:
     desc: Stop infrastructure and delete all data volumes
-    prompt: This deletes the local database and Redpanda data. Continue?
-    cmds: ["{{.COMPOSE}} --profile app --profile tools down -v"]
+    prompt: This deletes the local database, ClickHouse and Redpanda data. Continue?
+    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse down -v"]
   console:
     desc: Start Redpanda Console on http://127.0.0.1:8090
     cmds: ["{{.COMPOSE}} --profile tools up -d console"]
@@ -85,7 +91,7 @@ tasks:
     deps: [migrate]
     cmds: ["{{.BIN}} serve"]
   ingest:
-    desc: Run the TSDB ingester locally (metrics on :9100)
+    desc: Run the history ingester locally (metrics on :9100)
     deps: [build]
     env: {QUACK_HTTP_ADDR: ":9100"}
     cmds: ["{{.BIN}} ingest"]
@@ -121,12 +127,23 @@ tasks:
     dir: server
     cmds: [go test -race ./...]
   test:integration:
-    desc: Integration tests against local infra (needs infra:up)
+    desc: "Integration tests against local infra (needs infra:up). HISTORY=clickhouse runs them on ClickHouse"
     dir: server
+    env:
+      QUACK_IT_HISTORY_DRIVER: "{{.HISTORY}}"
+      QUACK_IT_HISTORY_URL: '{{if eq .HISTORY "clickhouse"}}clickhouse://quack:quack@127.0.0.1:19000/quack_it{{end}}'
+      QUACK_IT_CLICKHOUSE_URL: '{{.QUACK_IT_CLICKHOUSE_URL | default "clickhouse://quack:quack@127.0.0.1:19000/quack_history_it"}}'
     cmds: [go test -race -tags integration -count=1 ./...]
+  test:history:
+    desc: "The history-store contract on every driver (TimescaleDB, and ClickHouse with infra:up HISTORY=clickhouse)"
+    dir: server
+    env:
+      QUACK_IT_CLICKHOUSE_URL: '{{.QUACK_IT_CLICKHOUSE_URL | default "clickhouse://quack:quack@127.0.0.1:19000/quack_history_it"}}'
+    cmds: [go test -tags integration -count=1 -v ./internal/history/...]
   contract:go:
-    desc: Run the WebSocket contract suite against the Go backend (needs infra:up)
-    deps: [build]
+    desc: "Run the WebSocket contract suite against the Go backend (needs infra:up; HISTORY=clickhouse for ClickHouse)"
+    env:
+      QUACK_HISTORY_URL: '{{if eq .HISTORY "clickhouse"}}clickhouse://quack:quack@127.0.0.1:19000/quack_contract{{end}}'
     cmds: [bash server/contracttest/go/run.sh]
   check:
     desc: Everything CI runs
@@ -141,5 +158,5 @@ tasks:
     desc: Build the quack image (backend + frontend)
     cmds: ["{{.COMPOSE}} --profile app build"]
   up:
-    desc: Run the full stack in containers on http://127.0.0.1:8080
-    cmds: ["{{.COMPOSE}} --profile app up -d --build --wait"]
+    desc: "Run the full stack in containers on http://127.0.0.1:8080 (HISTORY=clickhouse for ClickHouse)"
+    cmds: ['{{.COMPOSE}} --profile app{{if eq .HISTORY "clickhouse"}} --profile clickhouse{{end}} up -d --build --wait']
