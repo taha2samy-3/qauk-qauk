@@ -1,12 +1,12 @@
 # Build context: repository root (needs server/ and web/).
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/quack ./cmd/quack
 
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/ ./
 RUN if [ -f package.json ]; then corepack enable && pnpm install --frozen-lockfile && pnpm build; else mkdir -p dist; fi
