@@ -41,6 +41,15 @@ npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-
 
 Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Manage palette → Install → upload** (the icon next to the search box).
 
+**Node-RED in Docker.** The user directory is `/data` in the official image. With the `node-red` service from `docker/compose.yaml` (`docker compose -f docker/compose.yaml --profile tools up -d node-red`):
+
+```sh
+docker compose -f docker/compose.yaml exec -w /data node-red npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+docker compose -f docker/compose.yaml restart node-red
+```
+
+For another container, use `docker exec -w /data <container> npm install …`, then restart it.
+
 Requirements: Node-RED 3.0 or later on Node.js 18 or later. The package's only dependency is `ws`. It is tested against Node-RED 5.
 
 For a development checkout, use one of these:

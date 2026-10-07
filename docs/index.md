@@ -39,6 +39,10 @@ features:
     title: Event bus with standards
     details: Redpanda topics carrying CloudEvents 1.0, JSON Schema and AsyncAPI, plus a transactional outbox, so no change is ever lost.
     link: /concepts/realtime_events
+  - icon: 🧩
+    title: Node-RED nodes
+    details: "quack out sends readings, quack in receives dashboard commands. Install: npm install the tarball from the GitHub release in ~/.node-red."
+    link: /guide/node-red
   - icon: 🔁
     title: Drop-in for existing devices
     details: The legacy WebSocket protocol is byte-compatible, so Node-RED flows and device keys keep working after migration.
