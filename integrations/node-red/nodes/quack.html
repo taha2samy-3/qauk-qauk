@@ -117,6 +117,24 @@
           $key.val('').attr('placeholder', 'A key is saved. Paste a new one to replace it.')
           $key.data('saved', true)
         }
+        $('#quack-keypair').on('click', function (e) {
+          e.preventDefault()
+          if ($key.val() && !confirm('Replace the private key in this dialog with a new one?')) return
+          $.ajax({ url: 'quackquack/keypair', method: 'POST' })
+            .done(function (r) {
+              $key.val(r.privateKey).data('saved', false)
+              $('#node-config-input-keyFile').val('')
+              $('#quack-public-key').val(r.publicKey)
+              $('#quack-public-row').show()
+            })
+            .fail(function (xhr) {
+              RED.notify('Could not generate a key pair: ' + errorText(xhr), 'error')
+            })
+        })
+        $('#quack-public-copy').on('click', function (e) {
+          e.preventDefault()
+          RED.clipboard.copyText($('#quack-public-key').val(), $(this), 'Public key copied')
+        })
         $('#quack-test').on('click', function (e) {
           e.preventDefault()
           var $out = $('#quack-test-result').removeClass('quack-ok quack-err').text('Testing…')
@@ -221,6 +239,20 @@
     <textarea id="node-config-input-privateKey" placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"></textarea>
   </div>
   <div class="form-row">
+    <label></label>
+    <button type="button" id="quack-keypair" class="red-ui-button"><i class="fa fa-magic"></i> Generate key pair</button>
+  </div>
+  <div class="form-row" id="quack-public-row" style="display: none">
+    <label style="vertical-align: top"><i class="fa fa-unlock"></i> Public key</label>
+    <div style="display: inline-block; width: 70%">
+      <textarea id="quack-public-key" readonly style="width: 100%; height: 90px; font-family: monospace; font-size: 11px"></textarea>
+      <div class="form-tips">
+        Add this public key in Quack Quack under <b>Admin → Keys</b> and assign it to the device, then deploy.
+        <button type="button" id="quack-public-copy" class="red-ui-button red-ui-button-small"><i class="fa fa-clipboard"></i> Copy</button>
+      </div>
+    </div>
+  </div>
+  <div class="form-row">
     <label for="node-config-input-keyFile"><i class="fa fa-file-o"></i> or key file</label>
     <input type="text" id="node-config-input-keyFile" placeholder="/data/device-key.pem (overrides the pasted key)" />
   </div>
@@ -254,6 +286,8 @@ A device registered on a [Quack Quack](https://github.com/taha2samy-3/qauk-qauk)
 : Device ID (string) : The device's UUID, from **Admin → Devices**.
 : Private key (credential) : The device's private key (PEM). The server holds only the public half.
   ECDSA P-256 keys sign with ES256 and RSA keys (2048 bits or more) with RS256; the algorithm is picked from the key.
+: Generate key pair : Creates a new ECDSA P-256 key pair. The private key fills the field above; copy the
+  public key into Quack Quack (**Admin → Keys**) and assign that key to the device.
 : Key file (string) : A path to read the private key from instead, e.g. a mounted secret. It overrides the pasted key.
 : TLS (tls-config) : Optional CA or client certificate for `https`/`wss` servers.
 : Token life (minutes) : How long each signed token is valid. A fresh token is signed for every connection,

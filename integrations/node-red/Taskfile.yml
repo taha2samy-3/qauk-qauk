@@ -1,0 +1,28 @@
+# Node-RED nodes (npm: node-red-contrib-quackquack). Included from the root Taskfile as `nodered`.
+version: "3"
+
+tasks:
+  install:
+    desc: Install the Node-RED package's dependencies
+    dir: "{{.TASKFILE_DIR}}"
+    sources: [package.json, pnpm-lock.yaml]
+    cmds: [pnpm install --frozen-lockfile]
+  test:
+    desc: Unit tests and the nodes inside a real Node-RED runtime
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds: [pnpm lint, pnpm test]
+  dev:
+    desc: "Node-RED on http://127.0.0.1:1880 with the nodes loaded from source (restart to pick up edits; data in .dev/)"
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [install]
+    cmds:
+      - mkdir -p .dev
+      - node node_modules/node-red/red.js -u .dev -p {{.PORT | default "1880"}} -D "nodesDir={{.TASKFILE_DIR}}/nodes" -D editorTheme.tours=false
+  pack:
+    desc: Build the npm tarball (what `npm publish` would upload) into dist/
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [test]
+    cmds:
+      - mkdir -p dist
+      - npm pack --pack-destination dist

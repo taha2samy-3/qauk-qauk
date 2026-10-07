@@ -22,6 +22,11 @@ web/e2e/screenshots/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 
+# --- Node-RED package: dev user dir and packed tarballs ---
+integrations/node-red/.dev/
+integrations/node-red/dist/
+*.tgz
+
 # --- Task runner checksum cache ---
 .task/
 

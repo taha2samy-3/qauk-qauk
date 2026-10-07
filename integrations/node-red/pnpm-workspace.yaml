@@ -1,3 +1,6 @@
-# pnpm blocks dependency install scripts by default; Node-RED (dev only) falls back
-# to bcryptjs without its optional native bcrypt build, so none are allowed.
+# Flat node_modules like npm's: Node-RED users install with npm, and
+# node-red-node-test-helper reaches into node-red's own dependencies.
+nodeLinker: hoisted
+# pnpm blocks dependency install scripts by default. Node-RED (dev only) falls
+# back to bcryptjs without its optional native bcrypt build, so none are allowed.
 packages: []

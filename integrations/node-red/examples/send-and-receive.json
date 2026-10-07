@@ -1,0 +1,165 @@
+[
+  {
+    "id": "qq_tab",
+    "type": "tab",
+    "label": "Quack Quack",
+    "info": "Telemetry to a dashboard and commands back.\n\nOpen the **Weather station** device node, set the server, device ID and private key (or generate a key pair), then deploy. Element names match the demo devices (`task demo`); change them to yours."
+  },
+  {
+    "id": "qq_device",
+    "type": "quack-device",
+    "name": "Weather station",
+    "server": "http://127.0.0.1:8080",
+    "deviceId": "",
+    "keyFile": "",
+    "tls": "",
+    "lifetime": "60",
+    "rate": "50"
+  },
+  {
+    "id": "qq_comment_out",
+    "type": "comment",
+    "z": "qq_tab",
+    "name": "Telemetry: any JSON object; widgets bind to its attributes",
+    "info": "",
+    "x": 260,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "qq_tick",
+    "type": "inject",
+    "z": "qq_tab",
+    "name": "every 5 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 120,
+    "wires": [
+      [
+        "qq_reading"
+      ]
+    ]
+  },
+  {
+    "id": "qq_reading",
+    "type": "function",
+    "z": "qq_tab",
+    "name": "read sensors",
+    "func": "// Replace with real sensor reads.\nconst t = Date.now() / 60000\nmsg.payload = {\n  temperature: Math.round((24 + 4 * Math.sin(t)) * 10) / 10,\n  humidity: Math.round((55 + 10 * Math.cos(t)) * 10) / 10,\n  battery: 3.9,\n  ts: Date.now()\n}\nmsg.topic = 'Climate' // the element, by name (or pick it in the node)\nreturn msg",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 320,
+    "y": 120,
+    "wires": [
+      [
+        "qq_climate"
+      ]
+    ]
+  },
+  {
+    "id": "qq_climate",
+    "type": "quack-out",
+    "z": "qq_tab",
+    "name": "Climate",
+    "device": "qq_device",
+    "element": "",
+    "elementName": "",
+    "format": "auto",
+    "x": 500,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "qq_comment_in",
+    "type": "comment",
+    "z": "qq_tab",
+    "name": "Commands: apply them, then report the new state",
+    "info": "",
+    "x": 240,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "qq_commands",
+    "type": "quack-in",
+    "z": "qq_tab",
+    "name": "dashboard commands",
+    "device": "qq_device",
+    "element": "",
+    "elementName": "",
+    "from": "users",
+    "format": "auto",
+    "confirm": false,
+    "x": 150,
+    "y": 260,
+    "wires": [
+      [
+        "qq_apply",
+        "qq_debug"
+      ]
+    ]
+  },
+  {
+    "id": "qq_apply",
+    "type": "function",
+    "z": "qq_tab",
+    "name": "apply (e.g. GPIO)",
+    "func": "// Drive the hardware here, e.g. a relay for msg.topic === 'Gate relay'.\n// Then pass the message on: the quack out node below (no element set)\n// sends it back to msg.element_id, which confirms the switch on the dashboard.\nreturn msg",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 380,
+    "y": 260,
+    "wires": [
+      [
+        "qq_confirm"
+      ]
+    ]
+  },
+  {
+    "id": "qq_confirm",
+    "type": "quack-out",
+    "z": "qq_tab",
+    "name": "report state",
+    "device": "qq_device",
+    "element": "",
+    "elementName": "",
+    "format": "auto",
+    "x": 580,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "qq_debug",
+    "type": "debug",
+    "z": "qq_tab",
+    "name": "commands",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 370,
+    "y": 320,
+    "wires": []
+  }
+]

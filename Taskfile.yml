@@ -5,6 +5,7 @@ includes:
   contract: ./server/contracttest/Taskfile.yml
   web: ./web/Taskfile.yml
   docs: ./docs/Taskfile.yml
+  nodered: ./integrations/node-red/Taskfile.yml
 
 vars:
   COMPOSE: docker compose -f docker/compose.yaml

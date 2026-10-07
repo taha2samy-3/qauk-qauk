@@ -1,4 +1,5 @@
 'use strict'
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 const { QuackConnection } = require('../lib/connection')
 
@@ -71,6 +72,16 @@ module.exports = function (RED) {
     } catch (err) {
       res.status(400).json({ error: err.message })
     }
+  })
+
+  // Editor helper: a new ECDSA P-256 key pair. The private half goes into this
+  // node's credentials; the public half is pasted into Quack Quack (Admin → Keys).
+  RED.httpAdmin.post('/quackquack/keypair', RED.auth.needsPermission('quack-device.write'), (req, res) => {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    res.json({
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
+    })
   })
 }
 
