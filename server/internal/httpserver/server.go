@@ -19,9 +19,10 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/api"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/gateway"
+	"github.com/taha2samy/quackquack/server/internal/history"
 )
 
-func New(cfg *config.Config, pool *pgxpool.Pool, gw *gateway.Gateway, log *slog.Logger) http.Handler {
+func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway.Gateway, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	// No RealIP: X-Forwarded-For is client-controlled unless a trusted proxy strips it,
 	// and the login rate limiter keys on the peer address.
@@ -50,7 +51,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, gw *gateway.Gateway, log *slog.
 	}
 
 	if cfg.HasRole("api") {
-		a := api.New(cfg, pool, log)
+		a := api.New(cfg, pool, hist, log)
 		// CSRF: reject cross-origin unsafe requests (Sec-Fetch-Site / Origin based).
 		cop := http.NewCrossOriginProtection()
 		for _, o := range cfg.AllowedOrigins {

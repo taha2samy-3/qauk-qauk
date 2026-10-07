@@ -14,6 +14,7 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )

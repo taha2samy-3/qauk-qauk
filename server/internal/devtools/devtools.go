@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
@@ -63,13 +64,13 @@ type fixture struct {
 }
 
 // Seed wipes all data and creates the contract fixture.
-func Seed(ctx context.Context, pool *pgxpool.Pool, out, wsBase, origin string, ttl time.Duration) error {
+func Seed(ctx context.Context, pool *pgxpool.Pool, hist history.Store, out, wsBase, origin string, ttl time.Duration) error {
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements, element_permissions,
 		device_presence, device_connections, outbox, audit_log RESTART IDENTITY CASCADE`); err != nil {
 		return fmt.Errorf("reset: %w", err)
 	}
-	if _, err := pool.Exec(ctx, `TRUNCATE element_event`); err != nil {
-		return fmt.Errorf("reset events: %w", err)
+	if err := hist.Reset(ctx); err != nil {
+		return fmt.Errorf("reset history: %w", err)
 	}
 	svc := service.New(pool)
 	fx := fixture{

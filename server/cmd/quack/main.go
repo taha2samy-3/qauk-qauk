@@ -22,6 +22,9 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/gateway"
 	"github.com/taha2samy/quackquack/server/internal/httpserver"
 	"github.com/taha2samy/quackquack/server/internal/importdjango"
+	"github.com/taha2samy/quackquack/server/internal/history"
+	_ "github.com/taha2samy/quackquack/server/internal/history/clickhouse" // history drivers
+	_ "github.com/taha2samy/quackquack/server/internal/history/timescale"
 	"github.com/taha2samy/quackquack/server/internal/ingest"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/outbox"
@@ -32,7 +35,7 @@ const usage = `quack - Quack Quack backend
 
 Usage:
   quack serve            Run the HTTP server (roles from QUACK_ROLES: api,gateway)
-  quack ingest           Run the TSDB ingester (Redpanda -> TimescaleDB)
+  quack ingest           Run the history ingester (Redpanda -> history store)
   quack migrate          Apply database migrations and create Redpanda topics
   quack admin <cmd>      Admin tasks: create-user, set-password, import-key
   quack import-django    Import data from the legacy Django database
@@ -106,6 +109,13 @@ func openPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 	return retry(ctx, "database", func() (*pgxpool.Pool, error) { return db.Open(ctx, cfg.DatabaseURL) })
 }
 
+// openHistory opens the time-series store (QUACK_HISTORY_DRIVER / _URL).
+func openHistory(ctx context.Context, cfg *config.Config) (history.Store, error) {
+	targets := history.ParseTargets(cfg.HistoryDriver, cfg.HistoryURL, cfg.DatabaseURL)
+	settings := history.Settings{Retention: cfg.HistoryRetention, CompressAfter: cfg.HistoryCompressAfter}
+	return retry(ctx, "history store", func() (history.Store, error) { return history.Open(ctx, targets, settings) })
+}
+
 // retry waits for a dependency (useful under docker compose start ordering).
 func retry[T any](ctx context.Context, what string, fn func() (T, error)) (T, error) {
 	deadline := time.Now().Add(60 * time.Second)
@@ -128,6 +138,15 @@ func migrate(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	log.Info("migrations applied")
+	hist, err := openHistory(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = hist.Close() }()
+	if _, err := retry(ctx, "history store", func() (struct{}, error) { return struct{}{}, hist.Migrate(ctx) }); err != nil {
+		return fmt.Errorf("history: %w", err)
+	}
+	log.Info("history store ready", "driver", cfg.HistoryDriver)
 	if _, err := retry(ctx, "redpanda", func() (struct{}, error) { return struct{}{}, bus.EnsureTopics(ctx, cfg.KafkaBrokers) }); err != nil {
 		return fmt.Errorf("topics: %w", err)
 	}
@@ -141,6 +160,11 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
+	hist, err := openHistory(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = hist.Close() }()
 	producer, err := bus.NewProducer(cfg.KafkaBrokers, cfg.KafkaAcksAll, log)
 	if err != nil {
 		return err
@@ -151,7 +175,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	errc := make(chan error, 4)
 	var gw *gateway.Gateway
 	if cfg.HasRole("gateway") {
-		gw = gateway.New(ctx, cfg, pool, producer, log)
+		gw = gateway.New(ctx, cfg, pool, producer, hist, log)
 		go func() { errc <- gw.Run(ctx) }()
 	}
 	if cfg.HasRole("api") {
@@ -162,7 +186,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpserver.New(cfg, pool, gw, log),
+		Handler:           httpserver.New(cfg, pool, hist, gw, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
@@ -201,19 +225,24 @@ func purgeSessions(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) {
 }
 
 func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	pool, err := openPool(ctx, cfg)
+	hist, err := openHistory(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer func() { _ = hist.Close() }()
+	producer, err := bus.NewProducer(cfg.KafkaBrokers, true, log)
+	if err != nil {
+		return err
+	}
+	defer producer.Close()
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 		mux.Handle("/metrics", httpserverMetrics())
 		_ = (&http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}).ListenAndServe()
 	}()
-	log.Info("ingester started", "group", cfg.IngestGroup)
-	return (&ingest.Ingester{Group: cfg.IngestGroup, Pool: pool, Brokers: cfg.KafkaBrokers, Log: log}).Run(ctx)
+	log.Info("ingester started", "group", cfg.IngestGroup, "history", cfg.HistoryDriver)
+	return (&ingest.Ingester{Group: cfg.IngestGroup, Store: hist, Brokers: cfg.KafkaBrokers, Publisher: producer, Log: log}).Run(ctx)
 }
 
 func importDjango(ctx context.Context, cfg *config.Config, log *slog.Logger, args []string) error {

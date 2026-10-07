@@ -39,7 +39,12 @@ func devCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []st
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		return devtools.Seed(ctx, pool, *out, *wsBase, *origin, cfg.SessionTTL)
+		hist, err := openHistory(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = hist.Close() }()
+		return devtools.Seed(ctx, pool, hist, *out, *wsBase, *origin, cfg.SessionTTL)
 	case "hook":
 		return devtools.Hook(ctx, pool, args[1:])
 	case "demo":
