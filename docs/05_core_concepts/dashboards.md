@@ -3,7 +3,7 @@
 A dashboard is a user-owned grid of widgets. Each widget is bound to one element. Users build dashboards in the web app by dragging widgets from a palette, resizing them and configuring them. The backend stores each dashboard as an opaque JSON `layout` and never interprets it.
 
 <p align="center">
-  <img src="../imgs/screenshots/dashboard-editor-light.png" alt="Dashboard editor: grid on the left, widget palette on the right" width="800"/>
+  <img src="../imgs/screenshots/dashboard-editor-light.webp" alt="Dashboard editor: grid on the left, widget palette on the right" width="800"/>
 </p>
 
 ## Storage and API

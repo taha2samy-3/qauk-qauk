@@ -1,12 +1,21 @@
-db.sqlite3
-*/__pycache__/
-staticfiles/
-media/
+# Build context for server/Dockerfile (context = repo root). Keep it small:
+# the image only needs server/ and web/ sources.
+.git/
+.github/
+.devcontainer/
 .vscode/
-img/
-*.pyc/
-Pipfile
-Pipfile.lock
-*.md
-.gitignore
+.task/
+**/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+web/e2e/
+server/bin/
+docs/
+branding/
 docker/
+*.log
+*.pem
+*.key
+.env
+.env.*

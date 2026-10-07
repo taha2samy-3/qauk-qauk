@@ -14,10 +14,19 @@ tasks:
     deps: [install]
     cmds: [pnpm dev]
   build:
-    desc: Build the static docs site into docs/.vitepress/dist (fails on dead links)
+    desc: Build the static docs site into docs/.vitepress/dist (fails on dead links and page render errors)
     dir: "{{.TASKFILE_DIR}}"
     deps: [install]
-    cmds: [pnpm build]
+    cmds:
+      # VitePress reports "build complete" even when a page throws during
+      # rendering (the page ships empty), so scan the log and fail instead.
+      - |
+        set -o pipefail
+        pnpm build 2>&1 | tee .vitepress/build.log
+        if grep -qE "(TypeError|ReferenceError|SyntaxError):" .vitepress/build.log; then
+          echo "docs: a page failed to render (see the error above)" >&2
+          exit 1
+        fi
   preview:
     desc: Serve the built docs site on http://127.0.0.1:4174
     dir: "{{.TASKFILE_DIR}}"

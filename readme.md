@@ -34,7 +34,7 @@
 **Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices open an authenticated WebSocket and stream telemetry; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in TimescaleDB, so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
 
 <p align="center">
-  <img src="docs/imgs/screenshots/dashboard-view-light.png" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>
+  <img src="docs/imgs/screenshots/dashboard-view-light.webp" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>
 </p>
 
 ## Key features
@@ -124,6 +124,17 @@ task check
 
 Run `task --list` to see every task.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Live dashboard, dark theme](docs/imgs/screenshots/dashboard-view-dark.webp) | ![Dashboard editor with the widget palette](docs/imgs/screenshots/dashboard-editor-light.webp) |
+| **Live dashboard**: gauges, charts, switches and sliders updating in real time | **Drag-and-drop editor**: palette, resize, undo/redo, per-widget settings |
+| ![Sign in page](docs/imgs/screenshots/login-light.webp) | ![Permissions administration](docs/imgs/screenshots/admin-permissions-dark.webp) |
+| **Sign in** | **Administration**: users, groups, keys, devices, permissions, audit log |
+
+More in the [screenshot tour](https://taha2samy.github.io/node_red_-_django-quack_quack-/guide/screenshots). Logos and brand files are on the [brand page](https://taha2samy.github.io/node_red_-_django-quack_quack-/guide/brand).
+
 ## Documentation
 
 The documentation is published as a website at **https://taha2samy.github.io/node_red_-_django-quack_quack-/**. It is built with [VitePress](https://vitepress.dev) from the markdown in [`docs/`](docs/README.md) and deployed by the `Docs` GitHub Actions workflow on every push to `master`. Preview it locally with `task docs:dev` (http://127.0.0.1:5174).
@@ -140,7 +151,7 @@ The documentation is published as a website at **https://taha2samy.github.io/nod
 | [Database schema](docs/06_database/schema.md) | ER diagram and TimescaleDB setup |
 
 <p align="center">
-  <img src="docs/imgs/screenshots/dashboard-editor-light.png" alt="Dashboard editor with the widget palette" width="900"/>
+  <img src="docs/imgs/screenshots/dashboard-editor-light.webp" alt="Dashboard editor with the widget palette" width="900"/>
 </p>
 
 ## License

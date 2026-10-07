@@ -1,6 +1,6 @@
 # Quack Quack brand assets
 
-These files are the source of truth. Copy them where they are needed (`web/public/`, `docs/imgs/`); don't edit the
+These files are the source of truth. Copy them where they are needed (`web/public/`, `docs/public/`); don't edit the
 copies.
 
 ## Logo

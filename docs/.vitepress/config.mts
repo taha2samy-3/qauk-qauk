@@ -11,6 +11,8 @@ const rewrites: Record<string, string> = {
   '01_overview.md': 'guide/overview.md',
   '02_architecture.md': 'guide/architecture.md',
   '03_getting_started.md': 'guide/getting-started.md',
+  '07_screenshots.md': 'guide/screenshots.md',
+  '08_brand.md': 'guide/brand.md',
   '04_api_reference/README.md': 'api/index.md',
   '04_api_reference/:page': 'api/:page',
   '05_core_concepts/README.md': 'concepts/index.md',
@@ -100,6 +102,8 @@ export default withMermaid(
             { text: 'Overview', link: '/guide/overview' },
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'Architecture', link: '/guide/architecture' },
+            { text: 'Screenshots', link: '/guide/screenshots' },
+            { text: 'Brand & logos', link: '/guide/brand' },
           ],
         },
         {

@@ -34,6 +34,8 @@ These docs are for people who **run** the platform (operators), **integrate** wi
    - [Realtime events](./05_core_concepts/realtime_events.md)
    - [Dashboards](./05_core_concepts/dashboards.md)
 6. [Database schema](./06_database/schema.md)
+7. [Screenshots](./07_screenshots.md): a tour of the web app
+8. [Brand & logos](./08_brand.md): logo files, colors and the welcoming ducks
 
 ## Design records
 

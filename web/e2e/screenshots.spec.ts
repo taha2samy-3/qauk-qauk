@@ -1,15 +1,18 @@
 import { expect, test, type Page } from '@playwright/test'
-import { ADMIN, deleteDashboardsNamed, login, uniqueName, useTheme } from './helpers'
+import { ADMIN, deleteDashboardsNamed, login, useTheme } from './helpers'
 
 /**
  * Visual snapshots for review (not pixel assertions): login, dashboard view,
  * editor, devices and admin users, in light and dark. Saved to e2e/screenshots/.
  */
-const NAME = uniqueName('Plant overview')
+// A stable, human name: these screenshots are published in the docs.
+const NAME = 'Plant overview'
 const DIR = 'e2e/screenshots'
 let dashboardId = ''
 
 test.describe.configure({ mode: 'serial' })
+// clear leftovers of an interrupted run first, so there is exactly one
+test.beforeAll(async ({ baseURL }) => deleteDashboardsNamed(baseURL!, [NAME]))
 test.afterAll(async ({ baseURL }) => deleteDashboardsNamed(baseURL!, [NAME]))
 
 type W = { type: string; el: string; title?: string; options?: Record<string, unknown>; at: [number, number, number, number] }

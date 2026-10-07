@@ -1,16 +1,41 @@
+# All dependency updates (Go, npm, Docker, Compose images, GitHub Actions) arrive
+# together in ONE weekly pull request, via a multi-ecosystem group.
+# Security updates still open immediately as their own PRs.
 version: 2
+
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Cairo
+    labels: [dependencies]
+    commit-message:
+      prefix: "deps"
+
 updates:
-  - package-ecosystem: gomod
+  - package-ecosystem: gomod          # server/go.mod
     directory: /server
-    schedule: { interval: weekly }
-    groups: { go: { patterns: ["*"], update-types: [minor, patch] } }
-  - package-ecosystem: npm
-    directory: /web
-    schedule: { interval: weekly }
-    groups: { web: { patterns: ["*"], update-types: [minor, patch] } }
-  - package-ecosystem: docker
-    directories: [/server]
-    schedule: { interval: weekly }
-  - package-ecosystem: github-actions
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: npm            # web app + docs site (pnpm lockfiles)
+    directories: [/web, /docs]
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: docker         # server/Dockerfile base images
+    directory: /server
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: docker-compose # TimescaleDB, Redpanda, Node-RED images
+    directory: /docker
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
+
+  - package-ecosystem: github-actions # .github/workflows/*
     directory: /
-    schedule: { interval: weekly }
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies

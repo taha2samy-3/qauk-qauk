@@ -1,25 +1,29 @@
-venv/*
-db.sqlite3
-*.pyc
-*/__pycache__/
-myproject/*
-.env
-
 # --- Go backend ---
 server/bin/
 *.test
 *.out
 coverage.*
 
-# --- Frontend (also in web/.gitignore) ---
+# --- Node (web app + docs site) ---
 node_modules/
+.vite/
+
+# --- Frontend build and test output (also in web/.gitignore) ---
 web/dist/
 web/coverage/
 web/playwright-report/
 web/test-results/
 web/blob-report/
 web/e2e/.auth/
-.vite/
+# regenerated on every e2e run; docs keep their own copies in docs/imgs/screenshots/
+web/e2e/screenshots/
+
+# --- Docs site (VitePress) ---
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# --- Task runner checksum cache ---
+.task/
 
 # --- Local dev / secrets: never commit ---
 .env
@@ -35,12 +39,3 @@ fixture.json
 .idea/
 *.swp
 .DS_Store
-
-# --- Docs site ---
-
-# --- Docs site (VitePress) ---
-docs/.vitepress/dist/
-docs/.vitepress/cache/
-
-# --- Task runner checksum cache ---
-.task/
