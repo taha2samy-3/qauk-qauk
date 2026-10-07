@@ -4,7 +4,6 @@
  * from other elements. Attributes are discovered from recent live messages.
  */
 import { Plus, Trash2 } from 'lucide-react'
-import { useMemo } from 'react'
 import { Controller, useFieldArray, type Control } from 'react-hook-form'
 import type { MyElement } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -12,23 +11,11 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { discoverFields, type DiscoveredField, type FieldKind } from '@/lib/fieldPath'
+import type { DiscoveredField, FieldKind } from '@/lib/fieldPath'
 import { cn } from '@/lib/utils'
-import { useElement } from '@/realtime/hooks'
 import { X_RECEIVED } from '@/realtime/messages'
 import { ColorSwatches } from './ColorSwatches'
-
-/** Attributes seen in the element's recent messages (newest sample wins). */
-export function useDiscoveredFields(elementId: string | undefined): DiscoveredField[] {
-  const rt = useElement(elementId)
-  return useMemo(
-    () =>
-      discoverFields(
-        [...rt.history.slice(-20).map((f) => f.message), rt.message].filter((m) => m !== undefined),
-      ),
-    [rt.history, rt.message],
-  )
-}
+import { useDiscoveredFields } from './useDiscoveredFields'
 
 function sampleText(v: unknown): string {
   const s = typeof v === 'string' ? `"${v}"` : String(v)

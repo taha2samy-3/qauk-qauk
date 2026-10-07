@@ -1,5 +1,4 @@
 import { ArrowDownRight, ArrowUpRight, Hash, Minus } from 'lucide-react'
-import { useMemo } from 'react'
 import { widgetHint } from '@/api/types'
 import { resolveColor } from '@/lib/chartTheme'
 import { useTheme } from '@/lib/theme'
@@ -43,15 +42,10 @@ function StatWidget({ options, rt }: WidgetRenderProps) {
   const textual = !!mapped || (value === undefined && typeof raw === 'string' && raw !== '')
   const display = mapped ? mapped.label : textual ? String(raw) : formatNumber(value, decimals)
 
-  const { field, scale, offset } = b
-  const series = useMemo(
-    () =>
-      rt.history
-        .slice(-60)
-        .map((f) => readNumber(f.message, field, { scale, offset }))
-        .filter((v): v is number => v !== undefined),
-    [rt.history, field, scale, offset],
-  )
+  const series = rt.history
+    .slice(-60)
+    .map((f) => readNumber(f.message, b.field, b))
+    .filter((v): v is number => v !== undefined)
   const first = series[0]
   const delta = value !== undefined && first !== undefined ? value - first : undefined
   const fontSize = Math.max(

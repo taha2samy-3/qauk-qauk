@@ -1,5 +1,4 @@
 import { LineChart as LineIcon } from 'lucide-react'
-import { useMemo } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import type { EChartsOption } from 'echarts'
 import { fetchHistory, isRangeKey, RANGE_KEYS, RANGES, type RangeKey } from '@/api/history'
@@ -111,125 +110,96 @@ function LineChartWidget({ widget, element, options, rt, local }: WidgetRenderPr
 
   const now = useNow()
   const windowMs = RANGES[range].ms
-  const histData = histories.map((h) => h.data)
-  const seriesPoints = useMemo<Point[][]>(
-    () =>
-      specs.map((sp, i) =>
-        mergePoints(
-          histData[i]?.points ?? [],
-          i === 0 ? rt.history : (extraStates[i - 1]?.history ?? []),
-          sp.o,
-          windowMs,
-          now,
-        ),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      JSON.stringify(specs.map((sp) => [sp.elementId, sp.o])),
-      ...histData,
-      rt.history,
-      extraStates,
+  const seriesPoints: Point[][] = specs.map((sp, i) =>
+    mergePoints(
+      histories[i]?.data?.points ?? [],
+      i === 0 ? rt.history : (extraStates[i - 1]?.history ?? []),
+      sp.o,
       windowMs,
       now,
-    ],
+    ),
   )
   const total = seriesPoints.reduce((n, p) => n + p.length, 0)
   const multi = specs.length > 1
   const loading = histories.some((h) => h.isLoading)
   const failed = histories.every((h) => h.isError)
 
-  const option = useMemo<EChartsOption>(
-    () => ({
-      animation: false,
-      grid: { left: 8, right: 12, top: multi ? 30 : 12, bottom: 4, containLabel: true },
-      legend: multi
-        ? {
-            show: true,
-            top: 0,
-            left: 0,
-            icon: 'roundRect',
-            itemWidth: 10,
-            itemHeight: 4,
-            textStyle: { color: pal.muted, fontSize: 11 },
-          }
-        : { show: false },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: pal.tooltipBg,
-        borderColor: pal.tooltipBorder,
-        textStyle: { color: pal.text, fontSize: 12 },
-        valueFormatter: (v) => `${formatNumber(Number(v), decimals)}${unit ? ` ${unit}` : ''}`,
-      },
-      xAxis: {
-        type: 'time',
-        axisLine: { lineStyle: { color: pal.axis } },
-        axisTick: { show: false },
-        axisLabel: { color: pal.muted, fontSize: 10, hideOverlap: true },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        scale: yMin === undefined && yMax === undefined,
-        min: yMin,
-        max: yMax,
-        axisLabel: { color: pal.muted, fontSize: 10, formatter: (v: number) => formatNumber(v) },
-        splitLine: { lineStyle: { color: pal.grid } },
-      },
-      series: specs.map((sp, i) => ({
-        type: 'line' as const,
-        name: sp.name,
-        data: seriesPoints[i],
-        showSymbol: false,
-        smooth: false,
-        sampling: 'lttb' as const,
-        lineStyle: { width: 1.75, color: sp.color },
-        itemStyle: { color: sp.color },
-        // fill only a single series: stacked fills hide each other
-        areaStyle:
-          area && !multi
-            ? {
-                color: {
-                  type: 'linear' as const,
-                  x: 0,
-                  y: 0,
-                  x2: 0,
-                  y2: 1,
-                  colorStops: [
-                    { offset: 0, color: `${sp.color}55` },
-                    { offset: 1, color: `${sp.color}00` },
-                  ],
-                },
-              }
-            : undefined,
-        markLine:
-          i === 0 && ts.length
-            ? {
-                silent: true,
-                symbol: 'none' as const,
-                label: { show: false },
-                data: ts.map((t) => ({
-                  yAxis: t.value,
-                  lineStyle: { color: resolveColor(t.color, resolved), type: 'dashed' as const, width: 1 },
-                })),
-              }
-            : undefined,
-      })),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      area,
-      decimals,
-      pal,
-      seriesPoints,
-      resolved,
-      ts,
-      unit,
-      yMax,
-      yMin,
-      multi,
-      JSON.stringify(specs.map((sp) => [sp.name, sp.color])),
-    ],
-  )
+  const option: EChartsOption = {
+    animation: false,
+    grid: { left: 8, right: 12, top: multi ? 30 : 12, bottom: 4, containLabel: true },
+    legend: multi
+      ? {
+          show: true,
+          top: 0,
+          left: 0,
+          icon: 'roundRect',
+          itemWidth: 10,
+          itemHeight: 4,
+          textStyle: { color: pal.muted, fontSize: 11 },
+        }
+      : { show: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: pal.tooltipBg,
+      borderColor: pal.tooltipBorder,
+      textStyle: { color: pal.text, fontSize: 12 },
+      valueFormatter: (v) => `${formatNumber(Number(v), decimals)}${unit ? ` ${unit}` : ''}`,
+    },
+    xAxis: {
+      type: 'time',
+      axisLine: { lineStyle: { color: pal.axis } },
+      axisTick: { show: false },
+      axisLabel: { color: pal.muted, fontSize: 10, hideOverlap: true },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      scale: yMin === undefined && yMax === undefined,
+      min: yMin,
+      max: yMax,
+      axisLabel: { color: pal.muted, fontSize: 10, formatter: (v: number) => formatNumber(v) },
+      splitLine: { lineStyle: { color: pal.grid } },
+    },
+    series: specs.map((sp, i) => ({
+      type: 'line' as const,
+      name: sp.name,
+      data: seriesPoints[i],
+      showSymbol: false,
+      smooth: false,
+      sampling: 'lttb' as const,
+      lineStyle: { width: 1.75, color: sp.color },
+      itemStyle: { color: sp.color },
+      // fill only a single series: stacked fills hide each other
+      areaStyle:
+        area && !multi
+          ? {
+              color: {
+                type: 'linear' as const,
+                x: 0,
+                y: 0,
+                x2: 0,
+                y2: 1,
+                colorStops: [
+                  { offset: 0, color: `${sp.color}55` },
+                  { offset: 1, color: `${sp.color}00` },
+                ],
+              },
+            }
+          : undefined,
+      markLine:
+        i === 0 && ts.length
+          ? {
+              silent: true,
+              symbol: 'none' as const,
+              label: { show: false },
+              data: ts.map((t) => ({
+                yAxis: t.value,
+                lineStyle: { color: resolveColor(t.color, resolved), type: 'dashed' as const, width: 1 },
+              })),
+            }
+          : undefined,
+    })),
+  }
 
   return (
     <div
