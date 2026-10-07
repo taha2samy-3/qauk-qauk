@@ -43,6 +43,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, gw *gateway.Gateway, log *slog.
 		for _, p := range []string{"/device/node_red/", "/device/node_red"} {
 			r.Handle(p, gw.DeviceHandler())
 		}
+		r.Get("/device/elements", gw.DeviceElementsHandler().ServeHTTP)
 		for _, p := range []string{"/browser/simple/", "/browser/simple"} {
 			r.Handle(p, gw.BrowserHandler())
 		}

@@ -221,3 +221,44 @@ func TestPresenceSweepAfterCrash(t *testing.T) {
 		t.Fatal("stale lease still present")
 	}
 }
+
+// GET /device/elements lists the calling device's elements with the socket's JWT.
+func TestDeviceElementsEndpoint(t *testing.T) {
+	inst := startInstance(t, "gw-del", false)
+	f := setupRealtime(t, "delist", 5)
+	other := setupRealtime(t, "delist-other", 5)
+	c := newClient(t, inst.URL)
+
+	if r := c.do("GET", "/device/elements", nil); r.Status != http.StatusForbidden {
+		t.Fatalf("no token: status %d", r.Status)
+	}
+	if r := c.do("GET", "/device/elements", nil, "Authorization", "Bearer nope"); r.Status != http.StatusForbidden {
+		t.Fatalf("bad token: status %d", r.Status)
+	}
+	// someone else's key for this device id is rejected
+	if r := c.do("GET", "/device/elements", nil, "Authorization", deviceHeader(t, other.key, f.device.ID.String()).Get("Authorization")); r.Status != http.StatusForbidden {
+		t.Fatalf("wrong key: status %d", r.Status)
+	}
+
+	r := c.do("GET", "/device/elements", nil, "Authorization", deviceHeader(t, f.key, f.device.ID.String()).Get("Authorization"))
+	if r.Status != http.StatusOK {
+		t.Fatalf("status %d: %s", r.Status, r.Body)
+	}
+	var out struct {
+		Device   struct{ ID, Name string }
+		Elements []struct {
+			ID, Name string
+			Points   int
+		}
+	}
+	r.JSON(t, &out)
+	if out.Device.ID != f.device.ID.String() || out.Device.Name != "delist-dev" {
+		t.Fatalf("device = %+v", out.Device)
+	}
+	if len(out.Elements) != 1 || out.Elements[0].ID != f.elem.ID.String() || out.Elements[0].Name != "delist-el" || out.Elements[0].Points != 5 {
+		t.Fatalf("elements = %+v", out.Elements)
+	}
+	if r.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache-control %q", r.Header.Get("Cache-Control"))
+	}
+}

@@ -1,0 +1,382 @@
+<script type="text/javascript">
+  ;(function () {
+    var COLOR = '#F9C74F'
+
+    // Values of a device config node as the editor currently has them. Inside
+    // the config dialog itself the inputs are newer than the node, so read those.
+    function deviceRequest(id, fromDialog) {
+      if (fromDialog) {
+        return {
+          id: id,
+          server: $('#node-config-input-server').val(),
+          deviceId: $('#node-config-input-deviceId').val(),
+          keyFile: $('#node-config-input-keyFile').val(),
+          tls: $('#node-config-input-tls').val() === '_ADD_' ? '' : $('#node-config-input-tls').val(),
+          privateKey: $('#node-config-input-privateKey').val(),
+        }
+      }
+      var cfg = RED.nodes.node(id)
+      if (!cfg) return null
+      return {
+        id: cfg.id,
+        server: cfg.server,
+        deviceId: cfg.deviceId,
+        keyFile: cfg.keyFile,
+        tls: cfg.tls,
+        privateKey: cfg.credentials && cfg.credentials.privateKey,
+      }
+    }
+
+    function fetchElements(body) {
+      return $.ajax({
+        url: 'quackquack/elements',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(body),
+      })
+    }
+
+    function errorText(xhr) {
+      return (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'request failed'
+    }
+
+    // Fills the element <select> of an in/out node from the chosen device.
+    function setupElementPicker(node, emptyLabel) {
+      var $device = $('#node-input-device')
+      var $select = $('#node-input-element')
+      var $tip = $('#quack-element-tip')
+      var current = node.element || ''
+
+      function option(value, text) {
+        return $('<option>').val(value).text(text)
+      }
+      function load() {
+        var chosen = $select.val() || current
+        $select.empty().append(option('', emptyLabel))
+        if (chosen) $select.append(option(chosen, (node.elementName || chosen) + ' (saved)'))
+        $select.val(chosen)
+        var body = deviceRequest($device.val(), false)
+        if (!body) {
+          $tip.text('Choose or add a device first.').show()
+          return
+        }
+        $tip.text('Loading elements…').show()
+        fetchElements(body)
+          .done(function (r) {
+            $select.empty().append(option('', emptyLabel))
+            r.elements.forEach(function (e) {
+              $select.append(option(e.id, e.name).attr('title', e.description || e.id))
+            })
+            var known = r.elements.some(function (e) {
+              return e.id === chosen
+            })
+            if (chosen && !known) $select.append(option(chosen, (node.elementName || chosen) + ' (not on this device)'))
+            $select.val(chosen)
+            $tip.text(r.device.name + ': ' + r.elements.length + ' element' + (r.elements.length === 1 ? '' : 's')).show()
+          })
+          .fail(function (xhr) {
+            $tip.text("Couldn't load the elements: " + errorText(xhr)).show()
+          })
+      }
+      $device.on('change', load)
+      load()
+      $('#quack-element-refresh').on('click', function (e) {
+        e.preventDefault()
+        load()
+      })
+    }
+
+    function saveElementName() {
+      var $sel = $('#node-input-element option:selected')
+      this.elementName = $sel.val() ? $sel.text().replace(/ \((saved|not on this device)\)$/, '') : ''
+    }
+
+    RED.nodes.registerType('quack-device', {
+      category: 'config',
+      defaults: {
+        name: { value: '' },
+        server: { value: 'http://127.0.0.1:8080', required: true },
+        deviceId: {
+          value: '',
+          required: true,
+          validate: RED.validators.regex(/^\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\s*$/),
+        },
+        keyFile: { value: '' },
+        tls: { type: 'tls-config', required: false },
+        lifetime: { value: 60, validate: RED.validators.number() },
+        rate: { value: 50, validate: RED.validators.number() },
+      },
+      credentials: { privateKey: { type: 'password' } },
+      label: function () {
+        return this.name || this.deviceId || 'Quack Quack device'
+      },
+      oneditprepare: function () {
+        var $key = $('#node-config-input-privateKey')
+        // A deployed key is never sent back to the editor; leave it blank to keep it.
+        if ($key.val() === '__PWRD__') {
+          $key.val('').attr('placeholder', 'A key is saved. Paste a new one to replace it.')
+          $key.data('saved', true)
+        }
+        $('#quack-test').on('click', function (e) {
+          e.preventDefault()
+          var $out = $('#quack-test-result').removeClass('quack-ok quack-err').text('Testing…')
+          var body = deviceRequest(this.id, true)
+          if (!body.privateKey && $key.data('saved')) body.privateKey = '__PWRD__'
+          fetchElements(body)
+            .done(function (r) {
+              var names = r.elements
+                .map(function (e) {
+                  return e.name
+                })
+                .join(', ')
+              $out
+                .addClass('quack-ok')
+                .text('✓ ' + r.device.name + ' (' + r.alg + '): ' + r.elements.length + ' elements' + (names ? ': ' + names : ''))
+            })
+            .fail(function (xhr) {
+              $out.addClass('quack-err').text('✗ ' + errorText(xhr))
+            })
+        }.bind(this))
+      },
+      oneditsave: function () {
+        var $key = $('#node-config-input-privateKey')
+        if (!$key.val() && $key.data('saved')) $key.val('__PWRD__')
+      },
+    })
+
+    RED.nodes.registerType('quack-out', {
+      category: 'quack quack',
+      color: COLOR,
+      defaults: {
+        name: { value: '' },
+        device: { value: '', type: 'quack-device', required: true },
+        element: { value: '' },
+        elementName: { value: '' },
+        format: { value: 'auto' },
+      },
+      inputs: 1,
+      outputs: 0,
+      icon: 'quack.svg',
+      align: 'right',
+      paletteLabel: 'quack out',
+      label: function () {
+        return this.name || this.elementName || 'quack out'
+      },
+      oneditprepare: function () {
+        setupElementPicker(this, '— from msg.element_id or msg.topic —')
+      },
+      oneditsave: saveElementName,
+    })
+
+    RED.nodes.registerType('quack-in', {
+      category: 'quack quack',
+      color: COLOR,
+      defaults: {
+        name: { value: '' },
+        device: { value: '', type: 'quack-device', required: true },
+        element: { value: '' },
+        elementName: { value: '' },
+        from: { value: 'users' },
+        format: { value: 'auto' },
+        confirm: { value: false },
+      },
+      inputs: 0,
+      outputs: 1,
+      icon: 'quack.svg',
+      paletteLabel: 'quack in',
+      label: function () {
+        return this.name || this.elementName || 'quack in'
+      },
+      oneditprepare: function () {
+        setupElementPicker(this, '— every element of the device —')
+      },
+      oneditsave: saveElementName,
+    })
+  })()
+</script>
+
+<style>
+  .quack-ok { color: var(--red-ui-text-color-success, #3a7b38); }
+  .quack-err { color: var(--red-ui-text-color-error, #b02a2a); }
+  #node-config-input-privateKey { width: 70%; height: 120px; font-family: monospace; font-size: 11px; }
+</style>
+
+<!-- ───────────────────────── device (config) ───────────────────────── -->
+
+<script type="text/html" data-template-name="quack-device">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" placeholder="Weather station" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-config-input-server" placeholder="http://127.0.0.1:8080" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-deviceId"><i class="fa fa-microchip"></i> Device ID</label>
+    <input type="text" id="node-config-input-deviceId" placeholder="UUID from Admin → Devices" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-privateKey" style="vertical-align: top"><i class="fa fa-key"></i> Private key</label>
+    <textarea id="node-config-input-privateKey" placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"></textarea>
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-keyFile"><i class="fa fa-file-o"></i> or key file</label>
+    <input type="text" id="node-config-input-keyFile" placeholder="/data/device-key.pem (overrides the pasted key)" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-tls"><i class="fa fa-lock"></i> TLS</label>
+    <input type="text" id="node-config-input-tls" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-lifetime"><i class="fa fa-clock-o"></i> Token life</label>
+    <input type="text" id="node-config-input-lifetime" style="width: 80px" /> minutes
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-rate"><i class="fa fa-tachometer"></i> Max rate</label>
+    <input type="text" id="node-config-input-rate" style="width: 80px" /> messages/s (0 = no limit)
+  </div>
+  <div class="form-row">
+    <label></label>
+    <button type="button" id="quack-test" class="red-ui-button"><i class="fa fa-plug"></i> Test connection</button>
+  </div>
+  <div class="form-row"><label></label><span id="quack-test-result"></span></div>
+</script>
+
+<script type="text/markdown" data-help-name="quack-device">
+A device registered on a [Quack Quack](https://github.com/taha2samy-3/qauk-qauk) server. Every
+*quack in* and *quack out* node that uses this device shares one connection.
+
+### Properties
+
+: Server (string) : The platform's address, e.g. `http://127.0.0.1:8080` or `https://iot.example.com`.
+  The full device URL (`ws://…/device/node_red/`) works too.
+: Device ID (string) : The device's UUID, from **Admin → Devices**.
+: Private key (credential) : The device's private key (PEM). The server holds only the public half.
+  ECDSA P-256 keys sign with ES256 and RSA keys (2048 bits or more) with RS256; the algorithm is picked from the key.
+: Key file (string) : A path to read the private key from instead, e.g. a mounted secret. It overrides the pasted key.
+: TLS (tls-config) : Optional CA or client certificate for `https`/`wss` servers.
+: Token life (minutes) : How long each signed token is valid. A fresh token is signed for every connection,
+  so a short life is fine. It must not exceed the server's limit (24 h by default).
+: Max rate (messages/s) : Messages above this rate are rejected here with an error, instead of being dropped
+  silently by the server (its default limit is 50/s per connection).
+
+### Connection
+
+The node reconnects on its own with backoff. If the server refuses the key (403) or revokes the device,
+it waits a minute between attempts, since an admin has to fix it first. **Test connection** signs a token
+and lists the device's elements, without deploying.
+</script>
+
+<!-- ───────────────────────── quack out ───────────────────────── -->
+
+<script type="text/html" data-template-name="quack-out">
+  <div class="form-row">
+    <label for="node-input-device"><i class="fa fa-microchip"></i> Device</label>
+    <input type="text" id="node-input-device" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-element"><i class="fa fa-cube"></i> Element</label>
+    <select id="node-input-element" style="width: 60%"></select>
+    <button type="button" id="quack-element-refresh" class="red-ui-button" title="Reload the element list"><i class="fa fa-refresh"></i></button>
+  </div>
+  <div class="form-row"><label></label><span id="quack-element-tip" class="form-tips" style="display: none"></span></div>
+  <div class="form-row">
+    <label for="node-input-format"><i class="fa fa-code"></i> Payload</label>
+    <select id="node-input-format" style="width: 60%">
+      <option value="auto">wrap plain values as {"value": …}</option>
+      <option value="raw">send msg.payload unchanged</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+</script>
+
+<script type="text/markdown" data-help-name="quack-out">
+Sends telemetry to an element of a Quack Quack device.
+
+### Inputs
+
+: payload (any) : The element's new message. A number, boolean or string is sent as `{"value": payload}`,
+  which dashboards and history charts read directly. An object is sent unchanged, e.g.
+  `{"temperature": 21.5, "humidity": 40}`: widgets can bind to any of its attributes.
+: element_id (string) : The element's ID or name. Used when the node has no element selected.
+: topic (string) : The element's ID or name, if neither the node nor `msg.element_id` sets one.
+
+### Details
+
+With **send msg.payload unchanged**, plain values are sent as they are (e.g. a bare `21.5`).
+
+Element names are matched without regard to case. Names come from the server when the node connects,
+and the list is reloaded when an unknown name arrives, so an element an admin has just created works
+without a redeploy.
+
+A message is rejected with an error (catchable with a *catch* node) when the device is offline, when
+the element is not one of this device's, when it is larger than 64 KiB, or when the rate limit is exceeded.
+Nothing is queued while offline.
+</script>
+
+<!-- ───────────────────────── quack in ───────────────────────── -->
+
+<script type="text/html" data-template-name="quack-in">
+  <div class="form-row">
+    <label for="node-input-device"><i class="fa fa-microchip"></i> Device</label>
+    <input type="text" id="node-input-device" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-element"><i class="fa fa-cube"></i> Element</label>
+    <select id="node-input-element" style="width: 60%"></select>
+    <button type="button" id="quack-element-refresh" class="red-ui-button" title="Reload the element list"><i class="fa fa-refresh"></i></button>
+  </div>
+  <div class="form-row"><label></label><span id="quack-element-tip" class="form-tips" style="display: none"></span></div>
+  <div class="form-row">
+    <label for="node-input-from"><i class="fa fa-user"></i> From</label>
+    <select id="node-input-from" style="width: 60%">
+      <option value="users">dashboard commands only</option>
+      <option value="any">commands and this device's other connections</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-format"><i class="fa fa-code"></i> Payload</label>
+    <select id="node-input-format" style="width: 60%">
+      <option value="auto">unwrap {"value": …} to the value</option>
+      <option value="raw">the message unchanged</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-confirm">&nbsp;</label>
+    <label for="node-input-confirm" style="width: 70%">
+      <input type="checkbox" id="node-input-confirm" style="display: inline-block; width: auto; vertical-align: top" />
+      Confirm commands: send each one back as the new state
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+</script>
+
+<script type="text/markdown" data-help-name="quack-in">
+Receives commands for a Quack Quack device's elements, e.g. a switch or slider moved on a dashboard.
+
+### Outputs
+
+: payload (any) : The command's message. `{"value": 1}` becomes `1` unless *Payload* is set to unchanged.
+: topic (string) : The element's name (or its ID if the name is not known).
+: element_id (string) : The element's ID. Wiring this node into a *quack out* without an element
+  selected sends the reply to the same element.
+: from (object) : Who sent it: `{kind, user_id, username}`. `kind` is `"user"` for dashboard commands
+  and `"device"` for frames from another connection of this same device.
+: last_edit_at (string) : The server's receive time (RFC 3339).
+
+### Details
+
+**Confirming commands.** A dashboard switch waits until the device reports the new state. Either send
+the state yourself after applying the command (e.g. after the GPIO write succeeds, through a *quack out*),
+or tick **Confirm commands** to echo every command back immediately.
+
+The server never sends a frame back to the connection that sent it, so this device's own telemetry does
+not arrive here.
+</script>

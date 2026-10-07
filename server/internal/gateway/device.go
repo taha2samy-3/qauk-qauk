@@ -78,6 +78,59 @@ func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
 	g.deviceDisconnected(d, connAudit)
 }
 
+type deviceElement struct {
+	ID          uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Points      int             `json:"points"`
+	Details     json.RawMessage `json:"details"`
+}
+
+type deviceElementsResponse struct {
+	Device struct {
+		ID   uuid.UUID `json:"id"`
+		Name string    `json:"name"`
+	} `json:"device"`
+	Elements []deviceElement `json:"elements"`
+}
+
+// DeviceElementsHandler serves GET /device/elements: the calling device's own
+// elements, authenticated with the same bearer JWT as the socket. It lets
+// device-side tools (the Node-RED nodes) address elements by name.
+func (g *Gateway) DeviceElementsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := authn.BearerToken(r.Header.Get("Authorization"))
+		if !ok {
+			g.rejectDevice(w, "no_token", nil)
+			return
+		}
+		dk, err := g.verifier.Verify(r.Context(), token)
+		if err != nil {
+			g.rejectDevice(w, "auth", err)
+			return
+		}
+		elems, err := store.ListElements(r.Context(), g.pool, &dk.DeviceID)
+		if err != nil {
+			g.log.Error("gateway: list device elements", "device", dk.DeviceID, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		var out deviceElementsResponse
+		out.Device.ID, out.Device.Name = dk.DeviceID, dk.DeviceName
+		out.Elements = make([]deviceElement, len(elems))
+		for i, e := range elems {
+			details := e.Details
+			if len(details) == 0 {
+				details = json.RawMessage("null")
+			}
+			out.Elements[i] = deviceElement{ID: e.ID, Name: e.Name, Description: e.Description, Points: e.Points, Details: details}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(out)
+	})
+}
+
 func (g *Gateway) rejectDevice(w http.ResponseWriter, reason string, err error) {
 	metrics.WSRejected.WithLabelValues("device", reason).Inc()
 	g.log.Info("gateway: device rejected", "reason", reason, "err", err)
