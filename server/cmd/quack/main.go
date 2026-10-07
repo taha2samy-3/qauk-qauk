@@ -20,11 +20,11 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/db"
 	"github.com/taha2samy/quackquack/server/internal/gateway"
-	"github.com/taha2samy/quackquack/server/internal/httpserver"
-	"github.com/taha2samy/quackquack/server/internal/importdjango"
 	"github.com/taha2samy/quackquack/server/internal/history"
 	_ "github.com/taha2samy/quackquack/server/internal/history/clickhouse" // history drivers
 	_ "github.com/taha2samy/quackquack/server/internal/history/timescale"
+	"github.com/taha2samy/quackquack/server/internal/httpserver"
+	"github.com/taha2samy/quackquack/server/internal/importdjango"
 	"github.com/taha2samy/quackquack/server/internal/ingest"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/outbox"

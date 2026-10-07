@@ -44,9 +44,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 		hist:     hist,
 		replayCh: make(chan replayReq, 1024),
 		hub:      NewHub(),
-		origins: NewOriginPolicy(cfg.AllowedOrigins),
-		ctx:     ctx,
-		ctrlCh:  make(chan *events.Event, 1024),
+		origins:  NewOriginPolicy(cfg.AllowedOrigins),
+		ctx:      ctx,
+		ctrlCh:   make(chan *events.Event, 1024),
 	}
 	g.verifier = &authn.DeviceVerifier{
 		MaxLifetime: cfg.DeviceJWTMaxLifetime,
