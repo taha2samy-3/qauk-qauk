@@ -1,6 +1,6 @@
 # Brand & logos
 
-The source files live in [`branding/`](https://github.com/taha2samy/node_red_-_django-quack_quack-/tree/master/branding)
+The source files live in [`branding/`](https://github.com/taha2samy-3/qauk-qauk/tree/main/branding)
 in the repository. Every file below can be downloaded from this site.
 
 <WavingDuck variant="wave" :width="260" alt="The Quack Quack duck waving hello" />

@@ -11,7 +11,7 @@
   Realtime IoT dashboards and device control: a Go WebSocket gateway, drag-and-drop dashboards,<br/>
   per-element RBAC and full telemetry history in TimescaleDB.
   <br/><br/>
-  <a href="https://taha2samy.github.io/node_red_-_django-quack_quack-/"><strong>Read the docs »</strong></a>
+  <a href="https://taha2samy-3.github.io/qauk-qauk/"><strong>Read the docs »</strong></a>
   <br/><br/>
   <a href="#key-features">Features</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -24,9 +24,9 @@
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19"/>
   <img src="https://img.shields.io/badge/TimescaleDB-PostgreSQL%2017-FDB515?logo=timescale&logoColor=black" alt="TimescaleDB"/>
   <img src="https://img.shields.io/badge/Redpanda-Kafka%20API-E2401B?logo=apachekafka&logoColor=white" alt="Redpanda"/>
-  <a href="https://github.com/taha2samy/node_red_-_django-quack_quack-/actions/workflows/docs.yaml"><img src="https://github.com/taha2samy/node_red_-_django-quack_quack-/actions/workflows/docs.yaml/badge.svg" alt="Docs"/></a>
+  <a href="https://github.com/taha2samy-3/qauk-qauk/actions/workflows/docs.yaml"><img src="https://github.com/taha2samy-3/qauk-qauk/actions/workflows/docs.yaml/badge.svg" alt="Docs"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"/></a>
-  <a href="https://github.com/taha2samy/node_red_-_django-quack_quack-/network/updates"><img src="https://img.shields.io/badge/dependabot-enabled-brightgreen.svg?logo=dependabot" alt="Dependabot"/></a>
+  <a href="https://github.com/taha2samy-3/qauk-qauk/network/updates"><img src="https://img.shields.io/badge/dependabot-enabled-brightgreen.svg?logo=dependabot" alt="Dependabot"/></a>
 </p>
 
 ---
@@ -91,8 +91,8 @@ The Go server also published every message to Redpanda with `acks=all` during th
 **Prerequisites:** Docker with Compose, [mise](https://mise.jdx.dev/), and Node.js with pnpm for the web app.
 
 ```sh
-git clone https://github.com/taha2samy/node_red_-_django-quack_quack-.git
-cd node_red_-_django-quack_quack-
+git clone https://github.com/taha2samy-3/qauk-qauk.git
+cd qauk-qauk
 
 mise install        # Go, Task, golangci-lint (pinned in mise.toml)
 task infra:up       # TimescaleDB on :5433, Redpanda on :19092
@@ -133,11 +133,11 @@ Run `task --list` to see every task.
 | ![Sign in page](docs/imgs/screenshots/login-light.webp) | ![Permissions administration](docs/imgs/screenshots/admin-permissions-dark.webp) |
 | **Sign in** | **Administration**: users, groups, keys, devices, permissions, audit log |
 
-More in the [screenshot tour](https://taha2samy.github.io/node_red_-_django-quack_quack-/guide/screenshots). Logos and brand files are on the [brand page](https://taha2samy.github.io/node_red_-_django-quack_quack-/guide/brand).
+More in the [screenshot tour](https://taha2samy-3.github.io/qauk-qauk/guide/screenshots). Logos and brand files are on the [brand page](https://taha2samy-3.github.io/qauk-qauk/guide/brand).
 
 ## Documentation
 
-The documentation is published as a website at **https://taha2samy.github.io/node_red_-_django-quack_quack-/**. It is built with [VitePress](https://vitepress.dev) from the markdown in [`docs/`](docs/README.md) and deployed by the `Docs` GitHub Actions workflow on every push to `master`. Preview it locally with `task docs:dev` (http://127.0.0.1:5174).
+The documentation is published as a website at **https://taha2samy-3.github.io/qauk-qauk/**. It is built with [VitePress](https://vitepress.dev) from the markdown in [`docs/`](docs/README.md) and deployed by the `Docs` GitHub Actions workflow on every push to `master`. Preview it locally with `task docs:dev` (http://127.0.0.1:5174).
 
 | | |
 |---|---|

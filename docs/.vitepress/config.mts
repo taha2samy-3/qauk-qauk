@@ -40,7 +40,7 @@ function siteUrl(source: string): string | undefined {
   return '/' + out.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
 }
 const base = process.env.DOCS_BASE ?? '/'
-const repo = 'https://github.com/taha2samy/node_red_-_django-quack_quack-'
+const repo = 'https://github.com/taha2samy-3/qauk-qauk'
 
 export default withMermaid(
   defineConfig({
@@ -138,7 +138,7 @@ export default withMermaid(
       ],
       search: { provider: 'local' },
       socialLinks: [{ icon: 'github', link: repo }],
-      editLink: { pattern: `${repo}/edit/master/docs/:path`, text: 'Edit this page on GitHub' },
+      editLink: { pattern: `${repo}/edit/main/docs/:path`, text: 'Edit this page on GitHub' },
       outline: { level: [2, 3] },
       footer: {
         message: 'Released under the MIT License.',

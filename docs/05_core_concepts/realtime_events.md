@@ -39,7 +39,7 @@ Records use the CloudEvents **Kafka binding in structured mode**: the record val
 | `source` | `/quack/gateway/<QUACK_GATEWAY_ID>` or `/quack/api` |
 | `subject` / `partitionkey` | The entity the event is about (element, device, or the changed entity's id) |
 | `time` | Server clock, RFC 3339 UTC, millisecond precision. Ties are broken by `id`. |
-| `dataschema` | The `$id` of the JSON Schema in [`server/schemas/`](https://github.com/taha2samy/node_red_-_django-quack_quack-/tree/master/server/schemas), embedded in the binary |
+| `dataschema` | The `$id` of the JSON Schema in [`server/schemas/`](https://github.com/taha2samy-3/qauk-qauk/tree/main/server/schemas), embedded in the binary |
 
 Versioning: an additive change (a new optional field) keeps the type. A breaking change gets a new `.v2` type **and** a new topic, and producers write to both during the migration. Background: [MESSAGE_FORMATS.md](../refactor/MESSAGE_FORMATS.md).
 

@@ -298,7 +298,7 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_PASSWORD` | *(unset)* | `admin create-user`, `admin set-password` | Password, when you don't pass `--password` or type it on stdin. |
 | `DJANGO_DATABASE_URL` | *(unset)* | `import-django` | Default for `--from`. |
 
-Test-only variables (`CONTRACT_*`, `QUACK_IT_*`, `LOAD_*`, `QUACK_BUILD_FLAGS`) are described in [`server/contracttest/README.md`](https://github.com/taha2samy/node_red_-_django-quack_quack-/blob/master/server/contracttest/README.md).
+Test-only variables (`CONTRACT_*`, `QUACK_IT_*`, `LOAD_*`, `QUACK_BUILD_FLAGS`) are described in [`server/contracttest/README.md`](https://github.com/taha2samy-3/qauk-qauk/blob/main/server/contracttest/README.md).
 
 ## Migrating from the legacy Django server
 

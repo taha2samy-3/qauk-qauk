@@ -2,7 +2,7 @@
 
 This is the protocol for devices: firmware, gateways, scripts and Node-RED flows. It is the legacy "v1" protocol, kept byte-compatible with the Django server, so existing devices work unchanged. The fixes listed in [Changes from the legacy server](#changes-from-the-legacy-server) are the only differences.
 
-The behavior below is pinned by the black-box contract suite ([`server/contracttest/README.md`](https://github.com/taha2samy/node_red_-_django-quack_quack-/blob/master/server/contracttest/README.md)).
+The behavior below is pinned by the black-box contract suite ([`server/contracttest/README.md`](https://github.com/taha2samy-3/qauk-qauk/blob/main/server/contracttest/README.md)).
 
 ## Connection
 
