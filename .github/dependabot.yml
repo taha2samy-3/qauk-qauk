@@ -23,6 +23,10 @@ updates:
   - package-ecosystem: npm            # web app, docs site, Node-RED nodes (pnpm lockfiles)
     directories: [/web, /docs, /integrations/node-red]
     patterns: ["*"]
+    ignore:
+      # typescript-eslint supports TypeScript < 6.1 only; remove once it supports 7.x
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     multi-ecosystem-group: all-dependencies
 
   - package-ecosystem: docker         # server/Dockerfile base images
