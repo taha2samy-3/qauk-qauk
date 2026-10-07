@@ -91,7 +91,7 @@ services:
       migrate: {condition: service_completed_successfully}
 
   node-red:
-    image: nodered/node-red:latest-22
+    image: nodered/node-red:latest-24
     profiles: [tools]
     ports: ["127.0.0.1:1880:1880"]
     volumes: [node_red_data:/data]
