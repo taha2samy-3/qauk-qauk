@@ -1,5 +1,5 @@
 # Build context: repository root (needs server/ and web/).
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
