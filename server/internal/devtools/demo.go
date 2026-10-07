@@ -52,11 +52,14 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 	if err != nil {
 		return err
 	}
+	existing := map[string]bool{}
 	for _, d := range devices {
-		if d.Name == "Greenhouse A" || d.Name == "Boiler room" {
-			fmt.Printf("demo already seeded (device %q exists); nothing to do. Keys: %s\n", d.Name, out)
-			return nil
-		}
+		existing[d.Name] = true
+	}
+	// Keep keys of devices seeded earlier: only missing devices are created.
+	var file DemoFile
+	if b, err := os.ReadFile(out); err == nil {
+		_ = json.Unmarshal(b, &file)
 	}
 	a := service.Actor{Name: "demo"}
 	admin, err := store.GetUserByUsername(ctx, pool, adminUser)
@@ -103,9 +106,18 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 			{"Pressure", "chart", `{"title":"Pressure","unit":"bar"}`, 1.2, 2.4, 30, 300},
 			{"Burner", "switch", `{"title":"Burner"}`, 0, 1, 0, 20},
 		}},
+		// A device that does not speak {"value": N}: one message carries many
+		// attributes (nested GPS, its own epoch-ms timestamp), and the relay
+		// reports and accepts "ON"/"OFF" strings. Bind widgets to attributes.
+		{"Weather station", "ES256", []el{
+			{"Climate", "multi", `{"title":"Climate"}`, 0, 0, 120, 200},
+			{"Gate relay", "relay", `{"title":"Gate relay"}`, 0, 0, 0, 20},
+		}},
 	}
-	var file DemoFile
 	for _, p := range plan {
+		if existing[p.name] {
+			continue
+		}
 		priv, pub, err := genKey(p.alg)
 		if err != nil {
 			return err
@@ -125,8 +137,12 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 			if err != nil {
 				return err
 			}
+			hint := map[string]string{"multi": "chart", "relay": "switch"}[e.kind]
+			if hint == "" {
+				hint = e.kind
+			}
 			if _, err := svc.CreateStyle(ctx, a, store.Style{ElementID: created.ID, Name: "widget",
-				Details: json.RawMessage(fmt.Sprintf(`{"widget":%q}`, e.kind))}); err != nil {
+				Details: json.RawMessage(fmt.Sprintf(`{"widget":%q}`, hint))}); err != nil {
 				return err
 			}
 			for _, sub := range []struct {
@@ -146,7 +162,7 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 	if err := os.WriteFile(out, b, 0o600); err != nil {
 		return err
 	}
-	fmt.Printf("demo ready: admin=%s viewer=viewer/viewer12345 (group operators, read-only); keys in %s\n", adminUser, out)
+	fmt.Printf("demo ready: admin=%s viewer=viewer/viewer12345 (group operators, read-only); %d demo devices, keys in %s\n", adminUser, len(file.Devices), out)
 	return nil
 }
 
@@ -211,6 +227,8 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 			_ = send(e.ID, map[string]any{"value": 0})
 		case "slider":
 			_ = send(e.ID, map[string]any{"value": 30})
+		case "relay":
+			_ = send(e.ID, map[string]any{"relay": "OFF"})
 		}
 	}
 	go func() {
@@ -239,6 +257,21 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 		case now := <-tick.C:
 			t := now.Sub(start).Seconds()
 			for _, e := range d.Elements {
+				if e.Kind == "multi" {
+					w := func(mid, amp, period float64) float64 {
+						return math.Round((mid+amp*math.Sin(2*math.Pi*t/period)+amp*0.08*(rand.Float64()*2-1))*10) / 10
+					}
+					if err := send(e.ID, map[string]any{
+						"temperature": w(24, 6, e.Period),
+						"humidity":    w(55, 15, e.Period*1.3),
+						"battery":     math.Round((3.9-0.2*math.Mod(t/600, 1))*100) / 100,
+						"ts":          now.UnixMilli(),
+						"gps":         map[string]any{"lat": 30.0444, "lng": 31.2357},
+					}); err != nil {
+						return err
+					}
+					continue
+				}
 				if e.Kind != "sensor" && e.Kind != "chart" {
 					continue
 				}

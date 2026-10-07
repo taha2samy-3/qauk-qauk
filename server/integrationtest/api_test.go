@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -316,4 +317,61 @@ func TestUnknownRoutesAndHealth(t *testing.T) {
 		t.Fatalf("openapi: %d", r.Status)
 	}
 	_ = http.StatusOK
+}
+
+func TestHistoryByField(t *testing.T) {
+	in := startInstance(t, "gw-field", false)
+	f := setupRealtime(t, "fieldh", 10)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Minute).Add(-30 * time.Minute)
+	mk := func(i int, payload string) store.EventRow {
+		return store.EventRow{Time: now.Add(time.Duration(i) * time.Second), EventID: uuid.Must(uuid.NewV7()),
+			ElementID: f.elem.ID, DeviceID: f.device.ID, Source: "device", ActorID: "d", ActorName: "d",
+			Payload: json.RawMessage(payload)}
+	}
+	rows := []store.EventRow{
+		mk(1, `{"climate":{"temp":20},"relay":"ON","level":"1.5","ok":true}`),
+		mk(2, `{"climate":{"temp":24},"relay":"OFF","level":"2.5","ok":false}`),
+		mk(3, `{"climate":{"temp":"n/a"},"sensors":[{"v":7}]}`),
+	}
+	if _, err := store.InsertEvents(ctx, pool, rows); err != nil {
+		t.Fatal(err)
+	}
+	c := newClient(t, in.URL)
+	c.login("fieldh-user", "fieldh-user-password")
+	q := func(field string) (avg float64, n int64) {
+		var out struct {
+			Buckets []struct {
+				Avg *float64
+				N   int64
+			} `json:"buckets"`
+		}
+		c.must(200, "GET", "/api/v1/elements/"+f.elem.ID.String()+"/history?step=1h&field="+url.QueryEscape(field)+
+			"&from="+url.QueryEscape(now.Add(-time.Minute).Format(time.RFC3339))+"&to="+url.QueryEscape(now.Add(time.Hour).Format(time.RFC3339)), nil, &out)
+		for _, b := range out.Buckets {
+			n += b.N
+			if b.Avg != nil {
+				avg = *b.Avg
+			}
+		}
+		return avg, n
+	}
+	if avg, n := q("climate.temp"); n != 2 || avg != 22 {
+		t.Fatalf("climate.temp: avg=%v n=%d (non-numeric 'n/a' must be skipped)", avg, n)
+	}
+	if avg, n := q("level"); n != 2 || avg != 2 {
+		t.Fatalf("numeric strings: avg=%v n=%d", avg, n)
+	}
+	if avg, n := q("ok"); n != 2 || avg != 0.5 {
+		t.Fatalf("booleans: avg=%v n=%d", avg, n)
+	}
+	if avg, n := q("sensors[0].v"); n != 1 || avg != 7 {
+		t.Fatalf("array path: avg=%v n=%d", avg, n)
+	}
+	if _, n := q("relay"); n != 0 {
+		t.Fatalf("non-numeric strings must not aggregate: n=%d", n)
+	}
+	if r := c.do("GET", "/api/v1/elements/"+f.elem.ID.String()+"/history?step=1h&field="+url.QueryEscape("a;drop table x"), nil); r.Status != 422 {
+		t.Fatalf("bad field path: %d", r.Status)
+	}
 }
