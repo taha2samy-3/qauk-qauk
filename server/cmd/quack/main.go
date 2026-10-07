@@ -36,7 +36,8 @@ const usage = `quack - Quack Quack backend
 Usage:
   quack serve            Run the HTTP server (roles from QUACK_ROLES: api,gateway)
   quack ingest           Run the history ingester (Redpanda -> history store)
-  quack migrate          Apply database migrations and create Redpanda topics
+  quack migrate          Apply database migrations (core and history) and create Redpanda topics
+  quack history copy     Copy stored history into another backend (see quack history)
   quack admin <cmd>      Admin tasks: create-user, set-password, import-key
   quack import-django    Import data from the legacy Django database
   quack dev <cmd>        Development helpers: seed, hook (contract tests)
@@ -62,6 +63,10 @@ func main() {
 		err = withConfig(ctx, runIngest)
 	case "migrate":
 		err = withConfig(ctx, migrate)
+	case "history":
+		err = withConfig(ctx, func(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+			return historyCmd(ctx, cfg, log, args)
+		})
 	case "admin":
 		err = withConfig(ctx, func(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return adminCmd(ctx, cfg, log, args)

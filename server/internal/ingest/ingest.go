@@ -195,7 +195,7 @@ func ToEvent(value []byte) (history.Event, error) {
 		return history.Event{}, errors.New("event id is not a UUID")
 	}
 	out := history.Event{
-		Time: ev.Time.Time.UTC(), ID: id, ElementID: m.ElementID, DeviceID: m.DeviceID, Source: m.Source,
+		Time: ev.Time.UTC(), ID: id, ElementID: m.ElementID, DeviceID: m.DeviceID, Source: m.Source,
 		ActorID: m.Actor.ID, ActorName: m.Actor.Name, Payload: m.Message,
 	}
 	if len(out.Payload) == 0 {
@@ -203,7 +203,7 @@ func ToEvent(value []byte) (history.Event, error) {
 	}
 	out.Value = history.NumericValue(out.Payload)
 	if m.ClientTS != nil {
-		t := m.ClientTS.Time.UTC()
+		t := m.ClientTS.UTC()
 		out.ClientTS = &t
 	}
 	return out, nil
