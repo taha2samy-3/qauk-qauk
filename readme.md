@@ -9,7 +9,7 @@
 
 <p align="center">
   Realtime IoT dashboards and device control: a Go WebSocket gateway, drag-and-drop dashboards,<br/>
-  per-element RBAC and full telemetry history in TimescaleDB.
+  per-element RBAC and full telemetry history in TimescaleDB or ClickHouse.
   <br/><br/>
   <a href="https://taha2samy-3.github.io/qauk-qauk/"><strong>Read the docs »</strong></a>
   <br/><br/>
@@ -22,7 +22,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26"/>
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19"/>
-  <img src="https://img.shields.io/badge/TimescaleDB-PostgreSQL%2017-FDB515?logo=timescale&logoColor=black" alt="TimescaleDB"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 17"/>
+  <img src="https://img.shields.io/badge/history-TimescaleDB%20%7C%20ClickHouse-FDB515?logo=clickhouse&logoColor=black" alt="History: TimescaleDB or ClickHouse"/>
   <img src="https://img.shields.io/badge/Redpanda-Kafka%20API-E2401B?logo=apachekafka&logoColor=white" alt="Redpanda"/>
   <a href="https://github.com/taha2samy-3/qauk-qauk/actions/workflows/docs.yaml"><img src="https://github.com/taha2samy-3/qauk-qauk/actions/workflows/docs.yaml/badge.svg" alt="Docs"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"/></a>
@@ -31,7 +32,7 @@
 
 ---
 
-**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices open an authenticated WebSocket and stream telemetry; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in TimescaleDB, so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
+**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices open an authenticated WebSocket and stream telemetry; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in a pluggable history store (TimescaleDB or ClickHouse), so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-view-light.webp" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>
@@ -43,7 +44,7 @@
 - **Drag-and-drop dashboards.** A React app with a responsive grid. Widgets: gauge, line chart, stat, switch, slider and device status. Dashboards are private or shared, and sharing never bypasses element permissions.
 - **RBAC per element.** `R` / `RC` grants for users and groups, resolved to the highest grant. Permission and group changes reach open sockets live: they upgrade, downgrade or unsubscribe.
 - **Device security.** Devices sign a JWT with their own RSA (2048+ bit) or ECDSA P-256 key. Inactive keys and tokens without `exp` are rejected, and token lifetime is capped. The server stamps the sender identity; clients cannot spoof it.
-- **TSDB history.** Every device message and user command is written to a TimescaleDB hypertable, with compression, retention and a real-time 1-minute continuous aggregate. History is served by a REST endpoint.
+- **Pluggable history store.** Every device message and user command is stored in **TimescaleDB or ClickHouse**: one setting, the same tested behavior. Each numeric attribute (`temperature`, `gps.lat`) gets its own series with 1-minute rollups. Writes are idempotent, a dead-letter topic catches unstorable data, and the API has cost guards. `quack history copy` moves the data between backends. See [History storage](docs/05_core_concepts/history.md).
 - **Redpanda event bus.** Gateways scale horizontally. Admin changes flow through a transactional outbox, so no committed change is lost.
 - **CloudEvents everywhere.** Bus events are CloudEvents 1.0 with JSON Schema payloads. The REST API is OpenAPI 3.1 with RFC 9457 error bodies.
 - **Admin UI, CLI and audit log.** Manage users, groups, keys, devices, elements and permissions in the web app, through the REST API, or with `quack admin`. Every admin change is recorded in an audit log.
@@ -65,12 +66,14 @@ flowchart LR
   D -- "wss /device/node_red/<br/>JWT" --> GW
   B -- "wss /browser/simple/<br/>session cookie" --> GW
   B -- "https /api/v1/*" --> API
-  API -- "tx + outbox" --> PG[("PostgreSQL + TimescaleDB")]
+  API -- "tx + outbox" --> PG[("PostgreSQL<br/>(metadata)")]
   API -- "control-events.v1" --> RP[("Redpanda")]
-  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1" --> RP
-  GW -- "permissions, presence leases,<br/>history hydrate" --> PG
+  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1<br/>element-state.v1" --> RP
+  GW -- "permissions,<br/>presence leases" --> PG
+  GW -- "replay (batched)" --> H
+  API -- "history API" --> H
   RP -- "element-events.v1" --> IN["quack ingest"]
-  IN -- "batched, idempotent" --> PG
+  IN -- "batched, idempotent" --> H[("History store<br/>TimescaleDB · ClickHouse")]
 ```
 
 The `api` and `gateway` roles run in the same binary (`QUACK_ROLES=api,gateway`) and can be split when you need to scale. The [architecture guide](docs/02_architecture.md) covers the data flows with sequence diagrams.

@@ -107,7 +107,7 @@ erDiagram
     timestamptz disconnected_at
   }
   element_event {
-    timestamptz time "hypertable dimension"
+    timestamptz time "history store (own schema)"
     uuid event_id "CloudEvent id"
     uuid element_id
     uuid device_id
@@ -149,7 +149,7 @@ erDiagram
   users ||--o{ dashboards : owns
   devices ||..o{ device_presence : "live leases"
   devices ||..o{ device_connections : "connection audit"
-  elements ||..o{ element_event : "time series"
+  elements ||..o{ element_event : "history store (no FK)"
   users |o..o{ audit_log : actor
 ```
 
@@ -159,7 +159,7 @@ erDiagram
 - Deleting a **group** cascades to its memberships and grants.
 - Deleting a **device** cascades to its elements, and from there to styles and grants.
 - Deleting a **key** sets `devices.public_key_id` to `NULL`, so those devices can no longer connect.
-- `element_event`, `device_connections`, `device_presence` and `audit_log` keep their rows.
+- `device_connections`, `device_presence` and `audit_log` keep their rows. The history store keeps a deleted element's events until retention drops them (it has no foreign keys into Postgres).
 
 **Constraints worth knowing:**
 
