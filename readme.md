@@ -99,7 +99,13 @@ git clone https://github.com/taha2samy-3/qauk-qauk.git
 cd qauk-qauk
 
 mise install        # Go, Task, golangci-lint (pinned in mise.toml)
-task infra:up       # TimescaleDB on :5433, Redpanda on :19092
+task start          # everything in one command (Ctrl+C stops it); HISTORY=clickhouse for ClickHouse
+```
+
+Or step by step, each piece in its own terminal:
+
+```sh
+task infra:up       # Postgres/TimescaleDB on :5433, Redpanda on :19092 (+ ClickHouse with HISTORY=clickhouse)
 task demo           # migrate, then seed demo devices, users and grants
 task dev            # terminal 1: api + gateway on http://127.0.0.1:8080
 task simulate       # terminal 2: the demo devices stream live values
@@ -111,7 +117,7 @@ Open **http://127.0.0.1:5173** and log in as **admin / admin12345**. The **viewe
 
 To keep history across restarts and fill the history charts, also run the ingester: `task ingest` (terminal 4).
 
-**All in containers.** This command builds one image (backend and frontend) and starts TimescaleDB, Redpanda, migrations, `quack serve` and `quack ingest`:
+**All in containers.** This command builds one image (backend and frontend) and starts Postgres/TimescaleDB, Redpanda, migrations, `quack serve` and `quack ingest` (add `HISTORY=clickhouse` to keep history in ClickHouse):
 
 ```sh
 task up             # http://127.0.0.1:8080
@@ -164,7 +170,8 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 | [Browser WebSocket API](docs/04_api_reference/browser_api.md) | For frontend developers |
 | [REST API](docs/04_api_reference/rest_api.md) | Auth, CSRF, errors, resources (live docs at `/api/docs`) |
 | [Core concepts](docs/05_core_concepts/README.md) | Authentication, permissions, realtime events, dashboards |
-| [Database schema](docs/06_database/schema.md) | ER diagram and TimescaleDB setup |
+| [History storage](docs/05_core_concepts/history.md) | Pluggable history store (TimescaleDB, ClickHouse): data model, guarantees, configuration, benchmark, switching backends, adding a driver |
+| [Database schema](docs/06_database/schema.md) | ER diagram, and the history store schemas for each driver |
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-editor-light.webp" alt="Dashboard editor with the widget palette" width="900"/>
