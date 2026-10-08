@@ -430,7 +430,7 @@ func dump(bs []history.Bucket) []string {
 func ids(evs []history.Event) string {
 	s := ""
 	for _, e := range evs {
-		s += e.ID.String()[:8] + "@" + e.Time.Format("15:04:05.000") + " "
+		s += e.ID.String() + "@" + e.Time.Format("15:04:05.000") + " "
 	}
 	return s
 }
