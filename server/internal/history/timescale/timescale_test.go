@@ -52,3 +52,24 @@ func TestContract(t *testing.T) {
 	}
 	historytest.Run(t, func(t *testing.T) history.Store { return st })
 }
+
+// QUACK_IT_BENCH=1 compares drivers: go test -tags integration -run Bench -v ./internal/history/...
+func TestBench(t *testing.T) {
+	if os.Getenv("QUACK_IT_BENCH") == "" {
+		t.Skip("set QUACK_IT_BENCH=1")
+	}
+	st := openForBench(t)
+	historytest.Bench(t, st, 20, 7200) // 20 elements × 2 h at 1 Hz = 144k events
+}
+
+func openForBench(t *testing.T) history.Store {
+	st, err := timescale.Open(context.Background(), testURL(t), history.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
