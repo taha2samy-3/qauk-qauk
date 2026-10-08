@@ -48,7 +48,7 @@ Stops updates for **this element only**. The server always confirms with `{"type
 { "type": "message_element", "element_id": "e5b1cb93-114e-5609-9dcf-2b7360375e5a", "message": { "value": 1 } }
 ```
 
-Sends a command to the device. `message` is any JSON value and is forwarded unchanged. You must be **subscribed** to the element with **`RC`** permission. The device, and every other subscriber of the element, receives it; the sending socket does not. It is stored in the TSDB with `source = 'user'`, but it is not part of the history replay.
+Sends a command to the device. `message` is any JSON value and is forwarded unchanged. You must be **subscribed** to the element with **`RC`** permission. The device, and every other subscriber of the element, receives it; the sending socket does not. It is stored in the history store with `source = 'user'`, but it is not part of the history replay. A message containing a NUL character (`\u0000`) or an unpaired UTF-16 surrogate is refused with `invalid_format`, because history stores can't keep it.
 
 ## Server → client
 
@@ -85,7 +85,7 @@ Sends a command to the device. `message` is any JSON value and is forwarded unch
 
 This frame carries both live data and the history replay:
 
-- **Replay.** Right after the confirmation you get up to `points` frames with the element's latest **device** messages, oldest → newest. They come from the gateway's memory merged with TimescaleDB, so they survive restarts. No live frame can arrive between the confirmation and the end of the replay. The replay uses ordinary `message_element` frames; there is no separate history frame type.
+- **Replay.** Right after the confirmation you get up to `points` frames with the element's latest **device** messages, oldest → newest. They come from the gateway's memory merged with the [history store](../05_core_concepts/history.md), so they survive restarts. An element with `points = 0` still replays **its latest value** (one frame), when there is one. No live frame can arrive between the confirmation and the end of the replay. The replay uses ordinary `message_element` frames; there is no separate history frame type.
 - **Live.** Device telemetry and other users' commands.
 - **`auth`.** Set by the server, never by the client. For a device, `user_id` is the device UUID (a string) and `username` is the device name. For a user, `user_id` is the user id (a number) and `username` is their username.
 - **`last_edit_at`.** The server time when the message was received, in RFC 3339 UTC with milliseconds.
@@ -131,7 +131,7 @@ The element's device connected (its first socket on any gateway) or disconnected
 |---|---|---|
 | `permission_denied` | `subscribe` to an element that doesn't exist, isn't a UUID, or that you have no grant on | yes |
 | `unauthorized` | `message_element` without an `RC` subscription to that element | yes |
-| `invalid_format` | The frame is not valid JSON (`description`: `invalid JSON message`), `element_id` is missing (`'element_id'`), or `message` is missing in `message_element` (`'message'`) | only for a missing `message` |
+| `invalid_format` | The frame is not valid JSON (`description`: `invalid JSON message`), `element_id` is missing (`'element_id'`), `message` is missing in `message_element` (`'message'`), or `message` contains a NUL character or an unpaired surrogate (`'message' message contains …`) | for `message` problems |
 | `unknown_type` | `type` is missing or unknown (`Unknown message type: <type>`, or `None` when missing) | no |
 | `rate_limited` | More than `QUACK_BROWSER_MSG_RATE` frames per second (default 100, burst 100). The frame was discarded. | no |
 

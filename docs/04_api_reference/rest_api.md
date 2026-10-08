@@ -92,7 +92,9 @@ Errors use **RFC 9457 Problem Details** with `Content-Type: application/problem+
 | `from` | `to - 1h` | Start (RFC 3339, inclusive) |
 | `to` | now | End (RFC 3339, exclusive) |
 | `step` | `raw` | `raw`, or a bucket size: `1m`, `5m`, `15m`, `1h`, `1d` |
-| `limit` | `1000` | Max raw events (1–10000). Raw mode returns the **oldest** `limit` events in the range. |
+| `limit` | `1000` | Max raw events (1–10000). |
+| `newest` | `false` | Raw mode: return the **newest** `limit` events of the range instead of the oldest. Results are in ascending order either way. |
+| `field` | the element's value | Aggregate this attribute of the messages: `temperature`, `gps.lat`, `sensors[0].temp`. Without it, the element's value (`message.value`, a chart's `y`, or a bare number or boolean). Invalid paths return `422`. |
 
 With `step=raw`, the response holds raw events from devices and users:
 
@@ -102,14 +104,16 @@ With `step=raw`, the response holds raw events from devices and users:
                "message": { "value": 24.9 }, "value": 24.9 }] }
 ```
 
-With any other step, the response holds numeric aggregates. They are read from the real-time 1-minute continuous aggregate and re-bucketed, so the newest minutes are included:
+With any other step, the response holds numeric aggregates of one attribute, read from the history store's 1-minute rollup and re-bucketed. The newest minutes are included. Buckets align to the epoch (to midnight UTC for `1d`), not to `from`:
 
 ```json
 { "element_id": "…", "step": "5m",
   "buckets": [{ "t": "2026-10-07T12:30:00Z", "avg": 28.35, "min": 24.22, "max": 30.72, "n": 26 }] }
 ```
 
-Aggregates only include messages with a numeric `value` (see [Device API](./device_api.md#telemetry-device-to-server)). For long ranges, use a bucketed step. The web app's charts use `raw` up to 1 h, `1m` for 6 h, `5m` for 24 h and `1h` for 7 days.
+Numbers, booleans (1/0) and numeric strings count; other values are skipped. See [History storage → What is stored](../05_core_concepts/history.md#what-is-stored). The web app's charts use `raw` (newest 5000) up to 1 h, `1m` for 6 h, `5m` for 24 h and `1h` for 7 days.
+
+**Guards.** One request may ask for at most `QUACK_HISTORY_MAX_BUCKETS` buckets (default 1500, so `1m` covers up to 25 h). Larger requests get `422` with the limit in the message. Each query runs with a timeout (`QUACK_HISTORY_QUERY_TIMEOUT`, default 10 s), and each instance runs at most `QUACK_HISTORY_MAX_QUERIES` (16) at a time. A query that can't start or finish in time gets `503`; retry it, or ask for a shorter range or a larger step.
 
 ### Dashboards
 

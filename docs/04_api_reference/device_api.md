@@ -92,13 +92,15 @@ One JSON object per text frame. There is **no `type` field**.
 | Element kind | Shape | Notes |
 |---|---|---|
 | Sensor, switch, slider | `{"value": 21.5}`, `{"value": 1}` | Switches use `0`/`1` (booleans also work). |
-| Chart series | `{"value": 21.5}` or `{"x": "2026-10-07T10:00:00Z", "y": 21.5}` | Prefer `value`: see the note below. |
+| Chart series | `{"value": 21.5}` or `{"x": "2026-10-07T10:00:00Z", "y": 21.5}` | Both aggregate; a chart's `y` is the element's value. |
+| Several readings | `{"temperature": 21.5, "humidity": 48, "gps": {"lat": 30.04}}` | Dashboards can bind each attribute; each is aggregated separately. |
 
-The TSDB extracts a numeric `value` for aggregates from `message.value`, or from a bare number or boolean message (`true` = 1). A message without one, such as `{"x", "y"}`, is still stored and replayed, but it does not appear in the per-minute aggregates that history charts use for long ranges.
+Every numeric attribute of a message is stored as its own series, with 1-minute rollups, so history charts can show any of them over long ranges. Numbers, booleans (`true` = 1) and numeric strings count. The element's own value is `message.value`, a chart's `y`, or a bare number or boolean. See [History storage](../05_core_concepts/history.md#what-is-stored).
 
 **Silently dropped:** the socket stays open, nothing is sent back, and the drop is logged and counted in `quack_dropped_total`.
 
 - invalid JSON, a missing `element_id` or `message`, or a non-UUID `element_id`
+- a `message` with a NUL character (`\u0000`) or an unpaired UTF-16 surrogate, which history stores can't keep (`quack_dropped_total{reason="unstorable"}`)
 - an element that does not belong to this device, or has been deleted
 - frames over the rate limit (`QUACK_DEVICE_MSG_RATE`, default 50/s per socket, burst 50)
 - binary frames
@@ -166,4 +168,4 @@ These are deliberate fixes. Everything else matches the Django `NodeRedConsumer`
 | **B10** | Any update to the device's connection record (for example, an admin edit) closed the device socket. | Only real connect and disconnect events change presence. Renaming a device no longer disconnects it. |
 | Close codes | Django closed with **1000** for both device delete and key changes, because its `4000` lost a race. | **4000** for device delete, key unassigned or switched (and for browser session revocation). **1000** only when the key itself is edited or deleted, as legacy key rotation did. |
 | New limits | None | 64 KiB per frame, 50 msg/s per socket (excess dropped), 2048-frame outbound queue (1013 on overflow). |
-| History | Replayed from an in-memory cache, lost on restart | Replayed from memory plus TimescaleDB, so values survive restarts. Device telemetry only; user commands are not replayed (same as before). |
+| History | Replayed from an in-memory cache, lost on restart | Replayed from memory plus the history store (TimescaleDB or ClickHouse), so values survive restarts. Device telemetry only; user commands are not replayed (same as before). |

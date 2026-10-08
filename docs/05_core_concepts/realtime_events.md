@@ -4,13 +4,15 @@ Everything that moves between server processes goes over Redpanda as a **CloudEv
 
 ## Topics
 
-There are exactly three topics, created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
+There are five topics, all created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
 
 | Topic | Partitions | Retention | Key | Event type | Producers | Consumers |
 |---|---|---|---|---|---|---|
 | `element-events.v1` | 12 | 7 days | `element_id` | `io.quack.element.message.v1` | gateways | every gateway (broadcast), `quack ingest` (consumer group) |
 | `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1` | outbox relay (`api` role) | every gateway (broadcast) |
 | `presence.v1` | 3 | compacted | `device_id` | `io.quack.device.presence.v1` | gateways | every gateway (broadcast) |
+| `element-state.v1` | 12 | compacted | `element_id` | `io.quack.element.message.v1` (the newest stored device message) | `quack ingest`, after each batch | every gateway, read in full on start to warm the latest values |
+| `element-events.dlq.v1` | 3 | 30 days | `element_id` | the original record, unchanged, plus an `error` header with the reason and a `source` header (topic/partition/offset) | `quack ingest`, for events the history store rejected | operators, to inspect and replay |
 
 Keying by `element_id` keeps each element's messages in order. Gateways read all partitions from the current end, without a consumer group. The ingester reads in a consumer group from the earliest retained offset. You can watch the topics live with `task console` (http://127.0.0.1:8090).
 
@@ -35,7 +37,7 @@ Records use the CloudEvents **Kafka binding in structured mode**: the record val
 
 | Attribute | Value |
 |---|---|
-| `id` | A UUIDv7 (time-ordered). Consumers use it as the idempotency key; the TSDB row is unique on `(time, id)`. |
+| `id` | A UUIDv7 (time-ordered). Consumers use it as the idempotency key; the history store keeps each `id` once. |
 | `source` | `/quack/gateway/<QUACK_GATEWAY_ID>` or `/quack/api` |
 | `subject` / `partitionkey` | The entity the event is about (element, device, or the changed entity's id) |
 | `time` | Server clock, RFC 3339 UTC, millisecond precision. Ties are broken by `id`. |
@@ -104,5 +106,5 @@ The topic is compacted, so it keeps the latest state per device. The source of t
 ## Writing your own consumer
 
 - Use your **own consumer group** and treat the stream as at-least-once: deduplicate on the CloudEvent `id`.
-- For historical queries, read TimescaleDB (`element_event`, `element_value_1m`) instead of replaying the topic. The topic keeps only 7 days.
+- For historical queries, use the history API or read the history store (`element_event`, `element_point`, `element_point_1m` in TimescaleDB or ClickHouse) instead of replaying the topic, which keeps only 7 days. For the latest value of every element, read the compacted `element-state.v1`.
 - Never produce to these topics from outside the platform. Element events must come through a gateway (authentication, actor stamping), and control events through the API (outbox and audit). To act on devices, use the normal APIs with a dedicated user and an `RC` grant, so RBAC and auditing apply.
