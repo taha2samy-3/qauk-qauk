@@ -308,31 +308,75 @@ func scanEvents(rows driver.Rows) ([]history.Event, error) {
 	return out, rows.Err()
 }
 
+// Last reads the newest device events of many elements. It looks back in
+// widening windows (1 h, 1 day, then since) and only widens for elements that
+// still have fewer than n, so busy elements cost a few granules instead of a
+// scan of the whole replay window. ORDER BY is the reversed sorting key, so
+// ClickHouse reads in order and stops early; without FINAL, duplicates (rare:
+// Append inserts only new events) are dropped here.
 func (st *Store) Last(ctx context.Context, elementIDs []uuid.UUID, n int, since time.Time) (map[uuid.UUID][]history.Event, error) {
 	out := map[uuid.UUID][]history.Event{}
 	if len(elementIDs) == 0 || n <= 0 {
 		return out, nil
 	}
-	elIn, args := in(nil, elementIDs)
-	args = append(args, ms(since), n)
-	rows, err := st.conn.Query(ctx, `SELECT `+eventCols+` FROM element_event FINAL
-		WHERE element_id IN `+elIn+` AND source = 'device' AND time >= fromUnixTimestamp64Milli(?, 'UTC')
-		ORDER BY element_id, time DESC, toString(event_id) DESC
-		LIMIT ? BY element_id`, args...)
-	if err != nil {
-		return nil, err
-	}
-	evs, err := scanEvents(rows)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range evs {
-		out[e.ElementID] = append(out[e.ElementID], e)
-	}
-	for id := range out {
-		history.SortEvents(out[id])
+	now := time.Now()
+	pending := elementIDs
+	for _, back := range []time.Duration{time.Hour, 24 * time.Hour, 0} {
+		lo := since
+		if back > 0 {
+			if lo = now.Add(-back); lo.Before(since) {
+				lo = since
+			}
+		}
+		elIn, args := in(nil, pending)
+		args = append(args, ms(lo), n)
+		rows, err := st.conn.Query(ctx, `SELECT `+eventCols+` FROM element_event
+			WHERE element_id IN `+elIn+` AND source = 'device' AND time >= fromUnixTimestamp64Milli(?, 'UTC')
+			ORDER BY element_id DESC, time DESC, event_id DESC
+			LIMIT ? BY element_id`, args...)
+		if err != nil {
+			return nil, err
+		}
+		evs, err := scanEvents(rows)
+		if err != nil {
+			return nil, err
+		}
+		got := map[uuid.UUID][]history.Event{}
+		for _, e := range evs {
+			got[e.ElementID] = append(got[e.ElementID], e)
+		}
+		var next []uuid.UUID
+		for _, id := range pending {
+			es := dedupe(got[id])
+			if len(es) >= n || lo.Equal(since) {
+				if len(es) > 0 {
+					history.SortEvents(es)
+					if over := len(es) - n; over > 0 {
+						es = es[over:]
+					}
+					out[id] = es
+				}
+				continue
+			}
+			next = append(next, id)
+		}
+		if pending = next; len(pending) == 0 || lo.Equal(since) {
+			break
+		}
 	}
 	return out, nil
+}
+
+func dedupe(evs []history.Event) []history.Event {
+	seen := make(map[uuid.UUID]bool, len(evs))
+	out := evs[:0]
+	for _, e := range evs {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func (st *Store) Events(ctx context.Context, q history.EventQuery) ([]history.Event, error) {

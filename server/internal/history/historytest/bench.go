@@ -18,7 +18,8 @@ import (
 // beyond correctness of counts. The store is Reset afterwards.
 func Bench(t *testing.T, s history.Store, elements, perElement int) {
 	ctx := context.Background()
-	start := time.Now().UTC().Add(-time.Duration(perElement) * time.Second).Truncate(time.Hour)
+	// timestamps from now on, like live ingestion (no late-data handling)
+	start := time.Now().UTC().Truncate(time.Minute)
 	ids := make([]uuid.UUID, elements)
 	for i := range ids {
 		ids[i] = uuid.New()
@@ -90,7 +91,7 @@ func Bench(t *testing.T, s history.Store, elements, perElement int) {
 		return len(evs)
 	})
 	timeIt(fmt.Sprintf("replay: last 50 of %d elements", elements), 30, func() int {
-		m, err := s.Last(ctx, ids, 50, start)
+		m, err := s.Last(ctx, ids, 50, start.Add(-30*24*time.Hour)) // the gateway's default replay window
 		if err != nil {
 			t.Fatal(err)
 		}
