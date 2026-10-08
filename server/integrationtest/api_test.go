@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/taha2samy/quackquack/server/internal/events"
@@ -259,20 +260,33 @@ func TestOutboxDeliversControlEvents(t *testing.T) {
 	c := newClient(t, in.URL)
 	c.login("ob-admin", "ob-admin-password")
 
-	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumeTopics(events.TopicControlEvents),
-		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cl.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var g store.Group
 	c.must(201, "POST", "/api/v1/admin/groups", map[string]any{"name": "ob-group"}, &g)
 	var u struct{ ID int64 }
 	c.must(201, "POST", "/api/v1/admin/users", map[string]any{"username": "ob-member", "password": "ob-member-pw"}, &u)
+
+	// Read only what is published from now on: the topic outlives the DB, and
+	// re-reading its whole history is slow under -race.
+	admin, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ends, err := kadm.NewClient(admin).ListEndOffsets(ctx, events.TopicControlEvents)
+	admin.Close()
+	if err != nil || ends.Error() != nil {
+		t.Fatalf("end offsets: %v %v", err, ends.Error())
+	}
+	from := map[string]map[int32]kgo.Offset{events.TopicControlEvents: {}}
+	ends.Each(func(o kadm.ListedOffset) { from[o.Topic][o.Partition] = kgo.NewOffset().At(o.Offset) })
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumePartitions(from), kgo.FetchMaxWait(200*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
 	start := time.Now()
-	since := start.Add(-time.Second) // the topic outlives the DB; ignore older runs
+	since := start.Add(-time.Second)
 	c.must(204, "PUT", fmt.Sprintf("/api/v1/admin/groups/%d/members/%d", g.ID, u.ID), nil, nil)
 	for ctx.Err() == nil {
 		f := cl.PollFetches(ctx)
