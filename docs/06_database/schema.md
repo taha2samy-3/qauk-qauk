@@ -1,13 +1,16 @@
 # 6. Database schema
 
-One PostgreSQL database (17, with the TimescaleDB extension) holds everything: identity, devices, permissions, dashboards, runtime state, the outbox, the audit log and the telemetry time series. The schema is defined by the goose migrations in `server/migrations/`, which are embedded in the binary and applied by `quack migrate`:
+Two stores, both migrated by `quack migrate`:
 
-| Migration | Contents |
+- **PostgreSQL 17** holds identity, devices, permissions, dashboards, runtime state, the outbox and the audit log. Its schema is the goose migrations in `server/migrations/`, embedded in the binary.
+- **The history store** holds the telemetry time series: TimescaleDB (the default, which can be the same Postgres) or ClickHouse. Each driver owns its schema. See [History store](#history-store) below and [History storage](../05_core_concepts/history.md).
+
+| Core migration | Contents |
 |---|---|
 | `00001_core.sql` | Identity, devices, permissions, presence, connections, outbox, audit log |
-| `00002_timeseries.sql` | The `element_event` hypertable, compression, retention, the `element_value_1m` continuous aggregate |
 | `00003_dashboards.sql` | `dashboards` |
-| `00004_realtime_aggregate.sql` | Turns on real-time aggregation for `element_value_1m` |
+
+Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
 ## Entity-relationship diagram
 
@@ -176,9 +179,19 @@ erDiagram
 | `audit_log` | Every admin mutation (same transaction) | Who changed what, with the new state in `data`. Readable at `GET /api/v1/admin/audit`. |
 | `sessions` | Login | Only token hashes. Expired rows are purged hourly. |
 
-## Time series: TimescaleDB
+## History store
 
-### `element_event` hypertable
+The same three tables in every driver:
+
+| Table | One row per | Purpose |
+|---|---|---|
+| `element_event` | element message | The message unchanged (`payload`), the server receive `time`, `event_id` (UUIDv7, the idempotency key), `source` (`device`/`user`), the server-stamped actor, the device's own `client_ts`, and the main numeric `value` |
+| `element_point` | numeric attribute of a message | `(time, element_id, field, value, event_id)`, where `field` is a path such as `temperature`, `gps.lat` or `sensors[0].temp` |
+| `element_point_1m` | element, field and minute | `sum`, `min`, `max`, `n`, re-bucketed into any step by the history API |
+
+Retention (`QUACK_HISTORY_RETENTION`, default 365 days) applies to all three and is re-applied by every `quack migrate`.
+
+### TimescaleDB driver
 
 ```sql
 CREATE TABLE element_event (
@@ -190,58 +203,83 @@ CREATE TABLE element_event (
 );
 SELECT create_hypertable('element_event', 'time', chunk_time_interval => interval '1 day');
 CREATE INDEX element_event_element_time_idx ON element_event (element_id, time DESC);
-```
-
-- **One row per element message**, written by `quack ingest` from `element-events.v1`. That covers device telemetry (`source = 'device'`) and user commands (`source = 'user'`).
-- `time` is the gateway's receive time, which is authoritative. `client_ts` is what the device claimed.
-- `actor_id` and `actor_name` are the server-stamped sender: a device UUID and name, or a user id and username.
-- `payload` is the original `message`. `value` is the number extracted for aggregates: `message.value`, a bare number, or a boolean as 1/0. Otherwise it is `NULL`.
-- **Idempotency.** `UNIQUE (time, event_id)` (the time column must be part of any unique index on a hypertable) plus `ON CONFLICT DO NOTHING` makes re-delivery and full topic replays harmless.
-- **Chunks** are 1 day each. The `(element_id, time DESC)` index serves both the history replay (newest `points` device rows) and range queries.
-
-### Compression and retention
-
-```sql
 ALTER TABLE element_event SET (timescaledb.compress,
     timescaledb.compress_segmentby = 'element_id', timescaledb.compress_orderby = 'time DESC');
-SELECT add_compression_policy('element_event', interval '7 days');
-SELECT add_retention_policy('element_event', interval '365 days');
+
+CREATE TABLE element_point (
+    time timestamptz NOT NULL, element_id uuid NOT NULL, field text NOT NULL,
+    value double precision NOT NULL, event_id uuid NOT NULL,
+    UNIQUE (time, event_id, field)
+);
+SELECT create_hypertable('element_point', 'time', chunk_time_interval => interval '1 day');
+CREATE INDEX element_point_element_field_time_idx ON element_point (element_id, field, time DESC);
+ALTER TABLE element_point SET (timescaledb.compress,
+    timescaledb.compress_segmentby = 'element_id, field', timescaledb.compress_orderby = 'time DESC');
+
+CREATE MATERIALIZED VIEW element_point_1m
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT time_bucket('1 minute', time) AS bucket, element_id, field,
+       sum(value) AS sum, min(value) AS min, max(value) AS max, count(*) AS n
+FROM element_point GROUP BY 1, 2, 3 WITH NO DATA;
+SELECT add_continuous_aggregate_policy('element_point_1m',
+    start_offset => interval '3 days', end_offset => interval '1 minute', schedule_interval => interval '1 minute');
 ```
 
-- Chunks older than **7 days** are compressed, segmented by element so that per-element queries stay fast.
-- Chunks older than **365 days** are dropped.
-- To change either, run `remove_*_policy` and `add_*_policy` in a new migration.
+- **Idempotency.** The unique keys plus `ON CONFLICT DO NOTHING`. Points are written only for events that were actually inserted, in the same transaction, so the rollup never counts a redelivered event twice.
+- **Real-time aggregation** (`materialized_only = false`): queries combine materialized minutes with raw points not yet materialized, so charts include the newest minute. When late events arrive (more than 2 minutes old: catch-up after downtime, or a backfill), the driver refreshes exactly the affected range, because real-time aggregation only covers data newer than the watermark.
+- **Compression** applies to chunks older than `QUACK_HISTORY_COMPRESS_AFTER` (7 days). It is segmented by element (and field), so per-element queries stay fast. Retention policies drop chunks, and rollup buckets, after `QUACK_HISTORY_RETENTION`.
+- `element_point_1m` stores `sum` and `n` rather than `avg`, so buckets of any size re-aggregate exactly: `sum(sum) / sum(n)`.
 
-### Continuous aggregate `element_value_1m` (real-time)
+### ClickHouse driver
 
 ```sql
-CREATE MATERIALIZED VIEW element_value_1m WITH (timescaledb.continuous) AS
-SELECT time_bucket('1 minute', time) AS bucket, element_id,
-       avg(value) AS avg, min(value) AS min, max(value) AS max, count(*) AS n
-FROM element_event WHERE value IS NOT NULL GROUP BY 1, 2 WITH NO DATA;
+CREATE TABLE element_event (
+    time DateTime64(3, 'UTC') CODEC(Delta, ZSTD), event_id UUID, element_id UUID, device_id UUID,
+    source LowCardinality(String), actor_id String, actor_name String,
+    client_ts Nullable(DateTime64(3, 'UTC')), payload String CODEC(ZSTD(3)), value Nullable(Float64)
+) ENGINE = ReplacingMergeTree PARTITION BY toYYYYMM(time) ORDER BY (element_id, time, event_id)
+  TTL toDateTime(time) + toIntervalSecond(<retention>);
 
-SELECT add_continuous_aggregate_policy('element_value_1m',
-    start_offset => interval '2 hours', end_offset => interval '1 minute', schedule_interval => interval '1 minute');
+CREATE TABLE element_point (
+    time DateTime64(3, 'UTC') CODEC(Delta, ZSTD), element_id UUID, field LowCardinality(String),
+    value Float64 CODEC(Gorilla, ZSTD), event_id UUID
+) ENGINE = ReplacingMergeTree PARTITION BY toYYYYMM(time) ORDER BY (element_id, field, time, event_id)
+  TTL toDateTime(time) + toIntervalSecond(<retention>);
 
-ALTER MATERIALIZED VIEW element_value_1m SET (timescaledb.materialized_only = false);  -- 00004
+CREATE TABLE element_point_1m (
+    bucket DateTime('UTC'), element_id UUID, field LowCardinality(String),
+    sum SimpleAggregateFunction(sum, Float64), min SimpleAggregateFunction(min, Float64),
+    max SimpleAggregateFunction(max, Float64), n SimpleAggregateFunction(sum, UInt64)
+) ENGINE = AggregatingMergeTree PARTITION BY toYYYYMM(bucket) ORDER BY (element_id, field, bucket)
+  TTL bucket + toIntervalSecond(<retention>);
+
+CREATE MATERIALIZED VIEW element_point_1m_mv TO element_point_1m AS
+SELECT toStartOfMinute(time) AS bucket, element_id, field,
+       sum(value) AS sum, min(value) AS min, max(value) AS max, count() AS n
+FROM element_point GROUP BY bucket, element_id, field;
 ```
 
-- A background job materializes 1-minute buckets every minute. It covers the window from 2 hours ago up to 1 minute ago.
-- `materialized_only = false` turns on **real-time aggregation**: queries combine the materialized buckets with raw rows that are not materialized yet. Charts therefore include the latest minute. Migration 00004 is needed because TimescaleDB 2.13+ creates continuous aggregates as materialized-only.
-- `GET /api/v1/elements/{id}/history` with any `step` other than `raw` (`1m`, `5m`, `15m`, `1h`, `1d`) re-buckets this view. It computes `avg` weighted by `n`, `min`/`max` of the bucket mins and maxes, and `sum(n)`. `step=raw` reads `element_event`.
-- Only rows with a numeric `value` are aggregated.
+- **Sorting keys start with the element**, so per-element reads touch few granules.
+- **`payload` is text**, returned byte for byte.
+- **Duplicates.** `ReplacingMergeTree` collapses duplicate events on merge, and raw reads use `FINAL`. The materialized view counts every inserted row, so `Append` first checks which events are already stored and inserts only new ones. It writes points before events, so a crash between the two is repaired by the redelivery.
+- **Rollup at insert.** The materialized view fills `element_point_1m` as rows are inserted, so late data is included without any refresh.
+- **Retention.** A changed `QUACK_HISTORY_RETENTION` is applied with `ALTER TABLE … MODIFY TTL` on the next `quack migrate`.
 
 ## Useful queries
 
 ```sql
--- latest 10 values of an element
+-- latest 10 values of an element (history store: TimescaleDB)
 SELECT time, actor_name, payload FROM element_event
 WHERE element_id = '<uuid>' ORDER BY time DESC LIMIT 10;
 
--- hourly averages for the last day
-SELECT time_bucket('1 hour', bucket) AS hour, sum(avg * n) / sum(n) AS avg
-FROM element_value_1m WHERE element_id = '<uuid>' AND bucket > now() - interval '1 day'
+-- hourly averages of an attribute for the last day (TimescaleDB)
+SELECT time_bucket('1 hour', bucket) AS hour, sum(sum) / sum(n) AS avg
+FROM element_point_1m WHERE element_id = '<uuid>' AND field = 'temperature' AND bucket > now() - interval '1 day'
 GROUP BY 1 ORDER BY 1;
+
+-- the same in ClickHouse
+-- SELECT toStartOfHour(bucket) AS hour, sum(sum) / sum(n) AS avg FROM element_point_1m
+-- WHERE element_id = '<uuid>' AND field = 'temperature' AND bucket > now() - INTERVAL 1 DAY GROUP BY hour ORDER BY hour;
 
 -- devices connected right now
 SELECT DISTINCT device_id FROM device_presence WHERE last_seen_at > now() - interval '30 seconds';
@@ -252,4 +290,4 @@ WHERE ep.element_id = '<uuid>'
   AND (ep.user_id = 7 OR ep.group_id IN (SELECT group_id FROM user_groups WHERE user_id = 7));
 ```
 
-To connect in local dev: `psql postgres://quack:quack@127.0.0.1:5433/quack`.
+To connect in local dev: `psql postgres://quack:quack@127.0.0.1:5433/quack`. With `HISTORY=clickhouse`: `clickhouse client --port 19000 --user quack --password quack --database quack`, or the HTTP interface on http://127.0.0.1:18123/play.
