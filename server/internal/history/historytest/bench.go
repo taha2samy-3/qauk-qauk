@@ -3,6 +3,7 @@ package historytest
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -101,6 +102,9 @@ func Bench(t *testing.T, s history.Store, elements, perElement int) {
 		}
 		return n
 	})
+	if os.Getenv("QUACK_IT_BENCH_KEEP") != "" {
+		return // leave the data to measure sizes
+	}
 	if err := s.Reset(ctx); err != nil {
 		t.Fatal(err)
 	}
