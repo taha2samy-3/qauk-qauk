@@ -6,7 +6,7 @@ titleTemplate: Real-time IoT platform
 hero:
   name: Quack Quack
   text: Real-time IoT dashboards, device control and history
-  tagline: Devices and Node-RED stream over WebSockets to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in TimescaleDB.
+  tagline: Devices and Node-RED stream over WebSockets to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in a pluggable history store: TimescaleDB or ClickHouse.
   actions:
     - theme: brand
       text: Get started
@@ -33,8 +33,8 @@ features:
     link: /concepts/authentication
   - icon: 📈
     title: History built in
-    details: Every message is stored in TimescaleDB with compression, retention and per-minute aggregates; dashboards backfill charts from it.
-    link: /database/schema
+    details: Every message is stored in TimescaleDB or ClickHouse (one setting), with per-attribute 1-minute rollups, retention and compression; dashboards backfill charts from it.
+    link: /concepts/history
   - icon: 🛰️
     title: Event bus with standards
     details: Redpanda topics carrying CloudEvents 1.0, JSON Schema and AsyncAPI, plus a transactional outbox, so no change is ever lost.

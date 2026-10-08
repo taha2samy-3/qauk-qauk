@@ -31,7 +31,7 @@ Quack Quack is the realtime core of an IoT system. It sits between **devices**, 
 - A realtime gateway: the device and browser WebSocket protocols, in-memory fan-out, a history replay window per element, presence with leases, bounded queues and rate limits.
 - A REST API (OpenAPI 3.1) for login, the current user's elements, element history, dashboards and a full admin surface (users, groups, keys, devices, elements, styles, permissions, connections, presence, audit log).
 - A React web app with drag-and-drop dashboards, live widgets, history charts with time-range selection, admin pages, and light and dark themes.
-- An ingester that writes every element event from Redpanda into TimescaleDB, batched and idempotent.
+- An ingester that writes every element event from Redpanda into the history store (TimescaleDB or ClickHouse), batched and idempotent, with a dead-letter topic for unstorable data.
 - Admin tooling: `quack admin create-user | set-password | import-key`, and `quack import-django` for migration.
 - Quality gates: unit and integration tests, a 62-test black-box WebSocket contract suite, a load test and Playwright end-to-end tests.
 
@@ -42,9 +42,10 @@ Quack Quack is the realtime core of an IoT system. It sits between **devices**, 
 | Backend language | [Go](https://go.dev/) 1.26 | One binary `quack` with the subcommands `serve`, `ingest`, `migrate`, `admin`, `import-django`, `dev` |
 | HTTP and REST | [chi](https://github.com/go-chi/chi) v5, [huma](https://huma.rocks/) v2 | Routing, an OpenAPI 3.1 spec generated from Go types, request validation, docs UI at `/api/docs` |
 | WebSockets | [coder/websocket](https://github.com/coder/websocket) | Device and browser sockets |
-| Database | [PostgreSQL](https://www.postgresql.org/) 17 + [TimescaleDB](https://www.timescale.com/) | Relational data, plus the `element_event` hypertable and continuous aggregate |
+| Database | [PostgreSQL](https://www.postgresql.org/) 17 | Relational data: identity, devices, permissions, dashboards, outbox, audit |
+| History store | [TimescaleDB](https://www.timescale.com/) (default) or [ClickHouse](https://clickhouse.com/), via [clickhouse-go](https://github.com/ClickHouse/clickhouse-go) v2 | Pluggable time-series backend: events, per-attribute points and 1-minute rollups ([History storage](./05_core_concepts/history.md)) |
 | DB access and migrations | [pgx](https://github.com/jackc/pgx) v5 (hand-written SQL), [goose](https://github.com/pressly/goose) v3 | SQL migrations embedded in the binary |
-| Event bus | [Redpanda](https://redpanda.com/) (Kafka API) via [franz-go](https://github.com/twmb/franz-go) | `element-events.v1`, `control-events.v1`, `presence.v1` |
+| Event bus | [Redpanda](https://redpanda.com/) (Kafka API) via [franz-go](https://github.com/twmb/franz-go) | `element-events.v1`, `control-events.v1`, `presence.v1`, `element-state.v1`, `element-events.dlq.v1` |
 | Event format | [CloudEvents](https://cloudevents.io/) 1.0 + JSON Schema 2020-12 | Bus envelope and payload schemas (`server/schemas/`) |
 | Auth | [golang-jwt](https://github.com/golang-jwt/jwt) v5, argon2id (`x/crypto`) | Device JWTs (RS256/ES256), user passwords, opaque session cookies |
 | Observability | `log/slog` (JSON), [Prometheus client](https://github.com/prometheus/client_golang) | Structured logs and `/metrics` |

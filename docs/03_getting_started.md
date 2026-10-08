@@ -9,7 +9,7 @@
 
 ## Prerequisites
 
-- **Docker** with the Compose plugin (for TimescaleDB and Redpanda).
+- **Docker** with the Compose plugin (for Postgres/TimescaleDB, Redpanda and, optionally, ClickHouse).
 - **[mise](https://mise.jdx.dev/)**. `mise install` installs the pinned Go, [Task](https://taskfile.dev/) and golangci-lint from `mise.toml`.
 - **Node.js 22+ and pnpm** for the web app (`web/package.json` pins `pnpm@11`; mise installs it, or `npm install -g pnpm@11` (Node 25+ no longer ships corepack)).
 
@@ -17,9 +17,18 @@ Every command is a task. Run `task --list` to see them all. The tasks set the de
 
 ## Local development
 
+**One command.** It starts the infrastructure, seeds the demo, then runs the API and gateway, the ingester, the demo devices and the web app. Ctrl+C stops everything; `task stop` stops a run left in the background.
+
+```sh
+task start                    # history in TimescaleDB (the default)
+task start HISTORY=clickhouse # history in ClickHouse (also started)
+```
+
+**Step by step**, to run each piece in its own terminal:
+
 ```sh
 mise install        # Go, Task, golangci-lint
-task infra:up       # TimescaleDB (127.0.0.1:5433) + Redpanda (127.0.0.1:19092)
+task infra:up       # Postgres/TimescaleDB (127.0.0.1:5433) + Redpanda (127.0.0.1:19092); add HISTORY=clickhouse for ClickHouse
 task demo           # build, migrate, seed demo data, write server/bin/demo-devices.json
 task dev            # api + gateway on http://127.0.0.1:8080 (keep running)
 task simulate       # new terminal: the demo devices connect and stream values
@@ -34,17 +43,22 @@ Open **http://127.0.0.1:5173** and log in:
 | `admin` | `admin12345` | Admin, `RC` on every demo element (can move switches and sliders) |
 | `viewer` | `viewer12345` | Member of the `operators` group, which has `R` on every demo element (read-only) |
 
-`task demo` creates two demo devices: *Greenhouse A* (ES256: temperature, humidity, soil moisture, an irrigation pump switch, a fan-speed slider) and *Boiler room* (RS256: water temperature, pressure, a burner switch). Their private keys go to `server/bin/demo-devices.json`, which `task simulate` reads. The simulator echoes every command back as the new state, the way a real actuator would.
+`task demo` creates three demo devices. Their private keys go to `server/bin/demo-devices.json`, which `task simulate` reads.
+- *Greenhouse A* (ES256): temperature, humidity, soil moisture, an irrigation pump switch, a fan-speed slider.
+- *Boiler room* (RS256): water temperature, pressure, a burner switch.
+- *Weather station* (ES256): `Climate`, whose messages are objects (`{temperature, humidity, battery, ts, gps{lat,lng}}`) for trying attribute bindings, and a `Gate relay` that speaks `{"relay": "ON"}`.
 
-> `task demo` adds data every time it runs. A second run creates a second set of demo devices and overwrites `demo-devices.json` with only the new keys. To start from scratch, run `task infra:reset`, then `task infra:up` and `task demo` again.
+The simulator confirms each dashboard command by sending it back as the new state, the way a real actuator would.
+
+> `task demo` is idempotent: it only creates demo devices that are missing. To start from scratch, run `task infra:reset`, then `task start`.
 
 **Optional pieces:**
 
 | Command | What it adds |
 |---|---|
-| `task ingest` | The TSDB writer (metrics on :9100). Without it, live data and the replay of recent values still work, but nothing is written to `element_event`. History charts stay empty, and a restarted gateway cannot replay older values. |
+| `task ingest` | The history writer (metrics on :9100). Without it, live data and the replay of recent values still work, but nothing is stored: history charts stay empty, and a restarted gateway can't replay older values. |
 | `task console` | Redpanda Console on http://127.0.0.1:8090 to inspect topics and CloudEvents. |
-| `task migrate` | Applies migrations and creates the topics. `task dev` and `task demo` already run it. |
+| `task migrate` | Applies the core and history migrations and creates the topics. `task dev` and `task demo` already run it. |
 | `task web:build` | Builds the web app into `web/dist`. `task dev` then also serves it on http://127.0.0.1:8080. |
 
 **Ports:**
@@ -55,6 +69,7 @@ Open **http://127.0.0.1:5173** and log in:
 | 8080 | `quack serve`: REST, WebSockets, API docs at `/api/docs` |
 | 9100 | `quack ingest` health and metrics |
 | 5433 | PostgreSQL + TimescaleDB (user, password and database are all `quack`) |
+| 19000, 18123 | ClickHouse native protocol and HTTP, with `HISTORY=clickhouse` (user and password `quack`, database `quack`) |
 | 19092 | Redpanda Kafka API (external listener) |
 | 8090 | Redpanda Console (`task console`) |
 
@@ -75,6 +90,8 @@ task up               # builds the image (backend + frontend) and starts everyth
 ```
 
 This starts `db`, `redpanda`, a one-shot `migrate`, `quack` (api+gateway on http://127.0.0.1:8080) and `ingest`. It waits until they are healthy. `task docker:build` only builds the image.
+
+`task up HISTORY=clickhouse` also starts the `clickhouse` service, and the containers store history there. It sets `QUACK_HISTORY_DRIVER=clickhouse` and `QUACK_HISTORY_URL=clickhouse://quack:quack@clickhouse:9000/quack`.
 
 The database starts empty. The database port is published on 127.0.0.1:5433, so the host tasks work against this stack too:
 
@@ -294,7 +311,15 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 
 | Variable | Default | Used by | Description |
 |---|---|---|---|
-| `QUACK_DATABASE_URL` | *(required)* | all | PostgreSQL/TimescaleDB URL, e.g. `postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable`. |
+| `QUACK_DATABASE_URL` | *(required)* | all | PostgreSQL URL, e.g. `postgres://quack:quack@127.0.0.1:5433/quack?sslmode=disable`. |
+| `QUACK_HISTORY_DRIVER` | `timescale` | serve, ingest, migrate | History store: `timescale` or `clickhouse`. Comma-separated writes to several (reads use the first). See [History storage](./05_core_concepts/history.md#configuration). |
+| `QUACK_HISTORY_URL` | `QUACK_DATABASE_URL` | serve, ingest, migrate | Timescale: a Postgres URL (the main database or its own). ClickHouse: `clickhouse://user:password@host:9000/database`. |
+| `QUACK_HISTORY_RETENTION` | `8760h` | migrate | Keep history this long (Timescale retention policies, ClickHouse TTL). |
+| `QUACK_HISTORY_COMPRESS_AFTER` | `168h` | migrate | Timescale only: compress chunks older than this. |
+| `QUACK_HISTORY_QUERY_TIMEOUT` | `10s` | serve | Timeout per history API query (then 503). |
+| `QUACK_HISTORY_MAX_QUERIES` | `16` | serve | Concurrent history API queries per instance. |
+| `QUACK_HISTORY_MAX_BUCKETS` | `1500` | serve | Most buckets per history request (larger requests get 422). |
+| `QUACK_HISTORY_REPLAY_WINDOW` | `720h` | serve | How far back the replay looks for an element's last values. |
 | `QUACK_KAFKA_BROKERS` | `localhost:19092` | serve, ingest, migrate | Redpanda seed brokers. |
 | `QUACK_KAFKA_ACKS_ALL` | `true` | serve | `true` means `acks=all` (durable). `false` means `acks=1` (lower latency, may lose events on broker failure). |
 | `QUACK_INGEST_GROUP` | `quack-ingest` | ingest | Consumer group of the ingester. **Use a different value per environment/database** sharing a Redpanda cluster ([why](./02_architecture.md#the-ingester-consumer-group)). |

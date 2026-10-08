@@ -116,6 +116,7 @@ export default withMermaid(
             { text: 'Authentication', link: '/concepts/authentication' },
             { text: 'Permissions', link: '/concepts/permissions' },
             { text: 'Realtime events', link: '/concepts/realtime_events' },
+            { text: 'History storage', link: '/concepts/history' },
             { text: 'Dashboards', link: '/concepts/dashboards' },
           ],
         },

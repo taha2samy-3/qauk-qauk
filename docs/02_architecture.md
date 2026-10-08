@@ -17,12 +17,14 @@ flowchart TB
   end
   P --> API
   P --> GW
-  API -- "tx: change + audit + outbox" --> PG[("PostgreSQL 17<br/>+ TimescaleDB")]
+  API -- "tx: change + audit + outbox" --> PG[("PostgreSQL 17<br/>(metadata)")]
   API -- "outbox relay" --> RP[("Redpanda")]
-  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1" --> RP
-  GW -- "permissions, devices/keys,<br/>presence leases, history" --> PG
+  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1<br/>element-state.v1" --> RP
+  GW -- "permissions, devices/keys,<br/>presence leases" --> PG
+  GW -- "replay (batched)" --> H
+  API -- "history API" --> H
   RP --> IN["quack ingest (xM)"]
-  IN --> PG
+  IN --> H[("History store<br/>TimescaleDB or ClickHouse")]
 ```
 
 Everything server-side is one Go binary, `quack`:
@@ -32,20 +34,22 @@ Everything server-side is one Go binary, `quack`:
 | `quack serve` | The HTTP server. The roles come from `QUACK_ROLES` (default `api,gateway`). |
 | &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
 | &nbsp;&nbsp;role `gateway` | The WebSockets `/device/node_red/` and `/browser/simple/`, in-memory fan-out, per-element history ring buffers, presence leases and the sweeper, and the consumers for all three topics. |
-| `quack ingest` | The TSDB writer. It consumes `element-events.v1` in a consumer group and writes to the `element_event` hypertable. It serves `/healthz` and `/metrics` on `QUACK_HTTP_ADDR`. |
-| `quack migrate` | Applies the goose SQL migrations embedded in the binary, and creates the Redpanda topics if they are missing. Safe to run repeatedly. |
+| `quack ingest` | The history writer. It consumes `element-events.v1` in a consumer group and appends to the [history store](./05_core_concepts/history.md) (events, numeric points and rollups). It publishes each element's newest value to `element-state.v1`, and dead-letters unstorable events to `element-events.dlq.v1`. It serves `/healthz` and `/metrics` on `QUACK_HTTP_ADDR`. |
+| `quack migrate` | Applies the core Postgres migrations and the history store's schema and retention, all embedded in the binary, and creates the Redpanda topics if they are missing. Safe to run repeatedly. |
+| `quack history copy` | Copies stored history into another backend, to move between [history drivers](./05_core_concepts/history.md#switching-backends). |
 | `quack admin ...` | `create-user [--admin]`, `set-password`, `import-key`: bootstrap and emergency tasks that run straight against the database. |
 | `quack import-django` | One-off import from the legacy Django database. |
 | `quack dev ...` | Development helpers: `demo`, `simulate`, plus `seed` and `hook` for the contract suite. |
 
-Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database reachable) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total` and `quack_ingest_lag_seconds`.
+Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database reachable) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total`, `quack_ingest_lag_seconds` and `quack_ingest_dead_letters_total`.
 
 **Infrastructure:**
 
 | Service | Role |
 |---|---|
-| **PostgreSQL + TimescaleDB** | The single database: identity, devices, permissions, dashboards, presence, outbox, audit, and the `element_event` time series. See [Database schema](./06_database/schema.md). |
-| **Redpanda** | A Kafka-compatible durable log. It has exactly three topics, never one per device or element. See [Realtime events](./05_core_concepts/realtime_events.md). |
+| **PostgreSQL** | Identity, devices, permissions, dashboards, presence, outbox and audit. See [Database schema](./06_database/schema.md). |
+| **History store** | Element history, through a pluggable driver: **TimescaleDB** (the default, which can share the Postgres above) or **ClickHouse**. See [History storage](./05_core_concepts/history.md). |
+| **Redpanda** | A Kafka-compatible durable log with a fixed set of topics, never one per device or element. See [Realtime events](./05_core_concepts/realtime_events.md). |
 | **Web app** (`web/`) | React single-page app. In production it is built into the image and served by the `api` role. In development Vite serves it on :5173 and proxies `/api/`, `/browser/` and `/device/` to :8080. |
 
 ## Data flows
@@ -64,7 +68,7 @@ sequenceDiagram
   participant GB as Gateway B
   participant BB as Browser on B
   participant IN as quack ingest
-  participant PG as TimescaleDB
+  participant H as History store
 
   Dev->>GA: {"element_id", "message"}
   Note over GA: rate limit (50 msg/s)<br/>element owned by this device?<br/>stamp actor = device, time = server<br/>build CloudEvent (UUIDv7 id)
@@ -77,7 +81,7 @@ sequenceDiagram
   GB->>GB: append to ring buffer
   GB-->>BB: {"type":"message_element", ...}
   RP-)IN: consumer group QUACK_INGEST_GROUP
-  IN->>PG: INSERT ... ON CONFLICT DO NOTHING
+  IN->>H: Append (idempotent by event id)
 ```
 
 Each frame is serialized **once** per audience (device shape and browser shape), and the same bytes go to every recipient.
@@ -143,39 +147,45 @@ sequenceDiagram
 
 Control events carry **ids only**. Gateways treat them as invalidation hints and re-read Postgres. What each `kind` triggers is listed in [Realtime events](./05_core_concepts/realtime_events.md#control-events).
 
-### Ingest → TSDB
+### Ingest → history store
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant RP as Redpanda (element-events.v1)
   participant IN as quack ingest
-  participant PG as TimescaleDB
+  participant H as History store
 
   loop forever
     IN->>RP: poll up to 1000 records (consumer group)
-    Note over IN: decode CloudEvent, extract value:<br/>message.value, or a bare number/bool<br/>(true=1, false=0), else NULL
-    IN->>PG: INSERT INTO element_event ... SELECT FROM unnest(...) ON CONFLICT DO NOTHING
-    alt insert failed
+    Note over IN: decode CloudEvent, validate the message,<br/>extract numeric points per attribute
+    IN->>H: Append(batch): events + points (+ rollup)
+    alt outage (connection, timeout)
       IN->>IN: retry the same batch every 2 s (offsets not committed)
-    else committed
-      IN->>RP: commit offsets
+    else data rejected by the store
+      IN->>IN: bisect the batch to isolate the bad events
+      IN-)RP: bad events → element-events.dlq.v1 (with the reason)
     end
+    IN-)RP: newest device value per element → element-state.v1 (compacted)
+    IN->>RP: commit offsets
   end
 ```
 
-Delivery is **at least once**. A re-delivered event has the same `(time, event_id)`, so it is skipped. This makes replaying the topic from offset 0 safe.
+Delivery is **at least once**. `Append` skips events it already has (by event id) and never double-counts them in rollups. This makes replaying the topic from offset 0 safe. Details: [History storage → Guarantees](./05_core_concepts/history.md#guarantees).
 
-### History replay (ring buffer + TSDB merge)
+### History replay (ring buffer + history store merge)
 
-A new subscriber receives the element's last `points` **device** messages, oldest first, right after the subscribe confirmation. The gateway serves them from its in-memory ring buffer. The first time an element is subscribed on a gateway, the gateway also merges in the newest rows from TimescaleDB. That way a freshly restarted gateway still replays full history.
+A new subscriber receives the element's last `points` **device** messages, oldest first, right after the subscribe confirmation. The gateway serves them from its in-memory ring buffer. The first time an element is subscribed on a gateway, the gateway also merges in the newest stored events. That way a freshly restarted gateway still replays full history. Stored reads arriving within 5 ms are **batched into one query** for all the elements involved, so opening a large dashboard, or a reconnect storm, costs a handful of queries.
+
+Every gateway also remembers the **latest device message of every element**, from the bus. On start it warms this memory from the compacted topic `element-state.v1`. The latest message is merged into the replay, which covers events not yet written by the ingester. It is also sent to subscribers of elements with `points = 0`, so value widgets open with a value.
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant B as Browser
   participant G as Gateway
-  participant PG as PostgreSQL / TimescaleDB
+  participant PG as PostgreSQL
+  participant H as History store
 
   B->>G: {"type":"subscribe","element_id"}
   G->>PG: load element, max permission, device presence
@@ -183,8 +193,8 @@ sequenceDiagram
     G-->>B: {"type":"error","error_code":"permission_denied"}
   else allowed
     opt first subscribe for this element on this gateway (ring not yet merged)
-      G->>PG: newest `points` rows WHERE source = 'device'
-      Note over G: merge with the ring, dedupe by event id,<br/>sort by time then UUIDv7, keep newest `points`
+      G->>H: Last(elements of this 5 ms batch, max(points, 1)), source = device
+      Note over G: merge with the ring and the latest message,<br/>dedupe by event id, sort by time then UUIDv7,<br/>keep newest `points`
     end
     Note over G: under the element lock (no live frame can overtake the replay)
     G-->>B: {"type":"subscribe","subscribed":true,"permissions","details","connected"}
@@ -193,7 +203,7 @@ sequenceDiagram
   end
 ```
 
-If the TSDB read fails, the replay continues from memory only. User commands (`source = 'user'`) are stored but never replayed. Elements with `points = 0` keep no ring and replay nothing.
+If the history read fails, the replay continues from memory, and the next subscriber retries the read. User commands (`source = 'user'`) are stored but never replayed. Elements with `points = 0` keep no ring and replay only their latest value. A gateway frees an element's state once no device or browser on it uses the element.
 
 For longer ranges, clients use the REST endpoint `GET /api/v1/elements/{id}/history` ([REST API](./04_api_reference/rest_api.md#history)).
 
