@@ -311,9 +311,11 @@ func scanEvents(rows driver.Rows) ([]history.Event, error) {
 // Last reads the newest device events of many elements. It looks back in
 // widening windows (1 h, 1 day, then since) and only widens for elements that
 // still have fewer than n, so busy elements cost a few granules instead of a
-// scan of the whole replay window. ORDER BY is the reversed sorting key, so
-// ClickHouse reads in order and stops early; without FINAL, duplicates (rare:
-// Append inserts only new events) are dropped here.
+// scan of the whole replay window. ORDER BY starts with the reversed sorting
+// key, so ClickHouse reads in order; ties within a millisecond are broken by
+// the id's text form (ClickHouse doesn't order UUIDs bytewise, and UUIDv7 text
+// order is creation order). Without FINAL, duplicates (rare: Append inserts
+// only new events) are dropped here.
 func (st *Store) Last(ctx context.Context, elementIDs []uuid.UUID, n int, since time.Time) (map[uuid.UUID][]history.Event, error) {
 	out := map[uuid.UUID][]history.Event{}
 	if len(elementIDs) == 0 || n <= 0 {
@@ -332,7 +334,7 @@ func (st *Store) Last(ctx context.Context, elementIDs []uuid.UUID, n int, since 
 		args = append(args, ms(lo), n)
 		rows, err := st.conn.Query(ctx, `SELECT `+eventCols+` FROM element_event
 			WHERE element_id IN `+elIn+` AND source = 'device' AND time >= fromUnixTimestamp64Milli(?, 'UTC')
-			ORDER BY element_id DESC, time DESC, event_id DESC
+			ORDER BY element_id DESC, time DESC, toString(event_id) DESC
 			LIMIT ? BY element_id`, args...)
 		if err != nil {
 			return nil, err

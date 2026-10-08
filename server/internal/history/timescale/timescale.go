@@ -191,13 +191,30 @@ func (st *Store) Append(ctx context.Context, evs []history.Event) (int, error) {
 	if !oldest.IsZero() && time.Since(oldest) > lateAfter {
 		// Late data (catch-up after downtime, backfill) may sit below the
 		// aggregate's watermark, where real-time aggregation doesn't look.
-		from := oldest.Truncate(time.Minute)
-		to := newest.Truncate(time.Minute).Add(time.Minute)
-		if _, err := st.pool.Exec(ctx, `CALL refresh_continuous_aggregate('element_point_1m', $1::timestamptz, $2::timestamptz)`, from, to); err != nil {
-			return inserted, fmt.Errorf("timescale: refresh rollup: %w", err)
-		}
+		st.refreshRollup(ctx, oldest.Truncate(time.Minute), newest.Truncate(time.Minute).Add(time.Minute))
 	}
 	return inserted, nil
+}
+
+// refreshRollup materializes [from, to) of the rollup, retrying while
+// TimescaleDB's own policy job (or another ingester) refreshes concurrently
+// (SQLSTATE 55P03). It never fails the Append: the events are committed, and
+// a retried batch would find nothing new to refresh. If every attempt
+// collides, the invalidation log still has the range, and the policy job
+// materializes it within its window (3 days).
+func (st *Store) refreshRollup(ctx context.Context, from, to time.Time) {
+	for attempt := range 8 {
+		_, err := st.pool.Exec(ctx, `CALL refresh_continuous_aggregate('element_point_1m', $1::timestamptz, $2::timestamptz)`, from, to)
+		var pgErr *pgconn.PgError
+		if err == nil || !errors.As(err, &pgErr) || pgErr.Code != "55P03" {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(50*(attempt+1)) * time.Millisecond):
+		}
+	}
 }
 
 // classify marks data errors (bad input, not an outage) so the ingester can

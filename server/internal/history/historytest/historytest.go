@@ -230,6 +230,21 @@ func lastPerElement(t *testing.T, s history.Store) {
 	if len(got) != 2 {
 		t.Fatalf("got %d elements", len(got))
 	}
+	// several events in one millisecond, cut in the middle: the newest by id
+	g4 := newGen()
+	var tied []history.Event
+	for i := range 6 {
+		tied = append(tied, g4.ev(at.Add(time.Hour), history.SourceDevice, fmt.Sprintf(`{"value": %d}`, i)))
+	}
+	mustAppend(t, s, tied...)
+	got, err = s.Last(ctx(t), []uuid.UUID{g4.el}, 4, at.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids(got[g4.el]) != ids(tied[2:]) {
+		t.Fatalf("ties within a millisecond: want the newest 4 by id\n got %s\nwant %s", ids(got[g4.el]), ids(tied[2:]))
+	}
+
 	empty, err := s.Last(ctx(t), nil, 3, at)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("no ids: %v %v", empty, err)
