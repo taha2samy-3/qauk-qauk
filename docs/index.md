@@ -6,7 +6,7 @@ titleTemplate: Real-time IoT platform
 hero:
   name: Quack Quack
   text: Real-time IoT dashboards, device control and history
-  tagline: Devices and Node-RED stream over WebSockets to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in a pluggable history store: TimescaleDB or ClickHouse.
+  tagline: Devices and Node-RED stream over WebSockets to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in a pluggable history store (TimescaleDB or ClickHouse).
   actions:
     - theme: brand
       text: Get started
