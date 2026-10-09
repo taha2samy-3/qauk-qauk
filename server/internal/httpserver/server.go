@@ -53,6 +53,9 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 		r.Get("/device/v1/elements", gw.DeviceElementsHandler().ServeHTTP)
 		r.Post("/device/v1/messages", gw.RESTMessagesHandler().ServeHTTP)
 		r.Get("/device/v1/sync", gw.RESTSyncHandler().ServeHTTP)
+		// gRPC / gRPC-Web / Connect device adapter (docs/04_api_reference/device_grpc_api.md)
+		grpcPath, grpcHandler := gw.GRPCHandler()
+		r.Handle(grpcPath+"*", grpcHandler)
 		for _, p := range []string{"/browser/simple/", "/browser/simple"} {
 			r.Handle(p, gw.BrowserHandler())
 		}

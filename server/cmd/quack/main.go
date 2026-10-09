@@ -218,6 +218,8 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           httpserver.New(cfg, pool, hist, gw, log),
 		ReadHeaderTimeout: 10 * time.Second,
+		// HTTP/2 without TLS (h2c) so gRPC works behind a TLS-terminating proxy.
+		Protocols: protocols(),
 	}
 	go func() {
 		log.Info("listening", "addr", cfg.HTTPAddr, "roles", strings.Join(cfg.Roles, ","), "gateway_id", cfg.GatewayID)
@@ -237,6 +239,13 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
 	return err
+}
+
+func protocols() *http.Protocols {
+	p := new(http.Protocols)
+	p.SetHTTP1(true)
+	p.SetUnencryptedHTTP2(true)
+	return p
 }
 
 func purgeSessions(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) {
