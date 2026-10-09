@@ -68,6 +68,16 @@ func TestEventsMatchSchemas(t *testing.T) {
 	validate(t, c, ctrl)
 	p, _ := events.New(events.TypeDevicePresence, events.GatewaySource("gw-1"), dev.String(), events.DevicePresence{DeviceID: dev, Connected: true, GatewayID: "gw-1"})
 	validate(t, c, p)
+	r, b := 2.5, 5
+	dc, _ := events.New(events.TypeDeviceConfig, events.SourceAPI, dev.String(), events.DeviceConfig{
+		Device: events.DeviceInfo{ID: dev, Name: "d"}, Version: 1,
+		Key:      &events.DeviceKey{ID: uuid.New(), PEM: "-----BEGIN PUBLIC KEY-----", Algorithm: "ES256", Active: true},
+		Elements: []events.ElementConfig{{ID: el, Name: "e", Points: 10, Rate: &r, Burst: &b, OverLimit: "latest"}, {ID: uuid.New(), Name: "f", OverLimit: "drop"}},
+	})
+	validate(t, c, dc)
+	noKey, _ := events.New(events.TypeDeviceConfig, events.SourceAPI, dev.String(), events.DeviceConfig{
+		Device: events.DeviceInfo{ID: dev, Name: "d"}, Elements: []events.ElementConfig{}})
+	validate(t, c, noKey)
 	if _, err := uuid.Parse(m.ID); err != nil || uuid.MustParse(m.ID).Version() != 7 {
 		t.Fatalf("event id must be UUIDv7: %s", m.ID)
 	}

@@ -49,6 +49,17 @@ const elementSchema = z.object({
     .min(0, 'Min 0')
     .max(1000, 'Max 1000'),
   details: jsonObject,
+  // Rate limit: empty = server default (QUACK_ELEMENT_MSG_RATE).
+  msg_rate: z
+    .string()
+    .refine((v) => v.trim() === '' || (Number(v) > 0 && Number(v) <= 1000), 'Between 0 and 1000, or empty'),
+  msg_burst: z
+    .string()
+    .refine(
+      (v) => v.trim() === '' || (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 1000),
+      'A whole number from 1 to 1000, or empty',
+    ),
+  over_limit: z.enum(['drop', 'latest']),
 })
 type ElementValues = z.infer<typeof elementSchema>
 
@@ -75,6 +86,9 @@ function ElementDialog({
       description: element?.description ?? '',
       points: element?.points ?? 100,
       details: element ? pretty(element.details) : DETAILS_TEMPLATE,
+      msg_rate: element?.msg_rate != null ? String(element.msg_rate) : '',
+      msg_burst: element?.msg_burst != null ? String(element.msg_burst) : '',
+      over_limit: element?.over_limit ?? 'drop',
     },
   })
   const create = useAdminMutation(adminApi.createElement, [['admin', 'elements']])
@@ -84,6 +98,12 @@ function ElementDialog({
   const submit = form.handleSubmit(async (v) => {
     setFormError(undefined)
     const details = (parseJson(v.details) as { value: unknown }).value
+    // 0 resets a limit to the server default
+    const limits = {
+      msg_rate: v.msg_rate.trim() === '' ? 0 : Number(v.msg_rate),
+      msg_burst: v.msg_burst.trim() === '' ? 0 : Number(v.msg_burst),
+      over_limit: v.over_limit,
+    }
     try {
       if (element)
         await update.mutateAsync({
@@ -92,6 +112,7 @@ function ElementDialog({
           description: v.description,
           points: v.points,
           details,
+          ...limits,
         })
       else
         await create.mutateAsync({
@@ -100,11 +121,23 @@ function ElementDialog({
           description: v.description,
           points: v.points,
           details,
+          ...limits,
         })
       toast.success(element ? 'Element updated' : `Element ${v.name} created`)
       onOpenChange(false)
     } catch (e) {
-      setFormError(applyProblem(e, form.setError, ['device_id', 'name', 'description', 'points', 'details']))
+      setFormError(
+        applyProblem(e, form.setError, [
+          'device_id',
+          'name',
+          'description',
+          'points',
+          'details',
+          'msg_rate',
+          'msg_burst',
+          'over_limit',
+        ]),
+      )
     }
   })
 
@@ -172,6 +205,57 @@ function ElementDialog({
           {...form.register('points', { valueAsNumber: true })}
         />
       </Field>
+      <fieldset className="grid gap-4 rounded-lg border p-4 sm:grid-cols-3">
+        <legend className="px-1 text-sm font-medium">Rate limit</legend>
+        <Field
+          label="Messages / second"
+          htmlFor="e-rate"
+          error={errors.msg_rate?.message}
+          description="Empty = server default."
+        >
+          <Input
+            id="e-rate"
+            inputMode="decimal"
+            placeholder="default"
+            aria-invalid={!!errors.msg_rate}
+            {...form.register('msg_rate')}
+          />
+        </Field>
+        <Field label="Burst" htmlFor="e-burst" error={errors.msg_burst?.message} description="Empty = the rate.">
+          <Input
+            id="e-burst"
+            inputMode="numeric"
+            placeholder="= rate"
+            aria-invalid={!!errors.msg_burst}
+            {...form.register('msg_burst')}
+          />
+        </Field>
+        <Field
+          label="Over the limit"
+          error={errors.over_limit?.message}
+          description={
+            form.watch('over_limit') === 'latest'
+              ? 'Keep the newest value and send it when allowed.'
+              : 'Discard extra messages.'
+          }
+        >
+          <Controller
+            control={form.control}
+            name="over_limit"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger aria-label="Over the limit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="drop">Drop</SelectItem>
+                  <SelectItem value="latest">Keep latest</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </Field>
+      </fieldset>
       <Field
         label="Details (JSON)"
         htmlFor="e-details"
@@ -380,6 +464,24 @@ export function ElementsPage() {
       cell: (e) => <span className="tabular">{e.points}</span>,
       className: 'text-right',
       headClassName: 'text-right',
+    },
+    {
+      id: 'limit',
+      header: 'Rate limit',
+      sortValue: (e) => e.msg_rate ?? 0,
+      cell: (e) =>
+        e.msg_rate == null ? (
+          <span className="text-muted-foreground">default</span>
+        ) : (
+          <span className="tabular whitespace-nowrap">
+            {e.msg_rate}/s
+            {e.over_limit === 'latest' && (
+              <Badge variant="muted" className="ml-1.5">
+                latest
+              </Badge>
+            )}
+          </span>
+        ),
     },
     {
       id: 'details',
