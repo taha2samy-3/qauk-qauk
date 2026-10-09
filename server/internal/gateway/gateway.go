@@ -22,10 +22,15 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/registry"
 )
 
+// publisher sends events to the bus (a *bus.Producer; fakes in tests).
+type publisher interface {
+	Publish(ctx context.Context, topic string, ev *events.Event)
+}
+
 type Gateway struct {
 	cfg      *config.Config
 	pool     *pgxpool.Pool
-	producer *bus.Producer
+	producer publisher
 	log      *slog.Logger
 	hub      *Hub
 	verifier *authn.DeviceVerifier

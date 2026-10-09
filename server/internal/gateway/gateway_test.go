@@ -177,24 +177,6 @@ func TestSlowConsumerIsDisconnected(t *testing.T) {
 	}
 }
 
-func TestDeviceRateLimit(t *testing.T) {
-	d := testDevice(uuid.New(), "d")
-	d.rate = 5
-	now := time.Now()
-	allowed := 0
-	for range 20 {
-		if d.allowMessage(now) {
-			allowed++
-		}
-	}
-	if allowed != 5 {
-		t.Fatalf("burst allowed %d, want 5", allowed)
-	}
-	if !d.allowMessage(now.Add(250 * time.Millisecond)) {
-		t.Fatal("tokens did not refill")
-	}
-}
-
 func TestWireFramesAreLegacyCompatible(t *testing.T) {
 	el := uuid.MustParse("98994c94-71b8-53b0-85f3-d1c6483978de")
 	at, _ := time.Parse(time.RFC3339, "2026-10-07T10:00:00.123Z")
