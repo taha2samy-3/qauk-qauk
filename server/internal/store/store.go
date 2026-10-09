@@ -114,6 +114,10 @@ type Element struct {
 	Description string          `db:"description" json:"description"`
 	Details     json.RawMessage `db:"details" json:"details"`
 	CreatedAt   time.Time       `db:"created_at" json:"created_at"`
+	// Rate limit: nil means the server default (QUACK_ELEMENT_MSG_RATE).
+	MsgRate   *float64 `db:"msg_rate" json:"msg_rate" doc:"Messages per second; null = server default"`
+	MsgBurst  *int     `db:"msg_burst" json:"msg_burst" doc:"Bucket size; null = same as the rate"`
+	OverLimit string   `db:"over_limit" json:"over_limit" enum:"drop,latest" doc:"drop: discard extra messages; latest: keep the newest and send it when the bucket refills"`
 }
 
 type Style struct {

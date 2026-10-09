@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.device.config.v1",
+  "title": "Device config snapshot (device-config.v1, compacted)",
+  "type": "object",
+  "required": ["device", "key", "elements", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 50}
+      }
+    },
+    "key": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["id", "pem", "algorithm", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {"type": "string", "format": "uuid"},
+            "pem": {"type": "string", "minLength": 1},
+            "algorithm": {"enum": ["RS256", "ES256"]},
+            "active": {"type": "boolean"}
+          }
+        }
+      ]
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "points", "rate", "burst", "over_limit"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 50},
+          "points": {"type": "integer", "minimum": 0, "maximum": 1000},
+          "rate": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "burst": {"type": ["integer", "null"], "minimum": 1},
+          "over_limit": {"enum": ["drop", "latest"]}
+        }
+      }
+    },
+    "version": {"type": "integer", "minimum": 0}
+  }
+}

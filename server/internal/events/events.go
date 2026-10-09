@@ -20,10 +20,15 @@ const (
 	// TopicElementEventsDLQ receives element events the history store
 	// rejected, unchanged, with the reason in the "error" header.
 	TopicElementEventsDLQ = "element-events.dlq.v1"
+	// TopicDeviceConfig holds a full snapshot per device (compacted, keyed by
+	// device id; a deleted device gets a tombstone). Gateways keep it in
+	// memory, so device authentication needs no database round-trip.
+	TopicDeviceConfig = "device-config.v1"
 
 	TypeElementMessage = "io.quack.element.message.v1"
 	TypeControlChanged = "io.quack.control.changed.v1"
 	TypeDevicePresence = "io.quack.device.presence.v1"
+	TypeDeviceConfig   = "io.quack.device.config.v1"
 
 	SourceAPI         = "/quack/api"
 	ContentTypeHeader = "application/cloudevents+json"
@@ -154,6 +159,37 @@ type DevicePresence struct {
 	DeviceID  uuid.UUID `json:"device_id"`
 	Connected bool      `json:"connected"`
 	GatewayID string    `json:"gateway_id"`
+}
+
+// DeviceConfig is everything a gateway needs to serve one device. Version
+// increases with every change of the device, so a reader can ignore a stale
+// snapshot (e.g. a database fallback read that raced a newer record).
+type DeviceConfig struct {
+	Device   DeviceInfo      `json:"device"`
+	Key      *DeviceKey      `json:"key"`
+	Elements []ElementConfig `json:"elements"`
+	Version  int64           `json:"version"`
+}
+
+type DeviceInfo struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+type DeviceKey struct {
+	ID        uuid.UUID `json:"id"`
+	PEM       string    `json:"pem"`
+	Algorithm string    `json:"algorithm"`
+	Active    bool      `json:"active"`
+}
+
+type ElementConfig struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Points    int       `json:"points"`
+	Rate      *float64  `json:"rate"`
+	Burst     *int      `json:"burst"`
+	OverLimit string    `json:"over_limit"`
 }
 
 // Control is a convenience constructor for control-change events from the API.

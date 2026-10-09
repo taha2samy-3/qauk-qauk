@@ -35,7 +35,21 @@ type Config struct {
 
 	// DeviceJWTMaxLifetime caps exp-iat (or exp-now when iat is absent) for device tokens.
 	DeviceJWTMaxLifetime time.Duration `env:"QUACK_DEVICE_JWT_MAX_LIFETIME" envDefault:"24h"`
-	DeviceMsgRate        float64       `env:"QUACK_DEVICE_MSG_RATE" envDefault:"50"`
+	// DeviceMsgRate is a fixed guard on all messages of one device (msgs/s),
+	// including frames that name no valid element. Element limits are below.
+	DeviceMsgRate float64 `env:"QUACK_DEVICE_MSG_RATE" envDefault:"500"`
+	// ElementMsgRate is the default rate of an element without its own limit;
+	// ElementMsgRateMax is the highest rate an admin may set on an element.
+	ElementMsgRate    float64 `env:"QUACK_ELEMENT_MSG_RATE" envDefault:"50"`
+	ElementMsgRateMax float64 `env:"QUACK_ELEMENT_MSG_RATE_MAX" envDefault:"1000"`
+	// RateLimitDriver selects where rate-limit buckets live: "local" (in
+	// memory, per instance). See docs/refactor/DEVICE_ADAPTERS_PLAN.md.
+	RateLimitDriver string `env:"QUACK_RATELIMIT_DRIVER" envDefault:"local"`
+	// SyncMaxWait caps the long-poll wait of GET /device/v1/sync.
+	SyncMaxWait time.Duration `env:"QUACK_SYNC_MAX_WAIT" envDefault:"60s"`
+	// StreamMaxAge closes long gRPC streams (plus jitter) so clients
+	// reconnect and spread over new instances.
+	StreamMaxAge time.Duration `env:"QUACK_STREAM_MAX_AGE" envDefault:"30m"`
 	// BrowserMsgRate bounds subscribe/command frames per browser socket (each may hit the DB).
 	BrowserMsgRate float64 `env:"QUACK_BROWSER_MSG_RATE" envDefault:"100"`
 
