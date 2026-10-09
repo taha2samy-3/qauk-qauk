@@ -93,7 +93,7 @@ func (g *Gateway) restAuth(w http.ResponseWriter, r *http.Request) (*registry.De
 		restError(w, http.StatusForbidden, "device_header_mismatch", DeviceHeader+" must be the id in the token")
 		return nil, false
 	}
-	g.rest.touch(g, dev.ID, r)
+	g.rest.touch(g, dev.ID, "rest", r.RemoteAddr, r.UserAgent())
 	return dev, true
 }
 
@@ -458,7 +458,8 @@ func parseWait(s string, maxWait time.Duration) (time.Duration, error) {
 
 // --- presence of connectionless devices ---
 
-// restPresence tracks devices active over REST on this instance. A device
+// restPresence tracks devices active over request/response calls (REST, and
+// unary gRPC) on this instance. A device
 // counts as connected for QUACK_PRESENCE_TTL after its last request; the
 // lease is written once (the gateway heartbeat refreshes it), not per request.
 type restPresence struct {
@@ -475,7 +476,7 @@ func newRESTPresence() *restPresence { return &restPresence{last: map[uuid.UUID]
 
 func restConnID(deviceID uuid.UUID) string { return "rest-" + deviceID.String()[:8] }
 
-func (p *restPresence) touch(g *Gateway, deviceID uuid.UUID, r *http.Request) {
+func (p *restPresence) touch(g *Gateway, deviceID uuid.UUID, transport, client, userAgent string) {
 	p.mu.Lock()
 	l, ok := p.last[deviceID]
 	l.seen = time.Now()
@@ -484,7 +485,7 @@ func (p *restPresence) touch(g *Gateway, deviceID uuid.UUID, r *http.Request) {
 	if ok {
 		return
 	}
-	info := map[string]any{"client": r.RemoteAddr, "transport": "rest", "user_agent": r.UserAgent(), "conn_id": restConnID(deviceID)}
+	info := map[string]any{"client": client, "transport": transport, "user_agent": userAgent, "conn_id": restConnID(deviceID)}
 	audit := g.deviceConnected(deviceID, restConnID(deviceID), info)
 	p.mu.Lock()
 	if cur, ok := p.last[deviceID]; ok {
