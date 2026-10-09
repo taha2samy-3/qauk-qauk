@@ -2,6 +2,8 @@
 
 This is the protocol for devices: firmware, gateways, scripts and Node-RED flows. It is the legacy "v1" protocol, kept byte-compatible with the Django server, so existing devices work unchanged. The fixes listed in [Changes from the legacy server](#changes-from-the-legacy-server) are the only differences.
 
+Devices that can't keep a connection open can use the [REST API](./device_rest_api.md), and gRPC clients the [gRPC API](./device_grpc_api.md). All three share the device token, elements and [rate limits](../05_core_concepts/rate_limits.md), and the same core code runs behind them.
+
 The behavior below is pinned by the black-box contract suite ([`server/contracttest/README.md`](https://github.com/taha2samy-3/qauk-qauk/blob/main/server/contracttest/README.md)).
 
 ## Connection
@@ -46,7 +48,7 @@ Examples: [Node.js with `jose`](../03_getting_started.md#device-example-in-javas
 
 ## Listing elements
 
-`GET /device/elements` returns the calling device's own elements, authenticated with the **same bearer JWT** as the socket. Use it to address elements by name instead of hard-coding UUIDs; the Node-RED nodes do this on every connect.
+`GET /device/elements` (also at `GET /device/v1/elements`) returns the calling device's own elements, authenticated with the **same bearer JWT** as the socket. Use it to address elements by name instead of hard-coding UUIDs; the Node-RED nodes do this on every connect.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/device/elements
@@ -102,7 +104,7 @@ Every numeric attribute of a message is stored as its own series, with 1-minute 
 - invalid JSON, a missing `element_id` or `message`, or a non-UUID `element_id`
 - a `message` with a NUL character (`\u0000`) or an unpaired UTF-16 surrogate, which history stores can't keep (`quack_dropped_total{reason="unstorable"}`)
 - an element that does not belong to this device, or has been deleted
-- frames over the rate limit (`QUACK_DEVICE_MSG_RATE`, default 50/s per socket, burst 50)
+- frames over the device's limit (`QUACK_DEVICE_MSG_RATE`, default 500/s for all of a device's sockets), or over the element's limit when the element is set to `drop` (default 50/s, set per element; see [Rate limits](../05_core_concepts/rate_limits.md)). An element set to `latest` keeps the newest held value and sends it when the limit allows.
 - binary frames
 
 ## Commands: server to device
@@ -167,5 +169,5 @@ These are deliberate fixes. Everything else matches the Django `NodeRedConsumer`
 | **B9** | If the server crashed, the device stayed "connected" forever. | Presence uses leases with a heartbeat. Stale leases are swept, and subscribers are told the device is disconnected. |
 | **B10** | Any update to the device's connection record (for example, an admin edit) closed the device socket. | Only real connect and disconnect events change presence. Renaming a device no longer disconnects it. |
 | Close codes | Django closed with **1000** for both device delete and key changes, because its `4000` lost a race. | **4000** for device delete, key unassigned or switched (and for browser session revocation). **1000** only when the key itself is edited or deleted, as legacy key rotation did. |
-| New limits | None | 64 KiB per frame, 50 msg/s per socket (excess dropped), 2048-frame outbound queue (1013 on overflow). |
+| New limits | None | 64 KiB per frame, a per-element rate limit (default 50/s, `drop` or keep `latest`) plus a 500/s per-device guard, and a 2048-frame outbound queue (1013 on overflow). Until 2026-10-09 the limit was 50 msg/s per socket. |
 | History | Replayed from an in-memory cache, lost on restart | Replayed from memory plus the history store (TimescaleDB or ClickHouse), so values survive restarts. Device telemetry only; user commands are not replayed (same as before). |

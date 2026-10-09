@@ -4,7 +4,7 @@ Everything that moves between server processes goes over Redpanda as a **CloudEv
 
 ## Topics
 
-There are five topics, all created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
+There are six topics, all created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
 
 | Topic | Partitions | Retention | Key | Event type | Producers | Consumers |
 |---|---|---|---|---|---|---|
@@ -12,6 +12,7 @@ There are five topics, all created by `quack migrate`. Topic auto-creation is di
 | `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1` | outbox relay (`api` role) | every gateway (broadcast) |
 | `presence.v1` | 3 | compacted | `device_id` | `io.quack.device.presence.v1` | gateways | every gateway (broadcast) |
 | `element-state.v1` | 12 | compacted | `element_id` | `io.quack.element.message.v1` (the newest stored device message) | `quack ingest`, after each batch | every gateway, read in full on start to warm the latest values |
+| `device-config.v1` | 3 | compacted (tombstones kept 1 day) | `device_id` | `io.quack.device.config.v1` (a full device snapshot); a deleted device gets a tombstone | outbox relay, in the transaction of every device, element or key change | every gateway, read in full on start and followed ([below](#device-config-v1)) |
 | `element-events.dlq.v1` | 3 | 30 days | `element_id` | the original record, unchanged, plus an `error` header with the reason and a `source` header (topic/partition/offset) | `quack ingest`, for events the history store rejected | operators, to inspect and replay |
 
 Keying by `element_id` keeps each element's messages in order. Gateways read all partitions from the current end, without a consumer group. The ingester reads in a consumer group from the earliest retained offset. You can watch the topics live with `task console` (http://127.0.0.1:8090).
@@ -87,6 +88,32 @@ Type `io.quack.control.changed.v1`. These are written to the `outbox` table **in
 | `jwt_key` | Key update, delete | `update`, `delete` | | Close every device socket using that key (1000 `key changed`) |
 
 Renaming a group, creating a key and editing styles emit no control event (an audit row only). Every admin mutation, including those, writes `audit_log` in the same transaction.
+
+## device-config.v1
+
+Type `io.quack.device.config.v1`, one snapshot per device:
+
+```json
+{
+  "device": { "id": "01a1159f-d3a3-728e-85f6-2092dd7c17b7", "name": "Boiler room" },
+  "key": { "id": "01a1159f-…", "pem": "-----BEGIN PUBLIC KEY-----…", "algorithm": "RS256", "active": true },
+  "elements": [
+    { "id": "01a1159f-d3a6-…", "name": "Water temperature", "points": 100, "rate": 2, "burst": null, "over_limit": "latest" }
+  ],
+  "version": 1791568123456789
+}
+```
+
+This topic is a **replicated cache**. Redpanda can't answer "get key X", but a compacted topic that every gateway reads in full and keeps following works as one (the same idea as a Kafka Streams GlobalKTable). With it, device authentication, element lookup by name and [rate limits](./rate_limits.md) need no database round-trip on any device transport.
+
+- **Written** by the service layer in the same transaction as the change, through the outbox. A transaction first takes `SELECT … FOR UPDATE` on the device row, so snapshots of one device are built in commit order. The outbox relay drains with one relay at a time (an advisory lock), so the newest snapshot is always the last record for its key, even with several API replicas.
+- **`version`** (microseconds) grows with every change. A reader ignores a snapshot older than the one it holds.
+- **Deleted devices** get a tombstone (`null` value). `quack dev seed`, which truncates tables, writes tombstones for the devices it removed.
+- **Backfill:** `quack migrate` republishes every device (also available as `quack registry sync`), and so does `quack import-django` after an import.
+- **Reading:** a gateway reports not ready on `/readyz` until it has read the topic up to its end offsets at start (at most 30 s). A device not found in memory (created a moment ago) is read from Postgres once; "not found" is cached for 10 s.
+- **Size:** about 2–3 KB per device, so 100,000 devices take roughly 250 MB per gateway.
+
+`control-events.v1` is unchanged: it still tells gateways *that* something changed (permissions, users, sockets to close), while `device-config.v1` carries *what* a device looks like now.
 
 ## Presence events
 
