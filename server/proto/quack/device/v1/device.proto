@@ -1,0 +1,106 @@
+// Device API over gRPC (and gRPC-Web / Connect). Same JWT, elements and
+// rules as the WebSocket and REST transports: see
+// docs/04_api_reference/device_grpc_api.md.
+syntax = "proto3";
+
+package quack.device.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1;devicev1";
+
+// Every call needs "authorization: Bearer <device JWT>".
+service DeviceService {
+  // Publish sends a batch of messages (1 to 500).
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  // Watch streams messages written by others (users) to this device's
+  // elements, as they happen.
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+  // Session is the WebSocket equivalent: publish and receive on one stream.
+  // Needs HTTP/2.
+  rpc Session(stream SessionRequest) returns (stream SessionResponse);
+  // ListElements returns the device and its elements.
+  rpc ListElements(ListElementsRequest) returns (ListElementsResponse);
+}
+
+// DeviceMessage is one message from the device.
+message DeviceMessage {
+  // Element id or name.
+  string element = 1;
+  // Any JSON value, e.g. {"value": 21.5}.
+  google.protobuf.Value message = 2;
+  // Optional client message id: a retry with the same id is not stored twice.
+  string id = 3;
+  // Optional device timestamp.
+  google.protobuf.Timestamp ts = 4;
+}
+
+message PublishRequest {
+  repeated DeviceMessage messages = 1;
+}
+
+message PublishResult {
+  string element_id = 1;
+  // accepted, duplicate, coalesced or rejected.
+  string status = 2;
+  string event_id = 3;
+  // For rejected messages: invalid_message, unstorable, unknown_element, rate_limited.
+  string code = 4;
+  string error = 5;
+}
+
+message PublishResponse {
+  repeated PublishResult results = 1;
+}
+
+message WatchRequest {}
+
+message WatchResponse {
+  ElementMessage message = 1;
+}
+
+message Actor {
+  // A user id, or a device id.
+  string id = 1;
+  string name = 2;
+}
+
+// ElementMessage is a message for one of this device's elements.
+message ElementMessage {
+  string element_id = 1;
+  string element = 2;
+  google.protobuf.Value message = 3;
+  Actor actor = 4;
+  google.protobuf.Timestamp time = 5;
+}
+
+message SessionRequest {
+  DeviceMessage publish = 1;
+}
+
+message SessionResponse {
+  oneof kind {
+    ElementMessage message = 1;
+    PublishResult result = 2;
+  }
+}
+
+message ListElementsRequest {}
+
+message Element {
+  string id = 1;
+  string name = 2;
+  int32 points = 3;
+  // Rate limit (messages per second, bucket size); 0 = server default.
+  double rate = 4;
+  int32 burst = 5;
+  // drop or latest.
+  string over_limit = 6;
+}
+
+message ListElementsResponse {
+  string device_id = 1;
+  string device_name = 2;
+  repeated Element elements = 3;
+}
