@@ -112,7 +112,7 @@ type instance struct {
 	gw  *gateway.Gateway
 }
 
-func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
+func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...func(*config.Config)) *instance {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := &config.Config{
@@ -122,6 +122,9 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		ElementMsgRate: 1000, ElementMsgRateMax: 1000, RateLimitDriver: "local", SyncMaxWait: 10 * time.Second, StreamMaxAge: time.Hour,
 		PresenceHeartbeat: time.Second, PresenceTTL: 3 * time.Second,
 		HistoryQueryTimeout: 10 * time.Second, HistoryMaxQueries: 8, HistoryMaxBuckets: 1500, HistoryReplayWindow: 30 * 24 * time.Hour,
+	}
+	for _, f := range tweak {
+		f(cfg)
 	}
 	producer, err := bus.NewProducer(brokers, true, logger)
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	devicev1 "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1"
+	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1/devicev1connect"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
@@ -227,8 +228,9 @@ func TestTransportBench(t *testing.T) {
 	if os.Getenv("QUACK_IT_BENCH") == "" {
 		t.Skip("set QUACK_IT_BENCH=1")
 	}
-	a := startInstance(t, "gw-bench-a", false)
-	b := startInstance(t, "gw-bench-b", false)
+	noLimits := func(c *config.Config) { c.DeviceMsgRate, c.ElementMsgRate = 0, 0 } // 0 = unlimited
+	a := startInstance(t, "gw-bench-a", false, noLimits)
+	b := startInstance(t, "gw-bench-b", false, noLimits)
 	const devices = 20
 	devs, cookie := benchFixture(t, fmt.Sprintf("bench%d", time.Now().Unix()%100000), devices)
 	sk := openSink(t, b.URL, cookie(b.URL), devs)
@@ -321,7 +323,7 @@ func TestTransportBench(t *testing.T) {
 				}
 				for time.Now().Before(deadline) {
 					if err := pubs[i].publish(ctx, batch); err != nil {
-						t.Errorf("%s: %v", tc.name, err)
+						t.Errorf("%s: %v", tc.name, err) // limits are off: any error is a failure
 						return
 					}
 					sent.Add(int64(tc.batch))
