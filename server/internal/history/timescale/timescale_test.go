@@ -84,7 +84,8 @@ func TestConcurrentLateAppends(t *testing.T) {
 	st := openForBench(t)
 	ctx := context.Background()
 	el := uuid.New()
-	at := time.Now().UTC().Add(-6 * time.Hour).Truncate(time.Minute)
+	// hour-aligned, so the 800 s of data fall in one 1 h bucket whatever the clock says
+	at := time.Now().UTC().Add(-6 * time.Hour).Truncate(time.Hour)
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for w := range 16 {

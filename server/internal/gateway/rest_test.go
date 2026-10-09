@@ -49,7 +49,7 @@ func doREST(t *testing.T, method, url, token, contentType, body string, hdr ...s
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out := restResp{status: resp.StatusCode, header: resp.Header}
 	_ = json.NewDecoder(resp.Body).Decode(&out.body)
 	return out
