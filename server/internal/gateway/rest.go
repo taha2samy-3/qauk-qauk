@@ -182,6 +182,8 @@ func errorCode(err error) string {
 		return "unstorable"
 	case errors.Is(err, ErrUnknownElement):
 		return "unknown_element"
+	case errors.Is(err, ErrMessageTooLarge):
+		return "too_large"
 	default:
 		return "invalid_message"
 	}

@@ -28,7 +28,13 @@ var (
 	ErrInvalidMessage = errors.New("invalid message")
 	// ErrUnknownElement: no such element on this device.
 	ErrUnknownElement = errors.New("unknown element")
+	// ErrMessageTooLarge: over maxMessageBytes (the WebSocket frame limit).
+	ErrMessageTooLarge = errors.New("message over 64 KiB")
 )
+
+// maxMessageBytes caps one message on every transport, like readLimit does
+// for a WebSocket frame.
+const maxMessageBytes = readLimit
 
 // UnstorableError: the message can't be stored (e.g. NUL or a lone surrogate).
 type UnstorableError struct{ Err error }
@@ -146,6 +152,10 @@ func resolveElement(dev *registry.Device, ref string, byName bool) (registry.Ele
 // The per-device guard is the caller's (allowDevice), because transports
 // apply it at different points (per frame, per batch).
 func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in DeviceMessage) (PublishResult, error) {
+	if len(in.Message) > maxMessageBytes {
+		metrics.Dropped.WithLabelValues("too_large").Inc()
+		return PublishResult{}, ErrMessageTooLarge
+	}
 	if len(in.Message) == 0 || !json.Valid(in.Message) {
 		metrics.Dropped.WithLabelValues("invalid").Inc()
 		return PublishResult{}, ErrInvalidMessage

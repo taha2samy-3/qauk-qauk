@@ -140,6 +140,10 @@ func TestRESTBodyLimits(t *testing.T) {
 	if r := doREST(t, "POST", srv.URL+"/device/v1/messages", tok, "", "["+strings.Join(items, ",")+"]"); r.status != 422 {
 		t.Fatalf("too many items: %d", r.status)
 	}
+	r := doREST(t, "POST", srv.URL+"/device/v1/messages", tok, "", `{"element":"temp","message":"`+strings.Repeat("x", 70<<10)+`"}`)
+	if rs := results(t, r); rs[0].Code != "too_large" {
+		t.Fatalf("message over 64 KiB: %+v", rs)
+	}
 	if r := doREST(t, "POST", srv.URL+"/device/v1/messages", tok, "", `"nope"`); r.status != 422 {
 		t.Fatalf("not an object/array: %d", r.status)
 	}
