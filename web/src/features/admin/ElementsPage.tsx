@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Boxes, Paintbrush, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -94,6 +94,7 @@ function ElementDialog({
   const create = useAdminMutation(adminApi.createElement, [['admin', 'elements']])
   const update = useAdminMutation(adminApi.updateElement, [['admin', 'elements']])
   const { errors, isSubmitting } = form.formState
+  const overLimit = useWatch({ control: form.control, name: 'over_limit' })
 
   const submit = form.handleSubmit(async (v) => {
     setFormError(undefined)
@@ -221,7 +222,12 @@ function ElementDialog({
             {...form.register('msg_rate')}
           />
         </Field>
-        <Field label="Burst" htmlFor="e-burst" error={errors.msg_burst?.message} description="Empty = the rate.">
+        <Field
+          label="Burst"
+          htmlFor="e-burst"
+          error={errors.msg_burst?.message}
+          description="Empty = the rate."
+        >
           <Input
             id="e-burst"
             inputMode="numeric"
@@ -234,7 +240,7 @@ function ElementDialog({
           label="Over the limit"
           error={errors.over_limit?.message}
           description={
-            form.watch('over_limit') === 'latest'
+            overLimit === 'latest'
               ? 'Keep the newest value and send it when allowed.'
               : 'Discard extra messages.'
           }
