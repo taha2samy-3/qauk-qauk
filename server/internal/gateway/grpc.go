@@ -108,8 +108,8 @@ func (s *grpcDevice) Watch(ctx context.Context, req *connect.Request[devicev1.Wa
 	info := map[string]any{"client": req.Peer().Addr, "transport": "grpc-watch", "user_agent": req.Header().Get("User-Agent")}
 	return g.runStream(ctx, dev, dk, info, func(frame []byte) error {
 		m, err := g.frameToProto(dev.ID, frame)
-		if err != nil {
-			return nil // unrenderable frame: skip it
+		if err != nil || m.GetActor().GetId() == dev.ID.String() {
+			return nil // unrenderable, or the device's own message (sent over another connection)
 		}
 		return stream.Send(&devicev1.WatchResponse{Message: m})
 	}, func() error { return stream.Send(nil) }, nil)

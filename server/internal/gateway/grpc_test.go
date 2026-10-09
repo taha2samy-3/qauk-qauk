@@ -123,6 +123,10 @@ func TestGRPCWatchGetsUserCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return len(g.hub.DeviceClients(td.cfg.Device.ID)) == 1 })
+	// the device's own message (e.g. via Publish) is not watched back
+	own := msg(td.elem["led"], td.cfg.Device.ID, events.SourceDevice, 0)
+	own.Actor = events.Actor{ID: td.cfg.Device.ID.String(), Name: "dev"}
+	g.publishElement(own, "grpc")
 	g.publishElement(msg(td.elem["led"], td.cfg.Device.ID, events.SourceUser, 1), "b1")
 	if !stream.Receive() {
 		t.Fatalf("no message: %v", stream.Err())
