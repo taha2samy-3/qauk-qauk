@@ -15,6 +15,9 @@ import (
 type Config struct {
 	DatabaseURL  string   `env:"QUACK_DATABASE_URL,required"`
 	KafkaBrokers []string `env:"QUACK_KAFKA_BROKERS" envSeparator:"," envDefault:"localhost:19092"`
+	// TopicPrefix namespaces every topic (e.g. "staging."), so environments
+	// sharing a Redpanda cluster stay apart. Each needs its own value.
+	TopicPrefix string `env:"QUACK_TOPIC_PREFIX"`
 	// KafkaAcksAll selects acks=all (durable) instead of acks=1 for element events.
 	KafkaAcksAll bool `env:"QUACK_KAFKA_ACKS_ALL" envDefault:"true"`
 

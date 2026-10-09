@@ -106,6 +106,7 @@ func withConfig(ctx context.Context, fn func(context.Context, *config.Config, *s
 	if err != nil {
 		return err
 	}
+	bus.SetTopicPrefix(cfg.TopicPrefix)
 	return fn(ctx, cfg, newLogger(cfg.LogLevel))
 }
 

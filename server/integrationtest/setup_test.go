@@ -73,6 +73,15 @@ func TestMain(m *testing.M) {
 		fmt.Println("migrate:", err)
 		os.Exit(1)
 	}
+	// Own topics, emptied every run: the dev stack may share this Redpanda, and
+	// compacted topics (device-config.v1) would otherwise grow run after run.
+	bus.SetTopicPrefix(env("QUACK_IT_TOPIC_PREFIX", "it."))
+	dctx, dcancel := context.WithTimeout(ctx, 30*time.Second)
+	if err := bus.DeleteTopics(dctx, brokers); err != nil {
+		fmt.Println("delete topics:", err)
+		os.Exit(1)
+	}
+	dcancel()
 	if err := bus.EnsureTopics(ctx, brokers); err != nil {
 		fmt.Println("topics:", err)
 		os.Exit(1)

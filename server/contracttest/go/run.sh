@@ -8,6 +8,7 @@
 # Env: QUACK_KAFKA_BROKERS,
 # CONTRACT_PORT (default 8766), CONTRACT_KNOWN_BUGS (default: none), GO_TEST_FLAGS,
 # QUACK_BUILD_FLAGS (e.g. "-race" to run the server under the race detector),
+# CONTRACT_TOPIC_PREFIX (default "contract."),
 # CONTRACT_BIN (where to build the server; default bin/quack-contract, so a
 # platform running from bin/quack is never overwritten). The history store
 # comes from QUACK_HISTORY_DRIVER / QUACK_HISTORY_URL as usual.
@@ -17,6 +18,8 @@ SERVER="$(cd "$HERE/../.." && pwd)"
 PORT="${CONTRACT_PORT:-8766}"
 BIN="${CONTRACT_BIN:-$SERVER/bin/quack-contract}"
 export QUACK_DATABASE_URL="${CONTRACT_DATABASE_URL:-postgres://quack:quack@127.0.0.1:5433/quack_contract?sslmode=disable}"
+# Own topics too, so a dev stack on the same Redpanda never sees contract devices.
+export QUACK_TOPIC_PREFIX="${CONTRACT_TOPIC_PREFIX:-contract.}"
 WORK="$(mktemp -d)"
 trap 'kill "${PID:-}" 2>/dev/null || true; wait "${PID:-}" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 

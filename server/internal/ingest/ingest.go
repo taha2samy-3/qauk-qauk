@@ -139,7 +139,7 @@ func (i *Ingester) publish(ctx context.Context, recs []*kgo.Record) error {
 
 func deadLetter(r *kgo.Record, reason error) *kgo.Record {
 	return &kgo.Record{
-		Topic: events.TopicElementEventsDLQ,
+		Topic: bus.TopicName(events.TopicElementEventsDLQ),
 		Key:   r.Key,
 		Value: r.Value,
 		Headers: append(append([]kgo.RecordHeader(nil), r.Headers...),

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -36,6 +37,67 @@ var Topics = []TopicSpec{
 	{Name: events.TopicDeviceConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
 }
 
+// topicPrefix namespaces every topic name on the cluster (QUACK_TOPIC_PREFIX),
+// so environments (or test runs) that share a Redpanda cluster can't see each
+// other's events or device configs. Code uses the logical names from the
+// events package; this package maps them to the names on the cluster.
+var topicPrefix string
+
+// SetTopicPrefix sets the topic namespace for this process. Call it once at
+// startup, before any producer or consumer is created.
+func SetTopicPrefix(p string) { topicPrefix = p }
+
+// TopicName returns the name of a logical topic on the cluster.
+func TopicName(logical string) string { return topicPrefix + logical }
+
+func logicalTopic(name string) string { return strings.TrimPrefix(name, topicPrefix) }
+
+func topicNames(logical []string) []string {
+	out := make([]string, len(logical))
+	for i, t := range logical {
+		out[i] = TopicName(t)
+	}
+	return out
+}
+
+// DeleteTopics removes this namespace's topics and waits until they are gone
+// (tests use it to start from empty topics).
+func DeleteTopics(ctx context.Context, brokers []string) error {
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	adm := kadm.NewClient(cl)
+	names := make([]string, len(Topics))
+	for i, t := range Topics {
+		names[i] = TopicName(t.Name)
+	}
+	if _, err := adm.DeleteTopics(ctx, names...); err != nil {
+		return err
+	}
+	for {
+		listed, err := adm.ListTopics(ctx, names...)
+		if err != nil {
+			return err
+		}
+		left := 0
+		for _, d := range listed {
+			if d.Err == nil {
+				left++
+			}
+		}
+		if left == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 // EnsureTopics creates missing topics. Existing topics are left untouched.
 func EnsureTopics(ctx context.Context, brokers []string) error {
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
@@ -45,12 +107,12 @@ func EnsureTopics(ctx context.Context, brokers []string) error {
 	defer cl.Close()
 	adm := kadm.NewClient(cl)
 	for _, t := range Topics {
-		resp, err := adm.CreateTopic(ctx, t.Partitions, -1, t.Configs, t.Name)
+		resp, err := adm.CreateTopic(ctx, t.Partitions, -1, t.Configs, TopicName(t.Name))
 		if err == nil {
 			err = resp.Err
 		}
 		if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
-			return fmt.Errorf("bus: create topic %s: %w", t.Name, err)
+			return fmt.Errorf("bus: create topic %s: %w", TopicName(t.Name), err)
 		}
 	}
 	return nil
@@ -112,10 +174,10 @@ func Record(topic string, ev *events.Event) (*kgo.Record, error) {
 
 func RawRecord(topic, key string, value []byte) *kgo.Record {
 	if value == nil { // tombstone (compacted topics)
-		return &kgo.Record{Topic: topic, Key: []byte(key)}
+		return &kgo.Record{Topic: TopicName(topic), Key: []byte(key)}
 	}
 	return &kgo.Record{
-		Topic:   topic,
+		Topic:   TopicName(topic),
 		Key:     []byte(key),
 		Value:   value,
 		Headers: []kgo.RecordHeader{{Key: "content-type", Value: []byte(events.ContentTypeHeader)}},
@@ -137,7 +199,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, ev *events.Event) 
 // PublishRecord is Publish for a prepared record.
 func (p *Producer) PublishRecord(ctx context.Context, rec *kgo.Record) {
 	p.waitForRoom(ctx)
-	topic := rec.Topic
+	topic := logicalTopic(rec.Topic)
 	p.cl.TryProduce(ctx, rec, func(_ *kgo.Record, err error) {
 		if err != nil {
 			p.log.Warn("bus: produce failed", "topic", topic, "err", err)
@@ -180,7 +242,7 @@ type Handler func(ctx context.Context, topic string, ev *events.Event)
 func Broadcast(ctx context.Context, brokers []string, topics []string, log *slog.Logger, h Handler) error {
 	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
-		kgo.ConsumeTopics(topics...),
+		kgo.ConsumeTopics(topicNames(topics)...),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
 		kgo.FetchMaxWait(100*time.Millisecond),
 	)
@@ -202,7 +264,7 @@ func Broadcast(ctx context.Context, brokers []string, topics []string, log *slog
 				log.Warn("bus: undecodable record", "topic", r.Topic, "offset", r.Offset, "err", err)
 				return
 			}
-			h(ctx, r.Topic, &ev)
+			h(ctx, logicalTopic(r.Topic), &ev)
 		})
 	}
 }
@@ -216,7 +278,7 @@ func NewGroupConsumer(brokers []string, group string, topics ...string) (*GroupC
 	cl, err := kgo.NewClient(debugLogger(),
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(group),
-		kgo.ConsumeTopics(topics...),
+		kgo.ConsumeTopics(topicNames(topics)...),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
@@ -270,6 +332,7 @@ func (g *GroupConsumer) Run(ctx context.Context, log *slog.Logger, maxRecords in
 // ReadAll calls fn for every record of a (compacted) topic, from the start up
 // to the end offsets at the time of the call, then returns.
 func ReadAll(ctx context.Context, brokers []string, topic string, fn func(*kgo.Record)) error {
+	topic = TopicName(topic)
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
 	if err != nil {
 		return err
@@ -340,6 +403,7 @@ func debugLogger() kgo.Opt {
 // read, or after catchUpTimeout so a slow topic can't block startup forever.
 func Follow(ctx context.Context, brokers []string, topic string, log *slog.Logger, fn func(*kgo.Record), caughtUp func()) error {
 	const catchUpTimeout = 30 * time.Second
+	topic = TopicName(topic)
 	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumeTopics(topic),
