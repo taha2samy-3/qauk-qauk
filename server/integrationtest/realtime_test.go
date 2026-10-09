@@ -248,11 +248,18 @@ func TestDeviceElementsEndpoint(t *testing.T) {
 	var out struct {
 		Device   struct{ ID, Name string }
 		Elements []struct {
-			ID, Name string
-			Points   int
+			ID, Name  string
+			Points    int
+			Rate      float64
+			Burst     int
+			OverLimit string `json:"over_limit"`
 		}
+		DeviceRate float64 `json:"device_rate"`
 	}
 	r.JSON(t, &out)
+	if e := out.Elements[0]; e.Rate != 1000 || e.Burst != 1000 || e.OverLimit != "drop" || out.DeviceRate != 1000 {
+		t.Fatalf("effective limits = %+v, device %v", e, out.DeviceRate)
+	}
 	if out.Device.ID != f.device.ID.String() || out.Device.Name != "delist-dev" {
 		t.Fatalf("device = %+v", out.Device)
 	}

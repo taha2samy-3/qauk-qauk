@@ -87,6 +87,11 @@ type deviceElement struct {
 	Description string          `json:"description"`
 	Points      int             `json:"points"`
 	Details     json.RawMessage `json:"details"`
+	// The element's effective rate limit (server defaults applied), so
+	// clients can enforce it themselves and report overruns.
+	Rate      float64 `json:"rate"`
+	Burst     int     `json:"burst"`
+	OverLimit string  `json:"over_limit"`
 }
 
 type deviceElementsResponse struct {
@@ -95,6 +100,8 @@ type deviceElementsResponse struct {
 		Name string    `json:"name"`
 	} `json:"device"`
 	Elements []deviceElement `json:"elements"`
+	// DeviceRate is the per-device guard (messages per second, 0 = none).
+	DeviceRate float64 `json:"device_rate"`
 }
 
 // DeviceElementsHandler serves GET /device/elements: the calling device's own
@@ -122,18 +129,39 @@ func (g *Gateway) DeviceElementsHandler() http.Handler {
 		}
 		var out deviceElementsResponse
 		out.Device.ID, out.Device.Name = dk.DeviceID, dk.DeviceName
+		out.DeviceRate = g.cfg.DeviceMsgRate
 		out.Elements = make([]deviceElement, len(elems))
 		for i, e := range elems {
 			details := e.Details
 			if len(details) == 0 {
 				details = json.RawMessage("null")
 			}
-			out.Elements[i] = deviceElement{ID: e.ID, Name: e.Name, Description: e.Description, Points: e.Points, Details: details}
+			lim := g.elementLimit(registry.Element{Burst: derefInt(e.MsgBurst), Rate: derefFloat(e.MsgRate)})
+			burst := lim.Burst
+			if burst < 1 {
+				burst = max(1, int(lim.Rate))
+			}
+			out.Elements[i] = deviceElement{ID: e.ID, Name: e.Name, Description: e.Description, Points: e.Points, Details: details,
+				Rate: lim.Rate, Burst: burst, OverLimit: e.OverLimit}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(out)
 	})
+}
+
+func derefFloat(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func (g *Gateway) rejectDevice(w http.ResponseWriter, reason string, err error) {
