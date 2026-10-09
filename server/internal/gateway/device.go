@@ -179,6 +179,9 @@ func (g *Gateway) onDeviceFrame(d *deviceClient, data []byte) {
 // device connection (a socket, a stream, or REST activity) and announces the
 // device if it wasn't connected anywhere.
 func (g *Gateway) deviceConnected(deviceID uuid.UUID, connID string, info map[string]any) uuid.UUID {
+	if g.pool == nil { // unit tests: no database
+		return uuid.Nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	was, err := store.DeviceConnected(ctx, g.pool, deviceID, g.cfg.PresenceTTL)
@@ -202,6 +205,9 @@ func (g *Gateway) deviceConnected(deviceID uuid.UUID, connID string, info map[st
 }
 
 func (g *Gateway) deviceDisconnected(deviceID uuid.UUID, connID string, audit uuid.UUID) {
+	if g.pool == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := store.DeletePresence(ctx, g.pool, deviceID, g.cfg.GatewayID, connID); err != nil {
