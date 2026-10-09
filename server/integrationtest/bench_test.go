@@ -74,14 +74,29 @@ func benchFixture(t *testing.T, prefix string, n int) ([]benchDev, func(base str
 	}
 }
 
-// sink is a dashboard socket counting element messages and timing marked ones.
+// sink is a set of dashboard sockets (one per group of devices, so no single
+// socket falls behind and gets dropped as a slow consumer) counting element
+// messages and timing marked ones.
 type sink struct {
-	n    atomic.Int64
-	mu   sync.Mutex
-	wait map[string]chan struct{} // value marker -> waiter
+	n      atomic.Int64
+	closed atomic.Bool
+	mu     sync.Mutex
+	wait   map[string]chan struct{} // value marker -> waiter
 }
 
-func openSink(t *testing.T, base, cookie string, devs []benchDev) *sink {
+func openSink(t *testing.T, base, cookie string, devs []benchDev, sockets int) *sink {
+	s := &sink{wait: map[string]chan struct{}{}}
+	for k := range sockets {
+		var mine []benchDev
+		for i := k; i < len(devs); i += sockets {
+			mine = append(mine, devs[i])
+		}
+		s.open(t, base, cookie, mine)
+	}
+	return s
+}
+
+func (s *sink) open(t *testing.T, base, cookie string, devs []benchDev) {
 	ctx := context.Background()
 	c, _, err := websocket.Dial(ctx, wsURL(base, "/browser/simple/"), &websocket.DialOptions{HTTPHeader: browserHeader(cookie, base)})
 	if err != nil {
@@ -89,12 +104,12 @@ func openSink(t *testing.T, base, cookie string, devs []benchDev) *sink {
 	}
 	c.SetReadLimit(1 << 20)
 	t.Cleanup(func() { _ = c.CloseNow() })
-	s := &sink{wait: map[string]chan struct{}{}}
 	subscribed := make(chan struct{}, len(devs))
 	go func() {
 		for {
 			_, data, err := c.Read(ctx)
 			if err != nil {
+				s.closed.Store(true)
 				return
 			}
 			if bytes.Contains(data, []byte(`"type":"subscribe"`)) {
@@ -130,7 +145,6 @@ func openSink(t *testing.T, base, cookie string, devs []benchDev) *sink {
 			t.Fatal("subscribe timeout")
 		}
 	}
-	return s
 }
 
 func (s *sink) expect(mark string) chan struct{} {
@@ -174,9 +188,15 @@ func (p *restPub) publish(ctx context.Context, msgs []map[string]any) error {
 	if err != nil {
 		return err
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
+	defer func() { _ = resp.Body.Close() }()
+	var out struct{ Results []struct{ Status, Error string } }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 {
+		return fmt.Errorf("status %d: %v", resp.StatusCode, err)
+	}
+	for _, r := range out.Results {
+		if r.Status != "accepted" {
+			return fmt.Errorf("message %s: %s", r.Status, r.Error)
+		}
 	}
 	return nil
 }
@@ -199,8 +219,16 @@ type grpcUnaryPub struct {
 func (p *grpcUnaryPub) publish(ctx context.Context, msgs []map[string]any) error {
 	req := connect.NewRequest(&devicev1.PublishRequest{Messages: toProto(msgs)})
 	req.Header().Set("Authorization", "Bearer "+p.token)
-	_, err := p.cl.Publish(ctx, req)
-	return err
+	res, err := p.cl.Publish(ctx, req)
+	if err != nil {
+		return err
+	}
+	for _, r := range res.Msg.GetResults() {
+		if r.GetStatus() != "accepted" {
+			return fmt.Errorf("message %s: %s", r.GetStatus(), r.GetError())
+		}
+	}
+	return nil
 }
 func (p *grpcUnaryPub) close() {}
 
@@ -233,7 +261,7 @@ func TestTransportBench(t *testing.T) {
 	b := startInstance(t, "gw-bench-b", false, noLimits)
 	const devices = 20
 	devs, cookie := benchFixture(t, fmt.Sprintf("bench%d", time.Now().Unix()%100000), devices)
-	sk := openSink(t, b.URL, cookie(b.URL), devs)
+	sk := openSink(t, b.URL, cookie(b.URL), devs, 4)
 	h1 := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 256}}
 	// one HTTP/2 connection per device, like real devices (a shared client
 	// would multiplex all of them over a single TCP connection)
@@ -304,7 +332,7 @@ func TestTransportBench(t *testing.T) {
 			case <-ch:
 				lat = append(lat, time.Since(start))
 			case <-time.After(5 * time.Second):
-				t.Fatalf("%s: message %d not delivered", tc.name, i)
+				t.Fatalf("%s: message %d not delivered (dashboard socket closed: %v)", tc.name, i, sk.closed.Load())
 			}
 		}
 		slices.Sort(lat)
@@ -340,6 +368,9 @@ func TestTransportBench(t *testing.T) {
 			time.Sleep(700 * time.Millisecond)
 		}
 		got := sk.n.Load() - before
+		if sk.closed.Load() {
+			t.Fatalf("%s: a dashboard socket was closed (slow consumer?)", tc.name)
+		}
 		rows = append(rows, row{tc.name, pct(0.5), pct(0.95), pct(0.99), float64(sent.Load()), float64(got), dur.Seconds()})
 		for _, p := range pubs {
 			p.close()
