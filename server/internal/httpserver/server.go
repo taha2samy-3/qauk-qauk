@@ -36,6 +36,10 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if gw != nil && !gw.Ready() {
+			http.Error(w, "device registry loading", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte("ok"))
 	})
 	r.Handle("/metrics", promhttp.Handler())
@@ -45,6 +49,10 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 			r.Handle(p, gw.DeviceHandler())
 		}
 		r.Get("/device/elements", gw.DeviceElementsHandler().ServeHTTP)
+		// REST device adapter (docs/04_api_reference/device_rest_api.md)
+		r.Get("/device/v1/elements", gw.DeviceElementsHandler().ServeHTTP)
+		r.Post("/device/v1/messages", gw.RESTMessagesHandler().ServeHTTP)
+		r.Get("/device/v1/sync", gw.RESTSyncHandler().ServeHTTP)
 		for _, p := range []string{"/browser/simple/", "/browser/simple"} {
 			r.Handle(p, gw.BrowserHandler())
 		}

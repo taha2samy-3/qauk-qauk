@@ -28,6 +28,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/ingest"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/outbox"
+	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -38,6 +39,7 @@ Usage:
   quack ingest           Run the history ingester (Redpanda -> history store)
   quack migrate          Apply database migrations (core and history) and create Redpanda topics
   quack history copy     Copy stored history into another backend (see quack history)
+  quack registry sync    Republish every device's config to device-config.v1
   quack admin <cmd>      Admin tasks: create-user, set-password, import-key
   quack import-django    Import data from the legacy Django database
   quack dev <cmd>        Development helpers: seed, hook (contract tests)
@@ -63,6 +65,13 @@ func main() {
 		err = withConfig(ctx, runIngest)
 	case "migrate":
 		err = withConfig(ctx, migrate)
+	case "registry":
+		err = withConfig(ctx, func(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+			if len(args) != 1 || args[0] != "sync" {
+				return errors.New("usage: quack registry sync")
+			}
+			return syncRegistry(ctx, cfg, log)
+		})
 	case "history":
 		err = withConfig(ctx, func(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return historyCmd(ctx, cfg, log, args)
@@ -156,6 +165,22 @@ func migrate(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return fmt.Errorf("topics: %w", err)
 	}
 	log.Info("topics ready")
+	return syncRegistry(ctx, cfg, log)
+}
+
+// syncRegistry publishes every device's snapshot to device-config.v1 (via
+// the outbox), so gateways have all devices after an upgrade or an import.
+func syncRegistry(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	pool, err := openPool(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	n, err := service.New(pool).SyncDeviceConfigs(ctx)
+	if err != nil {
+		return fmt.Errorf("device registry: %w", err)
+	}
+	log.Info("device registry snapshots queued", "devices", n)
 	return nil
 }
 
@@ -272,6 +297,12 @@ func importDjango(ctx context.Context, cfg *config.Config, log *slog.Logger, arg
 		rep.Users, rep.Groups, rep.Memberships, rep.Keys, rep.Devices, rep.Elements, rep.Styles, rep.Permissions)
 	for _, w := range rep.Warnings {
 		fmt.Println("warning:", w)
+	}
+	// the importer writes tables directly: publish the device snapshots
+	if n, err := service.New(pool).SyncDeviceConfigs(ctx); err != nil {
+		return fmt.Errorf("device registry: %w", err)
+	} else {
+		log.Info("device registry snapshots queued", "devices", n)
 	}
 	return nil
 }
