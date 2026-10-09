@@ -371,7 +371,7 @@ func skipBacklog(t *testing.T, group string) {
 	}
 	defer cl.Close()
 	adm := kadm.NewClient(cl)
-	ends, err := adm.ListEndOffsets(ctx, events.TopicElementEvents)
+	ends, err := adm.ListEndOffsets(ctx, bus.TopicName(events.TopicElementEvents))
 	if err != nil {
 		t.Fatal(err)
 	}

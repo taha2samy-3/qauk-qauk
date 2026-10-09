@@ -20,6 +20,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/store"
@@ -273,12 +274,12 @@ func TestOutboxDeliversControlEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ends, err := kadm.NewClient(admin).ListEndOffsets(ctx, events.TopicControlEvents)
+	ends, err := kadm.NewClient(admin).ListEndOffsets(ctx, bus.TopicName(events.TopicControlEvents))
 	admin.Close()
 	if err != nil || ends.Error() != nil {
 		t.Fatalf("end offsets: %v %v", err, ends.Error())
 	}
-	from := map[string]map[int32]kgo.Offset{events.TopicControlEvents: {}}
+	from := map[string]map[int32]kgo.Offset{bus.TopicName(events.TopicControlEvents): {}}
 	ends.Each(func(o kadm.ListedOffset) { from[o.Topic][o.Partition] = kgo.NewOffset().At(o.Offset) })
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumePartitions(from), kgo.FetchMaxWait(200*time.Millisecond))
 	if err != nil {
