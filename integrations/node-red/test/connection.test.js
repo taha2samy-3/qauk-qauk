@@ -146,6 +146,28 @@ test('sending is refused loudly: offline, too large, over the rate', async (t) =
   await until(() => gw.received.length === 5)
 })
 
+test("each element's server limit is enforced loudly (drop), not for keep-latest elements", async (t) => {
+  const elements = [
+    { ...ELEMENTS[0], rate: 2, burst: 2, over_limit: 'drop' },
+    { ...ELEMENTS[1], rate: 1, burst: 1, over_limit: 'latest' },
+  ]
+  const { gw, conn } = await setup(t, { elements }, { rate: 0 })
+  conn.start()
+  await connected(conn)
+  const results = []
+  for (let i = 0; i < 4; i++) {
+    try {
+      conn.send(elements[0].id, { value: i })
+      results.push('sent')
+    } catch (e) {
+      results.push(e.code)
+    }
+  }
+  assert.deepEqual(results, ['sent', 'sent', 'element-rate', 'element-rate'])
+  for (let i = 0; i < 4; i++) conn.send(elements[1].id, { value: i }) // latest: the server keeps the newest
+  await until(() => gw.received.length === 6)
+})
+
 test('a silent server is detected and the socket replaced', async (t) => {
   const { gw, conn, states } = await setup(t, {}, { livenessMs: 250 })
   conn.start()

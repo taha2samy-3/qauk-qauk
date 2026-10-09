@@ -104,7 +104,7 @@
         keyFile: { value: '' },
         tls: { type: 'tls-config', required: false },
         lifetime: { value: 60, validate: RED.validators.number() },
-        rate: { value: 50, validate: RED.validators.number() },
+        rate: { value: 500, validate: RED.validators.number() },
       },
       credentials: { privateKey: { type: 'password' } },
       label: function () {
@@ -292,8 +292,11 @@ A device registered on a [Quack Quack](https://github.com/taha2samy-3/qauk-qauk)
 : TLS (tls-config) : Optional CA or client certificate for `https`/`wss` servers.
 : Token life (minutes) : How long each signed token is valid. A fresh token is signed for every connection,
   so a short life is fine. It must not exceed the server's limit (24 h by default).
-: Max rate (messages/s) : Messages above this rate are rejected here with an error, instead of being dropped
-  silently by the server (its default limit is 50/s per connection).
+: Max rate (messages/s) : Messages above this rate, for the whole device, are rejected here with an error
+  instead of being dropped silently by the server (its device limit is 500/s by default). Elements have their own
+  limits, set by the server admin (50/s by default): when an element drops what is over its limit, the node rejects
+  those messages here too, with code `element-rate`. Elements set to "keep latest" are not limited here, since the
+  server keeps their newest value.
 
 ### Connection
 

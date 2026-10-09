@@ -103,7 +103,7 @@ function connectionOptions(RED, config, credentials) {
     deviceId: config.deviceId,
     privateKey,
     lifetimeSec: Math.round(minutes * 60),
-    rate: config.rate === '' || config.rate === undefined ? 50 : Number(config.rate),
+    rate: config.rate === '' || config.rate === undefined ? 500 : Number(config.rate),
     tls,
   }
 }

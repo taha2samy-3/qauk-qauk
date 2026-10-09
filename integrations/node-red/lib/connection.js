@@ -2,8 +2,9 @@
 // One device connection to the Quack Quack gateway, shared by every node that
 // uses the same device config. It signs a fresh token for each handshake,
 // reconnects with backoff, knows the device's elements (to address them by
-// name), and guards the server's limits so frames are rejected loudly here
-// instead of being dropped silently there.
+// name), and guards the server's limits (frame size, the device's rate and
+// each element's rate, as listed by /device/elements) so frames are rejected
+// loudly here instead of being dropped silently there.
 const { EventEmitter } = require('node:events')
 const http = require('node:http')
 const https = require('node:https')
@@ -27,7 +28,7 @@ class QuackConnection extends EventEmitter {
    * @param {string} o.deviceId      device UUID
    * @param {string} o.privateKey    PEM private key of the device
    * @param {number} [o.lifetimeSec] token lifetime (server caps it, 24 h by default)
-   * @param {number} [o.rate]        max frames per second sent (0 = unlimited)
+   * @param {number} [o.rate]        max frames per second for the whole device (0 = unlimited)
    * @param {object} [o.tls]         extra TLS options for ws/https (ca, cert, key, rejectUnauthorized)
    */
   constructor(o) {
@@ -40,7 +41,7 @@ class QuackConnection extends EventEmitter {
     this.alg = alg
     this.lifetimeSec = o.lifetimeSec ?? 3600
     this.tls = o.tls ?? {}
-    this.rate = o.rate ?? 50
+    this.rate = o.rate ?? 500
     this.minBackoffMs = o.minBackoffMs ?? 1000
     this.maxBackoffMs = o.maxBackoffMs ?? 30_000
     this.slowRetryMs = o.slowRetryMs ?? 60_000 // after 403 / revoked: the admin has to act first
@@ -58,6 +59,7 @@ class QuackConnection extends EventEmitter {
     this.attempt = 0
     this.bucket = this.rate
     this.bucketAt = Date.now()
+    this.elementBuckets = new Map() // element id -> { tokens, at }
     this.lastRefresh = 0
   }
 
@@ -298,7 +300,29 @@ class QuackConnection extends EventEmitter {
     return true
   }
 
-  /** Sends one telemetry frame. Throws a QuackError (code offline | rate | size | json) instead of dropping silently. */
+  /**
+   * The server's limit for one element (servers since 2026-10 list it). Only
+   * elements set to "drop" are guarded here: for "latest" the server keeps the
+   * newest value and sends it when allowed, so nothing is lost.
+   */
+  _elementLimit(elementId) {
+    const e = this.elements?.find((x) => x.id === elementId)
+    if (!e || !(e.rate > 0) || e.over_limit !== 'drop') return null
+    return { name: e.name, rate: e.rate, burst: e.burst >= 1 ? e.burst : Math.max(1, e.rate) }
+  }
+
+  _takeElement(elementId, lim) {
+    const now = Date.now()
+    const b = this.elementBuckets.get(elementId) ?? { tokens: lim.burst, at: now }
+    b.tokens = Math.min(lim.burst, b.tokens + ((now - b.at) / 1000) * lim.rate)
+    b.at = now
+    this.elementBuckets.set(elementId, b)
+    if (b.tokens < 1) return false
+    b.tokens -= 1
+    return true
+  }
+
+  /** Sends one telemetry frame. Throws a QuackError (code offline | rate | element-rate | size | json) instead of dropping silently. */
   send(elementId, message) {
     if (!this.connected) throw new QuackError(`not connected (${this.state}${this.detail ? `: ${this.detail}` : ''})`, 'offline')
     let frame
@@ -309,7 +333,11 @@ class QuackConnection extends EventEmitter {
     }
     const size = Buffer.byteLength(frame)
     if (size > MAX_FRAME_BYTES) throw new QuackError(`frame is ${size} bytes; the server accepts at most ${MAX_FRAME_BYTES}`, 'size')
-    if (!this._take()) throw new QuackError(`more than ${this.rate} messages/s; this one was dropped`, 'rate')
+    const lim = this._elementLimit(elementId)
+    if (lim && !this._takeElement(elementId, lim)) {
+      throw new QuackError(`element "${lim.name}" allows ${lim.rate} messages/s (set by the server admin); this one was dropped`, 'element-rate')
+    }
+    if (!this._take()) throw new QuackError(`more than ${this.rate} messages/s for this device; this one was dropped`, 'rate')
     this.ws.send(frame)
   }
 }
