@@ -1,7 +1,7 @@
 # Plan: Device Adapters (REST + gRPC), Element Rate Limits, Device Registry
 
 > **Audience:** whoever implements or reviews this work (human or agent).
-> **Status:** approved 2026-10-09. The implementation status table at the end is kept up to date.
+> **Status:** approved and implemented 2026-10-09 (phases 0–3). See [Implementation status](#_6-implementation-status) for what was built and how it differs from this plan.
 > **Scope:** device-facing transports only. Alerts and webhooks are out of scope (see the last section).
 
 ## 1. Goals
@@ -54,7 +54,7 @@ device core ┼─ REST       /device/v1/...
   - WebSocket keeps today's behaviour: drop the message and count the metric. Protocol v1 has no device error frames.
   - REST maps the error to an HTTP status.
   - gRPC maps it to a gRPC code.
-- **`clientID`:** an optional client message id. It becomes the event id `UUIDv5(device, clientID)`, so a retried request is stored once: history appends are idempotent by id. The gateway also remembers recent ids, so a retry is not fanned out twice.
+- **`clientID`:** an optional client message id. The gateway remembers it for 10 minutes, so a retried request is acknowledged as `duplicate` and is neither stored nor fanned out again. (The first idea, an event id of `UUIDv5(device, clientID)`, doesn't work: history stores deduplicate on `(time, id)`, and a retry has a new server time.)
 
 ### 3.2 Element rate limits
 
@@ -196,9 +196,21 @@ Everything lives under `/device/v1/`, with the same JWT in `Authorization: Beare
 
 ## 6. Implementation status
 
-| Phase | Status | Notes |
+| Phase | Status | Evidence |
 |---|---|---|
-| 0 | in progress | |
-| 1 | not started | |
-| 2 | not started | |
-| 3 | not started | |
+| 0 | Done | Migration `00005_element_limits.sql`; admin API and web form; `internal/ratelimit` (local driver, interface for more); `device-config.v1` written by `internal/service` through the outbox, followed by `internal/registry`; the device core in `internal/gateway/core.go`; the WebSocket on the core. The WebSocket contract suite passes unchanged on a `-race` server. |
+| 1 | Done | `internal/gateway/rest.go`: messages (JSON + SenML), sync long-poll, elements; REST presence. Unit tests plus `TestRESTAdapterEndToEnd`. |
+| 2 | Done | `proto/quack/device/v1/device.proto`; connect-go handler in `internal/gateway/grpc.go` (Publish, Watch, Session, ListElements); h2c on the main server; `task proto:gen` / `proto:check` in CI. Unit tests plus `TestGRPCAdapterEndToEnd`. |
+| 3 | Done | Docs: [REST](../04_api_reference/device_rest_api.md), [gRPC](../04_api_reference/device_grpc_api.md), [Rate limits](../05_core_concepts/rate_limits.md), architecture, events, config, schema. Screenshots from `web/e2e/protocols.spec.ts`. Benchmark in [Performance](./baseline.md#device-transports-2026-10-09). Node-RED nodes 0.2.0 enforce element limits. |
+| later | Open | Valkey limiter driver; presence off Postgres; alerts. |
+
+**Deviations from the plan, as built:**
+
+- **Retries** are recognized by an in-memory id cache (10 min), not by a deterministic event id (see §3.1).
+- **`/device/elements`** still reads descriptions and widget details from Postgres. It is a setup-time call, not the message path. It now also returns each element's effective limits and the device guard.
+- **gRPC `Watch`** streams only messages from others; the device's own messages, sent over another connection, are skipped. **`Session`** is fire-and-forget like the WebSocket: results come back only for rejected messages and messages with an `id`. Answering every message capped a stream at about 16k msg/s.
+- **gRPC streams** send their response headers as soon as they are registered. Clients wait for the headers before they start reading.
+- **Producer back-pressure (found by the benchmark).** `TryProduce` dropped records once the default 10,000-record buffer was full, which lost about 7 % of WebSocket messages at 130k msg/s. The buffer is now 200,000 records / 64 MiB, and publishing waits up to 2 s when it is 75 % full.
+- **Message size** is capped at 64 KiB on every transport (code `too_large`), not only on WebSocket frames.
+- **`quack dev seed`** truncates tables, so it writes tombstones for the devices it removes. `quack import-django` republishes snapshots after an import.
+- **Demo:** `quack dev simulate --transport mixed` (the default in `task simulate`) runs one demo device per transport, and `quack dev token` prints a token for trying the APIs by hand.
