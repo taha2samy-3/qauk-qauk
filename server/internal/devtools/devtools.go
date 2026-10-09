@@ -65,6 +65,10 @@ type fixture struct {
 
 // Seed wipes all data and creates the contract fixture.
 func Seed(ctx context.Context, pool *pgxpool.Pool, hist history.Store, out, wsBase, origin string, ttl time.Duration) error {
+	old, err := store.DeviceIDs(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("reset: %w", err)
+	}
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements, element_permissions,
 		device_presence, device_connections, outbox, audit_log RESTART IDENTITY CASCADE`); err != nil {
 		return fmt.Errorf("reset: %w", err)
@@ -73,6 +77,10 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, hist history.Store, out, wsBa
 		return fmt.Errorf("reset history: %w", err)
 	}
 	svc := service.New(pool)
+	// TRUNCATE bypasses the service: tombstone the old devices in device-config.v1.
+	if err := svc.RepublishDevices(ctx, old); err != nil {
+		return fmt.Errorf("reset registry: %w", err)
+	}
 	fx := fixture{
 		WSBase: wsBase, Origin: origin,
 		Paths:   map[string]string{"device": "/device/node_red/", "browser": "/browser/simple/"},

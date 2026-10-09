@@ -133,14 +133,20 @@ func (s *Service) SyncDeviceConfigs(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	return len(ids), s.RepublishDevices(ctx, ids)
+}
+
+// RepublishDevices publishes the current snapshot of the given devices, or a
+// tombstone for those that no longer exist (after a raw TRUNCATE, say).
+func (s *Service) RepublishDevices(ctx context.Context, ids []uuid.UUID) error {
 	const batch = 200
 	for start := 0; start < len(ids); start += batch {
 		chunk := ids[start:min(start+batch, len(ids))]
 		if err := s.tx(ctx, func(tx pgx.Tx) error { return publishDevices(ctx, tx, chunk...) }); err != nil {
-			return start, err
+			return err
 		}
 	}
-	return len(ids), nil
+	return nil
 }
 
 func i64(v int64) *int64         { return &v }

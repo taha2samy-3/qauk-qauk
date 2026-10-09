@@ -334,7 +334,11 @@ func (g *Gateway) RESTSyncHandler() http.Handler {
 			restError(w, http.StatusUnprocessableEntity, "invalid_cursor", "cursor is not one this server returned")
 			return
 		}
-		wait, err := parseWait(r.URL.Query().Get("wait"), g.cfg.SyncMaxWait)
+		maxWait := g.cfg.SyncMaxWait
+		if maxWait <= 0 {
+			maxWait = time.Minute
+		}
+		wait, err := parseWait(r.URL.Query().Get("wait"), maxWait)
 		if err != nil {
 			restError(w, http.StatusUnprocessableEntity, "invalid_wait", err.Error())
 			return

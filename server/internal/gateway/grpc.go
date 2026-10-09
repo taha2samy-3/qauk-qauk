@@ -198,15 +198,19 @@ func (g *Gateway) runStream(ctx context.Context, dev *registry.Device, dk *authn
 	if recv != nil {
 		go func() { recvErr <- recv(d); d.cancel() }()
 	}
-	maxAge := time.NewTimer(g.cfg.StreamMaxAge + time.Duration(rand.Int64N(int64(g.cfg.StreamMaxAge/10)+1)))
-	defer maxAge.Stop()
+	var maxAgeC <-chan time.Time // nil: no maximum age
+	if age := g.cfg.StreamMaxAge; age > 0 {
+		maxAge := time.NewTimer(age + time.Duration(rand.Int64N(int64(age/10)+1)))
+		defer maxAge.Stop()
+		maxAgeC = maxAge.C
+	}
 
 	var err error
 	select {
 	case <-ctx.Done(): // the client left
 	case <-d.ctx.Done(): // killed by the server, write failed, or the client closed its side
 	case err = <-recvErr:
-	case <-maxAge.C:
+	case <-maxAgeC:
 		d.kill(websocket.StatusGoingAway, "stream max age reached, reconnect")
 	}
 	d.cancel()
