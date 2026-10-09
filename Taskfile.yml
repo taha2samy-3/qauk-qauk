@@ -107,9 +107,9 @@ tasks:
     deps: [migrate]
     cmds: ["{{.BIN}} dev demo --out {{.ROOT_DIR}}/server/bin/demo-devices.json"]
   simulate:
-    desc: Stream live values from the demo devices to the local gateway
+    desc: "Stream live values from the demo devices; TRANSPORT=mixed (default: one device each over WebSocket, REST, gRPC), websocket, rest or grpc"
     deps: [build]
-    cmds: ["{{.BIN}} dev simulate --file {{.ROOT_DIR}}/server/bin/demo-devices.json --ws-base ws://127.0.0.1:8080"]
+    cmds: ["{{.BIN}} dev simulate --file {{.ROOT_DIR}}/server/bin/demo-devices.json --ws-base ws://127.0.0.1:8080 --transport {{.TRANSPORT | default \"mixed\"}}"]
   import:django:
     desc: "Import the legacy Django DB: task import:django FROM=postgres://..."
     deps: [migrate]

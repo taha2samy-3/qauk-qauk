@@ -18,11 +18,12 @@ func devCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []st
 		case "simulate":
 			fs := newFlagSet("simulate")
 			file := fs.String("file", "demo-devices.json", "demo device keys written by `dev demo`")
-			wsBase := fs.String("ws-base", "ws://127.0.0.1:8080", "gateway WebSocket base URL")
+			wsBase := fs.String("ws-base", "ws://127.0.0.1:8080", "gateway base URL (ws:// or http://)")
+			transport := fs.String("transport", "websocket", "websocket, rest, grpc, or mixed (one device per transport)")
 			if err := fs.Parse(args[1:]); err != nil {
 				return err
 			}
-			return devtools.Simulate(ctx, *file, *wsBase, log)
+			return devtools.Simulate(ctx, *file, *wsBase, *transport, log)
 		}
 	}
 	pool, err := openPool(ctx, cfg)

@@ -8,12 +8,10 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -168,7 +166,8 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 
 // Simulate connects every demo device and streams realistic values; it also
 // echoes actuator commands back as state (like a real device would).
-func Simulate(ctx context.Context, file, wsBase string, log *slog.Logger) error {
+// transport is websocket, rest, grpc, or mixed (device i uses transport i%3).
+func Simulate(ctx context.Context, file, wsBase, transport string, log *slog.Logger) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -178,12 +177,16 @@ func Simulate(ctx context.Context, file, wsBase string, log *slog.Logger) error 
 		return err
 	}
 	var wg sync.WaitGroup
-	for _, d := range demo.Devices {
+	for i, d := range demo.Devices {
+		tr, err := transportFor(transport, i)
+		if err != nil {
+			return err
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for ctx.Err() == nil {
-				if err := simulateDevice(ctx, d, wsBase, log); err != nil && ctx.Err() == nil {
+				if err := simulateDevice(ctx, d, wsBase, tr, log); err != nil && ctx.Err() == nil {
 					log.Warn("simulator: device disconnected, retrying", "device", d.Name, "err", err)
 					time.Sleep(3 * time.Second)
 				}
@@ -194,7 +197,7 @@ func Simulate(ctx context.Context, file, wsBase string, log *slog.Logger) error 
 	return nil
 }
 
-func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.Logger) error {
+func simulateDevice(ctx context.Context, d DemoDevice, base, transport string, log *slog.Logger) error {
 	key, err := parsePrivate(d.PrivateKeyPEM)
 	if err != nil {
 		return err
@@ -204,22 +207,17 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 	if err != nil {
 		return err
 	}
-	ws, _, err := websocket.Dial(ctx, wsBase+"/device/node_red/", &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + tok}},
-	})
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	link, err := dialLink(ctx, transport, base, tok)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = ws.CloseNow() }()
-	log.Info("simulator: connected", "device", d.Name)
+	defer link.close()
+	log.Info("simulator: connected", "device", d.Name, "transport", transport)
 
-	var mu sync.Mutex
-	send := func(elementID string, msg any) error {
-		frame, _ := json.Marshal(map[string]any{"element_id": elementID, "message": msg})
-		mu.Lock()
-		defer mu.Unlock()
-		return ws.Write(ctx, websocket.MessageText, frame)
-	}
+	failed := make(chan error, 1)
+	send := func(elementID string, msg any) error { return link.send(ctx, elementID, msg) }
 	// Actuators: report initial state, then echo commands back as the new state.
 	for _, e := range d.Elements {
 		switch e.Kind {
@@ -233,12 +231,12 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 	}
 	go func() {
 		for {
-			_, data, err := ws.Read(ctx)
+			in, err := link.recv(ctx)
 			if err != nil {
+				failed <- err
 				return
 			}
-			var in incomingFrame
-			if json.Unmarshal(data, &in) == nil && shouldEcho(in, d.ID) {
+			if shouldEcho(in, d.ID) {
 				time.Sleep(150 * time.Millisecond) // actuator latency
 				_ = send(in.ElementID, in.Message)
 			}
@@ -250,7 +248,9 @@ func simulateDevice(ctx context.Context, d DemoDevice, wsBase string, log *slog.
 	for {
 		select {
 		case <-ctx.Done():
-			return ws.Close(websocket.StatusNormalClosure, "bye")
+			return nil
+		case err := <-failed:
+			return err
 		case now := <-tick.C:
 			t := now.Sub(start).Seconds()
 			for _, e := range d.Elements {
