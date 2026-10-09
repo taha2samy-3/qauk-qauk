@@ -109,6 +109,7 @@ func TestMain(m *testing.M) {
 type instance struct {
 	URL string
 	srv *httptest.Server
+	gw  *gateway.Gateway
 }
 
 func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
@@ -118,6 +119,7 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		DatabaseURL: dbURL, KafkaBrokers: brokers, KafkaAcksAll: true,
 		Roles: []string{"api", "gateway"}, GatewayID: gatewayID,
 		SessionTTL: time.Hour, DeviceJWTMaxLifetime: 24 * time.Hour, DeviceMsgRate: 1000, BrowserMsgRate: 1000,
+		ElementMsgRate: 1000, ElementMsgRateMax: 1000, RateLimitDriver: "local", SyncMaxWait: 10 * time.Second, StreamMaxAge: time.Hour,
 		PresenceHeartbeat: time.Second, PresenceTTL: 3 * time.Second,
 		HistoryQueryTimeout: 10 * time.Second, HistoryMaxQueries: 8, HistoryMaxBuckets: 1500, HistoryReplayWindow: 30 * 24 * time.Hour,
 	}
@@ -143,7 +145,11 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		skipBacklog(t, group)
 		run((&ingest.Ingester{Group: group, Store: hist, Brokers: brokers, Publisher: producer, Log: logger}).Run)
 	}
-	srv := httptest.NewServer(httpserver.New(cfg, pool, hist, gw, logger))
+	srv := httptest.NewUnstartedServer(httpserver.New(cfg, pool, hist, gw, logger))
+	srv.Config.Protocols = new(http.Protocols) // like `quack serve`: HTTP/1.1 + h2c (gRPC)
+	srv.Config.Protocols.SetHTTP1(true)
+	srv.Config.Protocols.SetUnencryptedHTTP2(true)
+	srv.Start()
 	t.Cleanup(func() {
 		srv.CloseClientConnections()
 		srv.Close()
@@ -158,7 +164,14 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool) *instance {
 		producer.Close()
 	})
 	time.Sleep(1500 * time.Millisecond) // bus consumer reaches end offsets
-	return &instance{URL: srv.URL, srv: srv}
+	deadline := time.Now().Add(20 * time.Second)
+	for !gw.Ready() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !gw.Ready() {
+		t.Fatalf("%s: device registry not ready", gatewayID)
+	}
+	return &instance{URL: srv.URL, srv: srv, gw: gw}
 }
 
 // --- HTTP client ---
