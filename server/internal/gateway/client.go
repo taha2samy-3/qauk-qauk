@@ -20,12 +20,15 @@ const (
 	readLimit       = 64 << 10
 )
 
-// client is one WebSocket connection with a bounded outbound queue. Frames
-// are written by a single goroutine, so enqueue order is wire order.
+// client is one connection (a WebSocket, or a gRPC stream) with a bounded
+// outbound queue. Frames are written by a single goroutine, so enqueue order
+// is wire order.
 type client struct {
 	id   string
 	kind string
 	ws   *websocket.Conn
+	// write sends one frame (set for non-WebSocket connections).
+	write func(ctx context.Context, frame []byte) error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -35,6 +38,9 @@ type client struct {
 	notify chan struct{}
 
 	closeOnce sync.Once
+	// closed records why the server closed the connection (stream transports report it).
+	closedCode   websocket.StatusCode
+	closedReason string
 }
 
 func newClient(parent context.Context, ws *websocket.Conn, id, kind string) *client {
@@ -43,6 +49,14 @@ func newClient(parent context.Context, ws *websocket.Conn, id, kind string) *cli
 		ws.SetReadLimit(readLimit)
 	}
 	return &client{id: id, kind: kind, ws: ws, ctx: ctx, cancel: cancel, notify: make(chan struct{}, 1)}
+}
+
+// newStreamClient is a client for a non-WebSocket connection: write sends one
+// frame; closing is cancelling the context (the stream handler returns).
+func newStreamClient(parent context.Context, id, kind string, write func(context.Context, []byte) error) *client {
+	c := newClient(parent, nil, id, kind)
+	c.write = write
+	return c
 }
 
 // Send enqueues a frame without blocking. A client that falls too far behind
@@ -64,9 +78,12 @@ func (c *client) Send(frame []byte) {
 	}
 }
 
-// kill closes the socket with a code and reason, once, without blocking the caller.
+// kill closes the connection with a code and reason, once, without blocking the caller.
 func (c *client) kill(code websocket.StatusCode, reason string) {
 	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closedCode, c.closedReason = code, reason
+		c.mu.Unlock()
 		go func() {
 			if c.ws != nil {
 				_ = c.ws.Close(code, reason)
@@ -74,6 +91,13 @@ func (c *client) kill(code websocket.StatusCode, reason string) {
 			c.cancel()
 		}()
 	})
+}
+
+// closeStatus returns why the server closed the connection ("" if it didn't).
+func (c *client) closeStatus() (websocket.StatusCode, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closedCode, c.closedReason
 }
 
 func (c *client) writeLoop() {
@@ -89,7 +113,12 @@ func (c *client) writeLoop() {
 		c.mu.Unlock()
 		for _, frame := range batch {
 			ctx, cancel := context.WithTimeout(c.ctx, writeTimeout)
-			err := c.ws.Write(ctx, websocket.MessageText, frame)
+			var err error
+			if c.write != nil {
+				err = c.write(ctx, frame)
+			} else {
+				err = c.ws.Write(ctx, websocket.MessageText, frame)
+			}
 			cancel()
 			if err != nil {
 				c.cancel()
@@ -118,7 +147,8 @@ func (c *client) pingLoop() {
 	}
 }
 
-// deviceClient is a device (or Node-RED) socket.
+// deviceClient is a device connection: a WebSocket (protocol v1, e.g.
+// Node-RED) or a gRPC stream. Rate limits live in the device core, not here.
 type deviceClient struct {
 	*client
 	deviceID uuid.UUID
@@ -127,8 +157,6 @@ type deviceClient struct {
 	mu      sync.Mutex
 	name    string
 	allowed map[uuid.UUID]struct{}
-
-	limiter
 }
 
 // limiter is a token bucket of `rate` msgs/s with burst = rate. It is only
