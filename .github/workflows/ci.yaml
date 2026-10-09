@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         if: matrix.history == 'timescale'
         run: task lint
+      - name: Protobuf lint + generated code up to date
+        if: matrix.history == 'timescale'
+        run: task proto:check
       - name: Unit tests (race)
         if: matrix.history == 'timescale'
         run: task test

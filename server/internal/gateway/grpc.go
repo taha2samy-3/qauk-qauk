@@ -112,7 +112,7 @@ func (s *grpcDevice) Watch(ctx context.Context, req *connect.Request[devicev1.Wa
 			return nil // unrenderable frame: skip it
 		}
 		return stream.Send(&devicev1.WatchResponse{Message: m})
-	}, nil)
+	}, func() error { return stream.Send(nil) }, nil)
 }
 
 // resultMarker prefixes queued publish results on a Session stream, to tell
@@ -162,15 +162,16 @@ func (s *grpcDevice) Session(ctx context.Context, stream *connect.BidiStream[dev
 			d.Send(append([]byte{resultMarker}, b...))
 		}
 	}
-	return g.runStream(ctx, dev, dk, info, write, recv)
+	return g.runStream(ctx, dev, dk, info, write, func() error { return stream.Send(nil) }, recv)
 }
 
 // runStream serves one long-lived device stream: it joins the hub like a
 // socket (receives messages for the device's elements), holds a presence
 // lease, and ends when the client leaves, the server closes it (key change,
-// shutdown) or it reaches its maximum age.
+// shutdown) or it reaches its maximum age. open sends the response headers
+// once the stream is registered: clients wait for them before reading.
 func (g *Gateway) runStream(ctx context.Context, dev *registry.Device, dk *authn.DeviceKey, info map[string]any,
-	write func([]byte) error, recv func(*deviceClient) error) error {
+	write func([]byte) error, open func() error, recv func(*deviceClient) error) error {
 	d := &deviceClient{
 		client: newStreamClient(g.ctx, g.nextConnID(), "device", func(_ context.Context, frame []byte) error {
 			return write(frame)
@@ -188,6 +189,9 @@ func (g *Gateway) runStream(ctx context.Context, dev *registry.Device, dk *authn
 		g.deviceDisconnected(dev.ID, d.id, audit)
 	}()
 
+	if err := open(); err != nil { // before writeLoop: one writer at a time
+		return err
+	}
 	written := make(chan struct{})
 	go func() { d.writeLoop(); close(written) }()
 	recvErr := make(chan error, 1)

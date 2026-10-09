@@ -15,6 +15,8 @@ vars:
   # History store: timescale (default) or clickhouse, e.g. `task start HISTORY=clickhouse`.
   HISTORY: '{{.HISTORY | default "timescale"}}'
   CH_HOST_URL: clickhouse://quack:quack@127.0.0.1:19000/quack
+  # buf is run from the Go module proxy (no separate install).
+  BUF: go run github.com/bufbuild/buf/cmd/buf@v1.73.0
 
 env:
   QUACK_DATABASE_URL: '{{.QUACK_DATABASE_URL | default .DEV_DB}}'
@@ -113,6 +115,19 @@ tasks:
     deps: [migrate]
     requires: {vars: [FROM]}
     cmds: ["{{.BIN}} import-django --from '{{.FROM}}'"]
+
+  # --- protobuf (device gRPC API) ---
+  proto:gen:
+    desc: Regenerate Go code from server/proto (buf, built from the Go module proxy)
+    dir: server
+    cmds: ["{{.BUF}} lint", "{{.BUF}} generate"]
+  proto:check:
+    desc: Fail if the proto doesn't lint, or the generated code is stale
+    dir: server
+    cmds:
+      - "{{.BUF}} lint"
+      - "{{.BUF}} generate"
+      - git diff --exit-code -- internal/gen
 
   # --- quality ---
   fmt:
