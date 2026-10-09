@@ -109,16 +109,28 @@ test('element rate limits in the admin', async ({ page }) => {
   await snap(page, 'admin-element-limit-dialog-light', 600)
 })
 
-test('Node-RED flow feeding the platform', async ({ page }) => {
+test('Node-RED flow feeding the platform', async ({ page, browser }) => {
   const up = await page.request.get(`${NODE_RED}/flows`).then((r) => r.ok()).catch(() => false)
   test.skip(!up, `Node-RED not running on ${NODE_RED}`)
   await page.goto(NODE_RED)
   await expect(page.locator('#red-ui-workspace')).toBeVisible()
+  const nag = page.getByRole('button', { name: 'No, do not enable notifications' })
+  if (await nag.isVisible({ timeout: 3000 }).catch(() => false)) await nag.click()
   await expect(page.locator('.red-ui-flow-node-status-label').filter({ hasText: /^connected$/ }).first()).toBeVisible({
     timeout: 20_000,
   })
-  await page.locator('#red-ui-tab-debug-link-button').click().catch(() => undefined)
-  await snap(page, 'transports-nodered-flow', 1500)
+  // a dashboard command, so the debug sidebar shows it arriving in Node-RED
+  const dash = await browser.newPage()
+  await login(dash, ADMIN)
+  await dash.goto(`/dashboards/${dashboardId}`)
+  const sw = widget(dash, 'Conveyor · Node-RED').getByTestId('switch-widget')
+  for (const want of ['off', 'on']) {
+    await widget(dash, 'Conveyor · Node-RED').getByRole('switch').click()
+    await expect(sw).toHaveAttribute('data-state', want, { timeout: 15_000 })
+  }
+  await dash.close()
+  await expect(page.locator('.red-ui-debug-msg').first()).toBeVisible({ timeout: 10_000 })
+  await snap(page, 'transports-nodered-flow', 800)
 })
 
 test('terminal transcripts (REST, gRPC)', async ({ page }) => {
