@@ -82,6 +82,9 @@ func Load() (*Config, error) {
 	if err := env.Parse(&c); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
+	if c.RateLimitDriver != "local" {
+		return nil, fmt.Errorf("config: QUACK_RATELIMIT_DRIVER=%q is not supported (supported: local)", c.RateLimitDriver)
+	}
 	if c.GatewayID == "" {
 		host, _ := os.Hostname()
 		b := make([]byte, 3)

@@ -18,7 +18,8 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/history"
-	"github.com/taha2samy/quackquack/server/internal/store"
+	"github.com/taha2samy/quackquack/server/internal/ratelimit"
+	"github.com/taha2samy/quackquack/server/internal/registry"
 )
 
 type Gateway struct {
@@ -31,6 +32,11 @@ type Gateway struct {
 	origins  *OriginPolicy
 	hist     history.Store
 	replayCh chan replayReq
+	registry *registry.Registry
+	limits   ratelimit.Limiter
+	coalesce *coalescer
+	dedupe   *dedupeCache
+	rest     *restPresence
 
 	ctx    context.Context // lifetime of the gateway; parent of every socket
 	ctrlCh chan *events.Event
@@ -48,20 +54,24 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 		ctx:      ctx,
 		ctrlCh:   make(chan *events.Event, 1024),
 	}
+	g.registry = registry.New(registryLoader(pool), g.log)
+	g.limits, _ = ratelimit.Open(cfg.RateLimitDriver) // validated by config.Load
+	if g.limits == nil {
+		g.limits = ratelimit.NewLocal()
+	}
+	g.coalesce = newCoalescer(g)
+	g.dedupe = newDedupeCache()
+	g.rest = newRESTPresence()
 	g.verifier = &authn.DeviceVerifier{
 		MaxLifetime: cfg.DeviceJWTMaxLifetime,
 		Leeway:      30 * time.Second,
-		Load: func(ctx context.Context, id uuid.UUID) (*authn.DeviceKey, error) {
-			d, err := store.GetDeviceAuth(ctx, pool, id)
-			if err != nil {
-				return nil, fmt.Errorf("device %s: %w", id, err)
-			}
-			return &authn.DeviceKey{DeviceID: d.DeviceID, DeviceName: d.DeviceName, KeyID: d.KeyID,
-				PEM: d.PEM, Algorithm: d.Algorithm, KeyActive: d.KeyActive}, nil
-		},
+		Load:        g.loadDeviceKey,
 	}
 	return g
 }
+
+// Ready reports whether the device registry has caught up with its topic.
+func (g *Gateway) Ready() bool { return g.registry.IsReady() }
 
 func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1)) }
 
@@ -71,6 +81,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 	go g.presenceLoop(ctx)
 	go g.replayLoop(ctx)
 	go g.warmLatest(ctx)
+	go g.restPresenceLoop(ctx)
+	go func() {
+		if err := g.registry.Run(ctx, g.cfg.KafkaBrokers); err != nil && ctx.Err() == nil {
+			g.log.Error("gateway: device registry stopped", "err", err)
+		}
+	}()
 	err := bus.Broadcast(ctx, g.cfg.KafkaBrokers,
 		[]string{events.TopicElementEvents, events.TopicPresence, events.TopicControlEvents}, g.log, g.onBusEvent)
 	g.shutdown()
@@ -118,14 +134,16 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 }
 
 // publishElement is the single path for new element messages: deliver locally
-// first (fast path), then publish to the bus for other gateways and the ingester.
-func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) {
+// first (fast path), then publish to the bus for other gateways and the
+// ingester. It returns the event id.
+func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) string {
 	ev, err := events.New(events.TypeElementMessage, events.GatewaySource(g.cfg.GatewayID), m.ElementID.String(), m)
 	if err != nil {
 		g.log.Error("gateway: build event", "err", err)
-		return
+		return ""
 	}
 	dev, br := renderMessage(m, ev.Time)
 	g.hub.Deliver(m, uuid.MustParse(ev.ID), ev.Time.Time, dev, br, localOrigin)
 	g.producer.Publish(g.ctx, events.TopicElementEvents, ev)
+	return ev.ID
 }

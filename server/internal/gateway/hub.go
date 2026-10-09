@@ -52,6 +52,13 @@ type Hub struct {
 
 	lmu    sync.RWMutex
 	latest map[uuid.UUID]ringEntry // element -> newest device message
+
+	// Commands for connectionless devices (REST sync): the newest message per
+	// element written by someone other than its device, as a device frame,
+	// and the requests waiting for one.
+	cmu     sync.Mutex
+	cmds    map[uuid.UUID]ringEntry
+	waiters map[uuid.UUID]map[chan struct{}]struct{} // device -> waiters
 }
 
 func NewHub() *Hub {
@@ -61,6 +68,8 @@ func NewHub() *Hub {
 		devices:  map[uuid.UUID]map[string]*deviceClient{},
 		users:    map[int64]map[string]*browserClient{},
 		latest:   map[uuid.UUID]ringEntry{},
+		cmds:     map[uuid.UUID]ringEntry{},
+		waiters:  map[uuid.UUID]map[chan struct{}]struct{}{},
 	}
 }
 
@@ -159,6 +168,8 @@ func (h *Hub) ensure(id, deviceID uuid.UUID, points int) *elementState {
 func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame, browserFrame []byte, localOrigin string) {
 	if m.Source == events.SourceDevice {
 		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame})
+	} else {
+		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: deviceFrame})
 	}
 	st := h.get(m.ElementID)
 	if st == nil {
@@ -380,6 +391,9 @@ func (h *Hub) UpdateElement(e elementInfo) {
 // RemoveElement drops all local state; subscribers get a forced unsubscribe.
 func (h *Hub) RemoveElement(id uuid.UUID) {
 	h.forget(id)
+	h.cmu.Lock()
+	delete(h.cmds, id)
+	h.cmu.Unlock()
 	h.mu.Lock()
 	st := h.elements[id]
 	if st != nil {
@@ -421,6 +435,62 @@ func (h *Hub) PresenceChanged(deviceID uuid.UUID, connected bool) {
 			b.Send(frame)
 		}
 		st.mu.Unlock()
+	}
+}
+
+// --- Commands for connectionless devices ---
+
+func (h *Hub) rememberCommand(deviceID, elementID uuid.UUID, e ringEntry) {
+	h.cmu.Lock()
+	defer h.cmu.Unlock()
+	if cur, ok := h.cmds[elementID]; ok && !newer(e, cur) {
+		return
+	}
+	h.cmds[elementID] = e
+	for w := range h.waiters[deviceID] {
+		select {
+		case w <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// CommandsSince returns, for each element, the newest command newer than
+// the cursor's event id for that element (UUIDv7 ids order by time).
+func (h *Hub) CommandsSince(elements []uuid.UUID, cursor map[uuid.UUID]uuid.UUID) map[uuid.UUID]ringEntry {
+	h.cmu.Lock()
+	defer h.cmu.Unlock()
+	out := map[uuid.UUID]ringEntry{}
+	for _, id := range elements {
+		e, ok := h.cmds[id]
+		if !ok {
+			continue
+		}
+		if seen, ok := cursor[id]; ok && bytes.Compare(e.id[:], seen[:]) <= 0 {
+			continue
+		}
+		out[id] = e
+	}
+	return out
+}
+
+// WaitCommands returns a channel signalled when a command for one of the
+// device's elements arrives; call the cancel function when done.
+func (h *Hub) WaitCommands(deviceID uuid.UUID) (<-chan struct{}, func()) {
+	ch := make(chan struct{}, 1)
+	h.cmu.Lock()
+	if h.waiters[deviceID] == nil {
+		h.waiters[deviceID] = map[chan struct{}]struct{}{}
+	}
+	h.waiters[deviceID][ch] = struct{}{}
+	h.cmu.Unlock()
+	return ch, func() {
+		h.cmu.Lock()
+		delete(h.waiters[deviceID], ch)
+		if len(h.waiters[deviceID]) == 0 {
+			delete(h.waiters, deviceID)
+		}
+		h.cmu.Unlock()
 	}
 }
 

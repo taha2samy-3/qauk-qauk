@@ -11,8 +11,8 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/events"
-	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
+	"github.com/taha2samy/quackquack/server/internal/registry"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -27,15 +27,9 @@ func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
 		g.rejectDevice(w, "no_token", nil)
 		return
 	}
-	dk, err := g.verifier.Verify(r.Context(), token)
+	dev, dk, err := g.authenticateDevice(r.Context(), token)
 	if err != nil {
 		g.rejectDevice(w, "auth", err)
-		return
-	}
-	elems, err := store.ListElements(r.Context(), g.pool, &dk.DeviceID)
-	if err != nil {
-		g.log.Error("gateway: load device elements", "device", dk.DeviceID, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	// Devices authenticate with a JWT, not cookies, so Origin is irrelevant here.
@@ -46,15 +40,11 @@ func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
 	d := &deviceClient{
 		client:   newClient(g.ctx, ws, g.nextConnID(), "device"),
 		deviceID: dk.DeviceID, keyID: dk.KeyID, name: dk.DeviceName,
-		allowed: map[uuid.UUID]struct{}{}, limiter: limiter{rate: g.cfg.DeviceMsgRate},
+		allowed: map[uuid.UUID]struct{}{},
 	}
-	infos := make([]elementInfo, len(elems))
-	for i, e := range elems {
-		infos[i] = elementInfo{ID: e.ID, DeviceID: e.DeviceID, Points: e.Points}
-	}
-	g.hub.AddDevice(d, infos)
+	g.hub.AddDevice(d, deviceElementInfos(dev))
 	metrics.WSConnections.WithLabelValues("device").Inc()
-	connAudit := g.deviceConnected(d, r)
+	connAudit := g.deviceConnected(d.deviceID, d.id, connDetails(r, d.id))
 
 	go d.writeLoop()
 	go d.pingLoop()
@@ -67,8 +57,7 @@ func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		metrics.MessagesIn.WithLabelValues("device").Inc()
-		if !d.allowMessage(time.Now()) {
-			metrics.Dropped.WithLabelValues("device_rate_limit").Inc()
+		if g.allowDevice(d.deviceID, 1) != nil {
 			continue
 		}
 		g.onDeviceFrame(d, data)
@@ -76,7 +65,20 @@ func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
 	d.cancel()
 	g.hub.RemoveDevice(d)
 	metrics.WSConnections.WithLabelValues("device").Dec()
-	g.deviceDisconnected(d, connAudit)
+	g.deviceDisconnected(d.deviceID, d.id, connAudit)
+}
+
+func deviceElementInfos(dev *registry.Device) []elementInfo {
+	infos := make([]elementInfo, len(dev.Elements))
+	for i, e := range dev.Elements {
+		infos[i] = elementInfo{ID: e.ID, DeviceID: dev.ID, Points: e.Points}
+	}
+	return infos
+}
+
+// connDetails is the audit record of a new device connection.
+func connDetails(r *http.Request, connID string) map[string]any {
+	return map[string]any{"client": r.RemoteAddr, "path": r.URL.Path, "user_agent": r.UserAgent(), "conn_id": connID}
 }
 
 type deviceElement struct {
@@ -110,6 +112,8 @@ func (g *Gateway) DeviceElementsHandler() http.Handler {
 			g.rejectDevice(w, "auth", err)
 			return
 		}
+		// Descriptions and widget details aren't in the registry; this is a
+		// setup-time call, not the message path, so read them from the database.
 		elems, err := store.ListElements(r.Context(), g.pool, &dk.DeviceID)
 		if err != nil {
 			g.log.Error("gateway: list device elements", "device", dk.DeviceID, "err", err)
@@ -152,70 +156,61 @@ func (g *Gateway) onDeviceFrame(d *deviceClient, data []byte) {
 		g.log.Warn("gateway: invalid device frame", "device", d.deviceID, "err", err)
 		return
 	}
-	if err := history.ValidateMessage(f.Message); err != nil {
-		g.log.Warn("gateway: unstorable device message dropped", "device", d.deviceID, "err", err)
-		metrics.Dropped.WithLabelValues("unstorable").Inc()
-		return
+	dev, ok := g.registry.Lookup(d.deviceID)
+	if !ok {
+		return // deleted: the socket is being closed
 	}
-	elementID, err := uuid.Parse(f.ElementID)
-	if err != nil || !d.Owns(elementID) {
-		g.log.Warn("gateway: device sent data for an unauthorized element", "device", d.deviceID, "element_id", f.ElementID)
-		metrics.Dropped.WithLabelValues("foreign_element").Inc()
-		return
-	}
-	m := &events.ElementMessage{
-		ElementID: elementID,
-		DeviceID:  d.deviceID,
-		Source:    events.SourceDevice,
-		Actor:     events.Actor{ID: d.deviceID.String(), Name: d.Name()},
-		Origin:    events.Origin{GatewayID: g.cfg.GatewayID, ConnID: d.id},
-		Message:   f.Message,
-	}
+	in := DeviceMessage{Element: f.ElementID, Message: f.Message}
 	if f.LastEditAt != nil {
 		if t, err := time.Parse(time.RFC3339Nano, *f.LastEditAt); err == nil {
-			m.ClientTS = &events.Time{Time: t.UTC()}
+			in.ClientTS = &t
 		}
 	}
-	g.publishElement(m, d.id)
+	// Protocol v1 has no device error frames: rejected messages are dropped
+	// (and counted in quack_dropped_total by reason).
+	if _, err := g.publishDeviceMessage(dev, d.id, in); err != nil {
+		g.log.Debug("gateway: device message dropped", "device", d.deviceID, "element_id", f.ElementID, "err", err)
+	}
 }
 
 // --- Presence ---
 
-func (g *Gateway) deviceConnected(d *deviceClient, r *http.Request) uuid.UUID {
+// deviceConnected opens a presence lease and a connection audit row for one
+// device connection (a socket, a stream, or REST activity) and announces the
+// device if it wasn't connected anywhere.
+func (g *Gateway) deviceConnected(deviceID uuid.UUID, connID string, info map[string]any) uuid.UUID {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	was, err := store.DeviceConnected(ctx, g.pool, d.deviceID, g.cfg.PresenceTTL)
+	was, err := store.DeviceConnected(ctx, g.pool, deviceID, g.cfg.PresenceTTL)
 	if err != nil {
 		g.log.Warn("gateway: presence check", "err", err)
 	}
-	if err := store.InsertPresence(ctx, g.pool, d.deviceID, g.cfg.GatewayID, d.id); err != nil {
+	if err := store.InsertPresence(ctx, g.pool, deviceID, g.cfg.GatewayID, connID); err != nil {
 		g.log.Warn("gateway: presence insert", "err", err)
 	}
-	details, _ := json.Marshal(map[string]any{
-		"client": r.RemoteAddr, "path": r.URL.Path, "user_agent": r.UserAgent(),
-		"gateway_id": g.cfg.GatewayID, "conn_id": d.id,
-	})
+	info["gateway_id"] = g.cfg.GatewayID
+	details, _ := json.Marshal(info)
 	audit := uuid.Must(uuid.NewV7())
-	if err := store.InsertConnection(ctx, g.pool, store.Connection{ID: audit, DeviceID: d.deviceID,
+	if err := store.InsertConnection(ctx, g.pool, store.Connection{ID: audit, DeviceID: deviceID,
 		GatewayID: g.cfg.GatewayID, Details: details}); err != nil {
 		g.log.Warn("gateway: connection audit", "err", err)
 	}
 	if !was {
-		g.emitPresence(d.deviceID, true)
+		g.emitPresence(deviceID, true)
 	}
 	return audit
 }
 
-func (g *Gateway) deviceDisconnected(d *deviceClient, audit uuid.UUID) {
+func (g *Gateway) deviceDisconnected(deviceID uuid.UUID, connID string, audit uuid.UUID) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := store.DeletePresence(ctx, g.pool, d.deviceID, g.cfg.GatewayID, d.id); err != nil {
+	if err := store.DeletePresence(ctx, g.pool, deviceID, g.cfg.GatewayID, connID); err != nil {
 		g.log.Warn("gateway: presence delete", "err", err)
 	}
 	_ = store.CloseConnection(ctx, g.pool, audit)
-	still, err := store.DeviceConnected(ctx, g.pool, d.deviceID, g.cfg.PresenceTTL)
+	still, err := store.DeviceConnected(ctx, g.pool, deviceID, g.cfg.PresenceTTL)
 	if err == nil && !still {
-		g.emitPresence(d.deviceID, false)
+		g.emitPresence(deviceID, false)
 	}
 }
 
