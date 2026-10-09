@@ -21,8 +21,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	devicev1 "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1"
 	"github.com/taha2samy/quackquack/server/internal/config"
+	devicev1 "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1"
 	"github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1/devicev1connect"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
@@ -234,9 +234,12 @@ func TestTransportBench(t *testing.T) {
 	const devices = 20
 	devs, cookie := benchFixture(t, fmt.Sprintf("bench%d", time.Now().Unix()%100000), devices)
 	sk := openSink(t, b.URL, cookie(b.URL), devs)
-	h2c := h2cClient()
 	h1 := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 256}}
-	grpcCl := devicev1connect.NewDeviceServiceClient(h2c, a.URL, connect.WithGRPC())
+	// one HTTP/2 connection per device, like real devices (a shared client
+	// would multiplex all of them over a single TCP connection)
+	grpcClient := func() devicev1connect.DeviceServiceClient {
+		return devicev1connect.NewDeviceServiceClient(h2cClient(), a.URL, connect.WithGRPC())
+	}
 
 	cases := []transportCase{
 		{"WebSocket (protocol v1)", 1, func(ctx context.Context, d benchDev) publisher {
@@ -255,10 +258,10 @@ func TestTransportBench(t *testing.T) {
 		}},
 		{"REST, 1 message per request", 1, func(_ context.Context, d benchDev) publisher { return &restPub{base: a.URL, token: d.token, http: h1} }},
 		{"REST, batches of 100", 100, func(_ context.Context, d benchDev) publisher { return &restPub{base: a.URL, token: d.token, http: h1} }},
-		{"gRPC unary Publish, 1 message", 1, func(_ context.Context, d benchDev) publisher { return &grpcUnaryPub{cl: grpcCl, token: d.token} }},
-		{"gRPC unary Publish, batches of 100", 100, func(_ context.Context, d benchDev) publisher { return &grpcUnaryPub{cl: grpcCl, token: d.token} }},
+		{"gRPC unary Publish, 1 message", 1, func(_ context.Context, d benchDev) publisher { return &grpcUnaryPub{cl: grpcClient(), token: d.token} }},
+		{"gRPC unary Publish, batches of 100", 100, func(_ context.Context, d benchDev) publisher { return &grpcUnaryPub{cl: grpcClient(), token: d.token} }},
 		{"gRPC Session stream", 1, func(ctx context.Context, d benchDev) publisher {
-			s := grpcCl.Session(ctx)
+			s := grpcClient().Session(ctx)
 			s.RequestHeader().Set("Authorization", "Bearer "+d.token)
 			if err := s.Send(nil); err != nil {
 				t.Fatal(err)
