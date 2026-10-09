@@ -32,7 +32,7 @@
 
 ---
 
-**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices open an authenticated WebSocket and stream telemetry; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in a pluggable history store (TimescaleDB or ClickHouse), so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
+**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices authenticate with their own key and send telemetry over a WebSocket, REST (with SenML) or gRPC; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in a pluggable history store (TimescaleDB or ClickHouse), so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-view-light.webp" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>
@@ -41,6 +41,8 @@
 ## Key features
 
 - **Realtime WebSocket gateway in Go.** One process fans out 20,000 deliveries/s with p99 latency of 22 ms. Each message is serialized once, outbound queues are bounded, and a message never echoes back to its sender.
+- **Three device transports, one core.** The [WebSocket](docs/04_api_reference/device_api.md) (legacy v1, unchanged), [REST](docs/04_api_reference/device_rest_api.md) (batches, SenML, long-poll commands, retry-safe message ids) and [gRPC](docs/04_api_reference/device_grpc_api.md) (unary and streams; gRPC-Web and Connect too). Same token, elements and rules on all three, at 6–7 ms median latency across instances ([measured](docs/refactor/baseline.md#device-transports-2026-10-09)).
+- **Rate limits per element.** Each element (data stream) has its own limit, and over the limit it either drops or keeps only the latest value. A per-device guard sits on top, and changes apply live. See [Rate limits](docs/05_core_concepts/rate_limits.md).
 - **Drag-and-drop dashboards.** A React app with a responsive grid. Widgets: gauge, line chart, stat, switch, slider and device status. Dashboards are private or shared, and sharing never bypasses element permissions.
 - **RBAC per element.** `R` / `RC` grants for users and groups, resolved to the highest grant. Permission and group changes reach open sockets live: they upgrade, downgrade or unsubscribe.
 - **Device security.** Devices sign a JWT with their own RSA (2048+ bit) or ECDSA P-256 key. Inactive keys and tokens without `exp` are rejected, and token lifetime is capped. The server stamps the sender identity; clients cannot spoof it.
@@ -166,6 +168,9 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 | [Architecture](docs/02_architecture.md) | Components, data flows, scaling |
 | [Getting started](docs/03_getting_started.md) | Local dev, containers, connecting devices and Node-RED, configuration, migrating from Django |
 | [Device WebSocket API](docs/04_api_reference/device_api.md) | For firmware and Node-RED authors |
+| [Device REST API](docs/04_api_reference/device_rest_api.md) | For devices that wake, send and sleep, and for scripts (curl, SenML) |
+| [Device gRPC API](docs/04_api_reference/device_grpc_api.md) | For gRPC clients and gateways |
+| [Rate limits](docs/05_core_concepts/rate_limits.md) | Per-element limits, the device guard, several instances |
 | [Node-RED integration](docs/09_node_red.md) | The `node-red-contrib-quackquack` nodes: install, connect a device, send telemetry, receive commands |
 | [Browser WebSocket API](docs/04_api_reference/browser_api.md) | For frontend developers |
 | [REST API](docs/04_api_reference/rest_api.md) | Auth, CSRF, errors, resources (live docs at `/api/docs`) |
@@ -175,6 +180,10 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-editor-light.webp" alt="Dashboard editor with the widget palette" width="900"/>
+</p>
+
+<p align="center">
+  <img src="docs/imgs/screenshots/transports-dashboard-light.webp" alt="One dashboard fed over WebSocket, REST, gRPC and Node-RED" width="900"/>
 </p>
 
 ## License

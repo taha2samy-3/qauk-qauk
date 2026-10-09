@@ -119,6 +119,7 @@ export default withMermaid(
             { text: 'Realtime events', link: '/concepts/realtime_events' },
             { text: 'History storage', link: '/concepts/history' },
             { text: 'Dashboards', link: '/concepts/dashboards' },
+            { text: 'Rate limits', link: '/concepts/rate_limits' },
           ],
         },
         {
@@ -126,6 +127,8 @@ export default withMermaid(
           items: [
             { text: 'Overview', link: '/api/' },
             { text: 'Device WebSocket', link: '/api/device_api' },
+            { text: 'Device REST', link: '/api/device_rest_api' },
+            { text: 'Device gRPC', link: '/api/device_grpc_api' },
             { text: 'Browser WebSocket', link: '/api/browser_api' },
             { text: 'REST', link: '/api/rest_api' },
           ],

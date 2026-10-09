@@ -48,3 +48,43 @@ GO_TEST_FLAGS='-tags contract,load -run TestLoad -timeout 10m' bash server/contr
 The Django app and its contract harness (seed/hook scripts) were removed with the rest of the Python code. The Django
 app itself can be restored from commit `27d79c5`. The harness was never committed, so rerunning the Django side would
 mean rewriting its seed/hook adapter against `server/contracttest/README.md`.
+
+## Device transports (2026-10-09)
+
+The three device transports compared, on the same laptop (Intel i7-7820HQ, 4 cores / 8 threads, 7 GiB RAM), with Postgres and Redpanda in Docker on the same machine:
+
+- 20 devices publish on gateway instance A.
+- Dashboard sockets on instance B receive every message, so each message crosses Redpanda.
+- Rate limits are off. The ingester isn't running, so this measures the transports and the gateway, not the history store.
+- **Latency:** 300 messages from one device, one in flight at a time, timed from send to the dashboard socket.
+- **Throughput:** every device sends as fast as its transport allows for 5 s, with one connection per device. Request/response transports have one request in flight per device.
+
+| Transport | Latency p50 | p95 | p99 | Sent/s | Delivered/s | Delivered | Server drops |
+|---|---|---|---|---|---|---|---|
+| WebSocket (protocol v1) | 6.3 ms | 8.4 ms | 9.7 ms | 134106 | 134106 | 100.0% | 0 |
+| REST, 1 message per request | 6.6 ms | 7.9 ms | 11.3 ms | 8173 | 8173 | 100.0% | 0 |
+| REST, batches of 100 | 6.5 ms | 7.2 ms | 8.1 ms | 62060 | 62060 | 100.0% | 0 |
+| gRPC unary Publish, 1 message | 7.0 ms | 9.8 ms | 11.0 ms | 4638 | 4638 | 100.0% | 0 |
+| gRPC unary Publish, batches of 100 | 6.9 ms | 8.8 ms | 9.5 ms | 55000 | 55000 | 100.0% | 0 |
+| gRPC Session stream | 6.6 ms | 8.6 ms | 9.8 ms | 60531 | 60531 | 100.0% | 0 |
+
+Reading it:
+
+- **Latency is the same on every transport** (6–7 ms median, about 10 ms p99, cross-instance). Most of it is the producer's 5 ms linger plus the consumer fetch; the transport adds well under a millisecond.
+- **Streams win on throughput.** WebSocket and the gRPC `Session` stream don't wait for a reply per message.
+- **One message per request is round-trip bound:** about 230–400 messages/s per device with one request in flight. Batching 100 messages per request gives REST and gRPC `Publish` 55,000–62,000 messages/s.
+- **Nothing was lost.** Every sent message reached the dashboard, and server drops (failed produces plus slow-consumer drops) were 0.
+
+Two fixes came out of this run:
+
+1. The first run lost about 7 % of WebSocket messages at 130k msg/s. The producer used `TryProduce`, which drops records once the buffer (10,000 records by default) is full. Now the buffer holds 200,000 records or 64 MiB. Above 75 %, publishing waits up to 2 s for Redpanda to catch up, so bursts slow the sender instead of losing data.
+2. The gRPC `Session` stream sent a result for every message and stalled at about 16k msg/s. It now answers only for rejected messages and messages with an `id`, as fire-and-forget as the WebSocket.
+
+Reproduce it with `task infra:up`, then:
+
+```sh
+QUACK_IT_BENCH=1 go test -tags integration -run TestTransportBench -v ./integrationtest/
+```
+
+(from `server/`; `QUACK_IT_BENCH_OUT=file.md` saves the table).
+

@@ -1,6 +1,6 @@
 # 1. Overview
 
-Quack Quack is the realtime core of an IoT system. It sits between **devices**, meaning anything that can open a WebSocket and sign a JWT (an ESP32, a Raspberry Pi, a Node-RED flow), and **people** who watch and control those devices from a browser.
+Quack Quack is the realtime core of an IoT system. It sits between **devices**, meaning anything that can sign a JWT and speak WebSocket, HTTP or gRPC (an ESP32, a Raspberry Pi, a cellular module, a Node-RED flow), and **people** who watch and control those devices from a browser.
 
 ## Goals
 
@@ -28,7 +28,7 @@ Quack Quack is the realtime core of an IoT system. It sits between **devices**, 
 
 ## Features
 
-- A realtime gateway: the device and browser WebSocket protocols, in-memory fan-out, a history replay window per element, presence with leases, bounded queues and rate limits.
+- A realtime gateway: three device transports on one core ([WebSocket](./04_api_reference/device_api.md), [REST](./04_api_reference/device_rest_api.md) with SenML and long-poll commands, [gRPC](./04_api_reference/device_grpc_api.md) with streams), the browser WebSocket, in-memory fan-out, a history replay window per element, presence with leases, bounded queues, and [per-element rate limits](./05_core_concepts/rate_limits.md).
 - A REST API (OpenAPI 3.1) for login, the current user's elements, element history, dashboards and a full admin surface (users, groups, keys, devices, elements, styles, permissions, connections, presence, audit log).
 - A React web app with drag-and-drop dashboards, live widgets, history charts with time-range selection, admin pages, and light and dark themes.
 - An ingester that writes every element event from Redpanda into the history store (TimescaleDB or ClickHouse), batched and idempotent, with a dead-letter topic for unstorable data.

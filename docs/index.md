@@ -6,7 +6,7 @@ titleTemplate: Real-time IoT platform
 hero:
   name: Quack Quack
   text: Real-time IoT dashboards, device control and history
-  tagline: Devices and Node-RED stream over WebSockets to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in a pluggable history store (TimescaleDB or ClickHouse).
+  tagline: Devices and Node-RED stream over WebSocket, REST or gRPC to a Go gateway. Users build live drag-and-drop dashboards. Every value lands in a pluggable history store (TimescaleDB or ClickHouse).
   actions:
     - theme: brand
       text: Get started
@@ -39,6 +39,10 @@ features:
     title: Event bus with standards
     details: Redpanda topics carrying CloudEvents 1.0, JSON Schema and AsyncAPI, plus a transactional outbox, so no change is ever lost.
     link: /concepts/realtime_events
+  - icon: 🔌
+    title: WebSocket, REST and gRPC
+    details: Three device transports on one core, with the same token, elements and per-element rate limits. REST takes SenML and long-polls commands; gRPC has streams.
+    link: /api/
   - icon: 🧩
     title: Node-RED nodes
     details: "quack out sends readings, quack in receives dashboard commands. Install: npm install the tarball from the GitHub release in ~/.node-red."

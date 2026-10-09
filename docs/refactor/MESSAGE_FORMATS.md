@@ -15,7 +15,7 @@
 | Timestamps | **RFC 3339**, UTC, millisecond precision: `2026-10-07T10:00:00.123Z` | Already what the current wire protocol uses. |
 | Identifiers | **UUID (RFC 9562)**; **v7** for new rows (time-ordered, index-friendly). Imported IDs are kept as-is. | Device JWTs embed the device UUID, so existing IDs must never change. |
 | Device/browser WebSocket frames | **Unchanged legacy v1 JSON protocol** (described by AsyncAPI) | Deployed devices and Node-RED flows must keep working. |
-| Future device protocol v2 | **SenML (RFC 8428)** JSON | The IETF standard for sensor measurements. It maps 1:1 to the `element_event.value` column. Introduce it only as an opt-in `/device/v2/` path. |
+| Device REST / gRPC transports | REST: JSON or **SenML (RFC 8428)** at `/device/v1/messages`. gRPC: **Protobuf** (`server/proto/quack/device/v1`), served by connect-go (gRPC, gRPC-Web, Connect). | Added 2026-10-09 next to the unchanged WebSocket v1. SenML is accepted as input and mapped to element messages; see [Device REST API](../04_api_reference/device_rest_api.md#senml). |
 
 ## Standards considered and not chosen (for now)
 
@@ -52,6 +52,7 @@ Kafka record: `key = partitionkey`; header `content-type: application/cloudevent
 | `io.quack.element.message.v1` | `element-events.v1` | element id | `{element_id, device_id, source: device\|user, actor:{id,name}, origin:{gateway_id,conn_id}, message:{…}, client_ts}` |
 | `io.quack.control.changed.v1` | `control-events.v1` | entity id | `{kind, op, id, element_id?, device_id?, user_id?, group_id?}` |
 | `io.quack.device.presence.v1` | `presence.v1` (compacted) | device id | `{device_id, connected, gateway_id}` |
+| `io.quack.device.config.v1` | `device-config.v1` (compacted; a `null` value is a tombstone) | device id | `{device:{id,name}, key:{id,pem,algorithm,active}\|null, elements:[{id,name,points,rate,burst,over_limit}], version}` |
 
 Example:
 ```json
