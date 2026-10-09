@@ -125,11 +125,11 @@ task up             # http://127.0.0.1:8080
 
 The containers stack starts with an empty database. Create your first admin as described in [Getting started](docs/03_getting_started.md#full-stack-in-containers).
 
-**Node-RED.** Install the [Quack Quack nodes](docs/09_node_red.md) from the [GitHub release](https://github.com/taha2samy-3/qauk-qauk/releases/tag/node-red-v0.1.0-alpha.1), then restart Node-RED:
+**Node-RED.** Install the [Quack Quack nodes](docs/09_node_red.md) from the [GitHub release](https://github.com/taha2samy-3/qauk-qauk/releases/tag/node-red-v0.2.0-alpha.1), then restart Node-RED:
 
 ```sh
 cd ~/.node-red
-npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.2.0-alpha.1/node-red-contrib-quackquack-0.2.0-alpha.1.tgz
 ```
 
 **Tests.** Run everything CI runs (lint, unit tests with `-race`, integration tests and the WebSocket contract suite) with infrastructure up:

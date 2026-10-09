@@ -244,11 +244,11 @@ A rejected token fails the handshake with **HTTP 403**. The token is only checke
 
 ### Node-RED
 
-**Recommended:** install the [Quack Quack nodes](./09_node_red.md) (`node-red-contrib-quackquack`). They sign tokens, reconnect, pick elements by name, and receive commands, with an example flow included. Install them from the [GitHub release](https://github.com/taha2samy-3/qauk-qauk/releases/tag/node-red-v0.1.0-alpha.1) into your Node-RED user directory, then restart Node-RED:
+**Recommended:** install the [Quack Quack nodes](./09_node_red.md) (`node-red-contrib-quackquack`). They sign tokens, reconnect, pick elements by name, and receive commands, with an example flow included. Install them from the [GitHub release](https://github.com/taha2samy-3/qauk-qauk/releases/tag/node-red-v0.2.0-alpha.1) into your Node-RED user directory, then restart Node-RED:
 
 ```sh
 cd ~/.node-red
-npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.2.0-alpha.1/node-red-contrib-quackquack-0.2.0-alpha.1.tgz
 ```
 
 Then follow [Connect a device](./09_node_red.md#connect-a-device). To try the nodes against this checkout without installing anything:

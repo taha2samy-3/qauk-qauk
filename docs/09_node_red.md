@@ -27,7 +27,7 @@ The nodes use the [device protocol](./04_api_reference/device_api.md) and add th
 | Reconnects | Exponential backoff with jitter (1 s → 30 s). After a 403 or a revocation (close code 4000), retries wait at least 60 s, since an admin has to act first. A key rotation (1000 `key changed`) reconnects at once. |
 | Dead links | The server pings every 30 s. Silence for 75 s replaces the socket. |
 | Element names | The device's element list is loaded from [`GET /device/elements`](./04_api_reference/device_api.md#listing-elements) on connect. An unknown name triggers one reload, so new elements work without a redeploy. |
-| Server limits | Frames over 64 KiB, or over the rate (default 50/s, matching the server), are **rejected in Node-RED with an error** instead of being dropped silently by the server. Catch them with a *catch* node. |
+| Server limits | Frames over 64 KiB, over the device's rate (default 500/s, the server's device guard), or over an element's [rate limit](./05_core_concepts/rate_limits.md) are **rejected in Node-RED with an error** instead of being dropped silently by the server. Element limits come from `GET /device/elements` (since 0.2.0); elements set to "keep latest" aren't limited in Node-RED, because the server keeps their newest value. Catch errors with a *catch* node (`error.code` is `rate` or `element-rate`). |
 | Echo loops | The server never sends a socket its own frames. *quack in* passes on only user commands by default, ignoring telemetry from the device's other connections. |
 
 ## Install
@@ -36,7 +36,7 @@ The package is released on GitHub (not on the npm registry). Each [release](http
 
 ```sh
 cd ~/.node-red
-npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.2.0-alpha.1/node-red-contrib-quackquack-0.2.0-alpha.1.tgz
 ```
 
 Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Manage palette → Install → upload** (the icon next to the search box).
@@ -44,7 +44,7 @@ Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Ma
 **Node-RED in Docker.** The user directory is `/data` in the official image. With the `node-red` service from `docker/compose.yaml` (`docker compose -f docker/compose.yaml --profile tools up -d node-red`):
 
 ```sh
-docker compose -f docker/compose.yaml exec -w /data node-red npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+docker compose -f docker/compose.yaml exec -w /data node-red npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.2.0-alpha.1/node-red-contrib-quackquack-0.2.0-alpha.1.tgz
 docker compose -f docker/compose.yaml restart node-red
 ```
 
@@ -82,7 +82,7 @@ Add a *quack out* or *quack in* node, and create its device:
 | Private key | Pasted or generated. Or set a **key file** (e.g. a mounted Docker or Kubernetes secret), which overrides the pasted key. |
 | TLS | Optional `tls-config` for a private CA or client certificates |
 | Token life | Minutes per signed token (default 60). Each connection signs a new one. |
-| Max rate | Messages per second before Node-RED refuses them (default 50, the server's default; `0` = off) |
+| Max rate | Messages per second for the whole device before Node-RED refuses them (default 500, the server's device guard; `0` = off). Element limits are applied on top, from the server. |
 
 Press **Test connection**. It signs a token with the key in the dialog (or the deployed one) and lists the device's elements, without deploying.
 
@@ -115,7 +115,7 @@ return msg
 - two elements with the same name
 - payload empty or binary
 - frame over 64 KiB
-- rate exceeded
+- the device's rate exceeded (`rate`), or an element's limit exceeded (`element-rate`)
 
 Nothing is queued while offline. Buffer in the flow if you need that.
 
@@ -162,6 +162,14 @@ A dashboard switch shows the new state only after the device **reports** it, whi
 Set the device (server, ID, key), adapt the element names, and deploy. On a dashboard, bind a line chart to `temperature` with X = `ts`, and add `humidity` as a second series. A switch on `Gate relay` then works end to end.
 
 ![The dashboard fed by that flow](./imgs/screenshots/dashboard-nodered-light.webp)
+
+## Node-RED next to the other transports
+
+Node-RED uses the device WebSocket. The same platform also takes devices over [REST](./04_api_reference/device_rest_api.md) and [gRPC](./04_api_reference/device_grpc_api.md), and all of them feed the same dashboards. Below, a *Packing line* flow (telemetry every second into an element limited to 5/s, keep latest; conveyor commands applied and confirmed) runs next to the demo devices, one per transport.
+
+![The Packing line flow, with dashboard commands in the debug sidebar](./imgs/screenshots/transports-nodered-flow.webp)
+
+![Its dashboard tiles next to WebSocket, REST and gRPC devices](./imgs/screenshots/transports-dashboard-light.webp)
 
 ## Status badges
 

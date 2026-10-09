@@ -17,7 +17,9 @@ What the nodes handle for you:
   ES256 or RS256 is picked from the key.
 - **Reconnecting** with backoff. The nodes also notice a silent server (no ping in 75 s), and slow down when the key is refused or the device is revoked.
 - **Elements by name.** Pick them from a list in the editor, or route with `msg.topic = "Climate"`.
-- **Loud errors** instead of silent drops: offline, unknown element, a frame over 64 KiB, or over the rate limit.
+- **Loud errors** instead of silent drops: offline, unknown element, a frame over 64 KiB, over the device's rate, or
+  over an element's rate limit (the server lists each element's limit; elements set to "keep latest" aren't limited
+  here, because the server keeps their newest value).
   The errors can be caught with a *catch* node.
 - **Key pairs.** The device config can generate one; copy the public key into the platform.
 
@@ -27,7 +29,7 @@ The package is released on GitHub (not on the npm registry). Each [release](http
 
 ```sh
 cd ~/.node-red
-npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.1.0-alpha.1/node-red-contrib-quackquack-0.1.0-alpha.1.tgz
+npm install https://github.com/taha2samy-3/qauk-qauk/releases/download/node-red-v0.2.0-alpha.1/node-red-contrib-quackquack-0.2.0-alpha.1.tgz
 ```
 
 Or download the `.tgz` from the release and upload it in Node-RED: **Menu → Manage palette → Install → upload** (the icon next to the search box).
@@ -99,6 +101,19 @@ a sensor reading sent every 5 s, and commands applied and confirmed. Set the dev
 | 🔴 device deleted / key removed | The device was revoked by an admin (close code 4000) |
 
 Nothing is queued while offline. Each message sent while offline is an error, so you can catch it and buffer it if you need to.
+
+## Error codes
+
+`msg.error` / the *catch* node gets a code in `error.code`:
+
+| Code | Meaning |
+|---|---|
+| `offline` | Not connected |
+| `element` / `ambiguous` | Unknown element, or two elements share the name |
+| `size` | Frame over 64 KiB |
+| `json` | Not JSON-serializable |
+| `rate` | Over the device's **Max rate** (default 500/s, the server's device limit) |
+| `element-rate` | Over the element's limit set by the server admin (default 50/s), for elements that drop what's over |
 
 ## Protocol
 
