@@ -303,3 +303,72 @@ func debugLogger() kgo.Opt {
 	}
 	return kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil))
 }
+
+// Follow reads a (compacted) topic from the start and keeps following it
+// until ctx ends, calling fn for every record (tombstones have a nil Value).
+// caughtUp is called once, when the records that existed at start have been
+// read, or after catchUpTimeout so a slow topic can't block startup forever.
+func Follow(ctx context.Context, brokers []string, topic string, log *slog.Logger, fn func(*kgo.Record), caughtUp func()) error {
+	const catchUpTimeout = 30 * time.Second
+	cl, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.FetchMaxWait(200*time.Millisecond),
+	)
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	pending := map[int32]int64{}
+	ends, err := kadm.NewClient(cl).ListEndOffsets(ctx, topic)
+	if err == nil {
+		err = ends.Error()
+	}
+	if err != nil {
+		return err
+	}
+	ends.Each(func(o kadm.ListedOffset) {
+		if o.Offset > 0 {
+			pending[o.Partition] = o.Offset
+		}
+	})
+	done := false
+	check := func() {
+		if !done && len(pending) == 0 {
+			done = true
+			caughtUp()
+		}
+	}
+	check()
+	deadline := time.Now().Add(catchUpTimeout)
+	for {
+		pctx, cancel := context.WithTimeout(ctx, time.Second)
+		fetches := cl.PollFetches(pctx)
+		cancel()
+		if ctx.Err() != nil {
+			return nil
+		}
+		fetches.EachError(func(t string, p int32, err error) {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				log.Warn("bus: fetch error", "topic", t, "partition", p, "err", err)
+			}
+		})
+		fetches.EachRecord(func(r *kgo.Record) {
+			fn(r)
+			if end, ok := pending[r.Partition]; ok && r.Offset+1 >= end {
+				delete(pending, r.Partition)
+			}
+		})
+		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
+			if end, ok := pending[p.Partition]; ok && p.HighWatermark >= end && len(p.Records) == 0 && p.Err == nil {
+				delete(pending, p.Partition)
+			}
+		})
+		if !done && time.Now().After(deadline) {
+			log.Warn("bus: catch-up timed out, continuing", "topic", topic, "partitions_pending", len(pending))
+			clear(pending)
+		}
+		check()
+	}
+}

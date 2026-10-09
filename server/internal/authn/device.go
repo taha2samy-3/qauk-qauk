@@ -21,6 +21,8 @@ type DeviceKey struct {
 	PEM        string
 	Algorithm  string
 	KeyActive  bool
+	// Public is the parsed PEM, if the loader already has it (else parsed here).
+	Public any
 }
 
 // DeviceKeyLoader returns the device and its assigned key, or an error if the
@@ -65,9 +67,11 @@ func (v *DeviceVerifier) Verify(ctx context.Context, token string) (*DeviceKey, 
 	if !dk.KeyActive {
 		return nil, fmt.Errorf("%w: key %s is inactive", ErrDeviceAuth, dk.KeyID)
 	}
-	pub, err := keys.ParsePublic(dk.PEM)
-	if err != nil {
-		return nil, fmt.Errorf("%w: stored key unusable: %v", ErrDeviceAuth, err)
+	pub := dk.Public
+	if pub == nil {
+		if pub, err = keys.ParsePublic(dk.PEM); err != nil {
+			return nil, fmt.Errorf("%w: stored key unusable: %v", ErrDeviceAuth, err)
+		}
 	}
 	now := time.Now
 	if v.now != nil {
