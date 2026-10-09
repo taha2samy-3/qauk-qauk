@@ -254,7 +254,6 @@ func TestClientIDOfRateLimitedMessageCanRetry(t *testing.T) {
 	if _, err := g.publishDeviceMessage(td.dev, "c", DeviceMessage{Element: "e", ByName: true, Message: val(2), ClientID: "x"}); err == nil {
 		t.Fatal("want rate limited")
 	}
-	g.limits.(*ratelimit.Local).Allow("e:"+td.elem["e"].String(), ratelimit.Limit{}, 0) // no-op, keeps the bucket
 	time.Sleep(1100 * time.Millisecond)
 	res, err := g.publishDeviceMessage(td.dev, "c", DeviceMessage{Element: "e", ByName: true, Message: val(2), ClientID: "x"})
 	if err != nil || res.Status != StatusAccepted {
