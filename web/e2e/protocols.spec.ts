@@ -68,11 +68,16 @@ test('commands reach every transport and come back', async ({ page }) => {
   await login(page, ADMIN)
   await page.goto(`/dashboards/${dashboardId}`)
   // every switch is driven by a different transport; each device echoes the new state
+  // (a round trip each way; the screenshots then show them all on)
   for (const title of ['Pump · WebSocket', 'Burner · REST sync', 'Gate · gRPC stream', 'Conveyor · Node-RED']) {
     const sw = widget(page, title).getByTestId('switch-widget')
-    if ((await sw.getAttribute('data-state')) !== 'on') {
-      await widget(page, title).getByRole('switch').click()
-      await expect(sw).toHaveAttribute('data-state', 'on', { timeout: 15_000 })
+    const toggle = widget(page, title).getByRole('switch')
+    const start = await sw.getAttribute('data-state')
+    const steps = start === 'on' ? ['off', 'on'] : start === 'off' ? ['on'] : ['on'] // unknown: never reported yet
+    for (const want of steps) {
+      await toggle.click()
+      await expect(sw, `${title} -> ${want}`).toHaveAttribute('data-state', want, { timeout: 15_000 })
+      await expect(sw).toHaveAttribute('data-pending', 'false')
     }
   }
 })
