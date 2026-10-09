@@ -43,6 +43,7 @@ import (
 	_ "github.com/taha2samy/quackquack/server/internal/history/timescale"
 	"github.com/taha2samy/quackquack/server/internal/httpserver"
 	"github.com/taha2samy/quackquack/server/internal/ingest"
+	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/outbox"
 	"github.com/taha2samy/quackquack/server/internal/service"
 )
@@ -130,6 +131,7 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...fun
 	if err != nil {
 		t.Fatal(err)
 	}
+	producer.OnError = func(topic string, _ error) { metrics.BusProduceErrors.WithLabelValues(topic).Inc() }
 	gw := gateway.New(ctx, cfg, pool, producer, hist, logger)
 	var wg sync.WaitGroup
 	run := func(fn func(context.Context) error) {

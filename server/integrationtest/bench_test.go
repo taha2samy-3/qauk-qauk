@@ -19,11 +19,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/taha2samy/quackquack/server/internal/config"
 	devicev1 "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1"
 	"github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1/devicev1connect"
+	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
@@ -248,6 +250,12 @@ func (p *grpcStreamPub) publish(_ context.Context, msgs []map[string]any) error 
 }
 func (p *grpcStreamPub) close() { _ = p.s.CloseRequest() }
 
+// drops sums server-side losses: failed produces and slow-consumer drops.
+func drops() float64 {
+	return testutil.ToFloat64(metrics.BusProduceErrors.WithLabelValues("element-events.v1")) +
+		testutil.ToFloat64(metrics.Dropped.WithLabelValues("slow_consumer"))
+}
+
 type transportCase struct {
 	name  string
 	batch int
@@ -311,6 +319,7 @@ func TestTransportBench(t *testing.T) {
 		name               string
 		p50, p95, p99      time.Duration
 		sent, got, seconds float64
+		dropped            float64 // produce failures + slow-consumer drops on the server
 	}
 	var rows []row
 	for _, tc := range cases {
@@ -343,6 +352,7 @@ func TestTransportBench(t *testing.T) {
 		// throughput: every device sends as fast as its transport allows
 		const dur = 5 * time.Second
 		before := sk.n.Load()
+		dropsBefore := drops()
 		var sent atomic.Int64
 		var wg sync.WaitGroup
 		deadline := time.Now().Add(dur)
@@ -373,7 +383,7 @@ func TestTransportBench(t *testing.T) {
 		if sk.closed.Load() {
 			t.Fatalf("%s: a dashboard socket was closed (slow consumer?)", tc.name)
 		}
-		rows = append(rows, row{tc.name, pct(0.5), pct(0.95), pct(0.99), float64(sent.Load()), float64(got), dur.Seconds()})
+		rows = append(rows, row{tc.name, pct(0.5), pct(0.95), pct(0.99), float64(sent.Load()), float64(got), dur.Seconds(), drops() - dropsBefore})
 		for _, p := range pubs {
 			p.close()
 		}
@@ -384,10 +394,10 @@ func TestTransportBench(t *testing.T) {
 	ms := func(d time.Duration) string { return fmt.Sprintf("%.1f ms", float64(d.Microseconds())/1000) }
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n%d devices on instance A, one dashboard socket on instance B (via Redpanda), limits off, no ingester\n\n", devices)
-	sb.WriteString("| Transport | Latency p50 | p95 | p99 | Sent/s | Delivered/s | Delivered |\n|---|---|---|---|---|---|---|\n")
+	sb.WriteString("| Transport | Latency p50 | p95 | p99 | Sent/s | Delivered/s | Delivered | Server drops |\n|---|---|---|---|---|---|---|---|\n")
 	for _, r := range rows {
-		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %.0f | %.0f | %.1f%% |\n", r.name, ms(r.p50), ms(r.p95), ms(r.p99),
-			r.sent/r.seconds, r.got/r.seconds, 100*r.got/max(r.sent, 1))
+		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %.0f | %.0f | %.1f%% | %.0f |\n", r.name, ms(r.p50), ms(r.p95), ms(r.p99),
+			r.sent/r.seconds, r.got/r.seconds, 100*r.got/max(r.sent, 1), r.dropped)
 	}
 	t.Log(sb.String())
 	if out := os.Getenv("QUACK_IT_BENCH_OUT"); out != "" {
