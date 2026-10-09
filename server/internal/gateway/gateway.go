@@ -152,3 +152,6 @@ func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) s
 	g.producer.Publish(g.ctx, events.TopicElementEvents, ev)
 	return ev.ID
 }
+
+// Device returns a device's snapshot from the in-memory registry.
+func (g *Gateway) Device(id uuid.UUID) (*registry.Device, bool) { return g.registry.Lookup(id) }
