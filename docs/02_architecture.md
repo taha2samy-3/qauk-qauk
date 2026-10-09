@@ -9,18 +9,18 @@ flowchart TB
     B["Browser (React app)"]
   end
   P["Reverse proxy / LB<br/>(optional, TLS)"]
-  D -- "wss /device/node_red/" --> P
+  D -- "wss /device/node_red/<br/>https /device/v1/* (REST)<br/>gRPC quack.device.v1" --> P
   B -- "https /, /api/v1/*<br/>wss /browser/simple/" --> P
   subgraph S["quack serve (xN)"]
     API["api role<br/>REST, sessions, outbox relay,<br/>static web app"]
-    GW["gateway role<br/>sockets, fan-out, ring buffers,<br/>presence"]
+    GW["gateway role<br/>device core (WS, REST, gRPC),<br/>device registry, fan-out,<br/>ring buffers, presence"]
   end
   P --> API
   P --> GW
   API -- "tx: change + audit + outbox" --> PG[("PostgreSQL 17<br/>(metadata)")]
   API -- "outbox relay" --> RP[("Redpanda")]
-  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1<br/>element-state.v1" --> RP
-  GW -- "permissions, devices/keys,<br/>presence leases" --> PG
+  GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1<br/>element-state.v1<br/>device-config.v1" --> RP
+  GW -- "permissions, presence leases,<br/>registry misses" --> PG
   GW -- "replay (batched)" --> H
   API -- "history API" --> H
   RP --> IN["quack ingest (xM)"]
@@ -32,16 +32,17 @@ Everything server-side is one Go binary, `quack`:
 | Command | What it runs |
 |---|---|
 | `quack serve` | The HTTP server. The roles come from `QUACK_ROLES` (default `api,gateway`). |
-| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
-| &nbsp;&nbsp;role `gateway` | The WebSockets `/device/node_red/` and `/browser/simple/`, in-memory fan-out, per-element history ring buffers, presence leases and the sweeper, and the consumers for all three topics. |
+| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1` and `device-config.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
+| &nbsp;&nbsp;role `gateway` | The device transports (WebSocket `/device/node_red/`, [REST](./04_api_reference/device_rest_api.md) `/device/v1/*`, [gRPC](./04_api_reference/device_grpc_api.md) `quack.device.v1.DeviceService`) on one **device core**, the browser socket `/browser/simple/`, the in-memory **device registry**, in-memory fan-out, per-element history ring buffers, presence leases and the sweeper, and the bus consumers. |
 | `quack ingest` | The history writer. It consumes `element-events.v1` in a consumer group and appends to the [history store](./05_core_concepts/history.md) (events, numeric points and rollups). It publishes each element's newest value to `element-state.v1`, and dead-letters unstorable events to `element-events.dlq.v1`. It serves `/healthz` and `/metrics` on `QUACK_HTTP_ADDR`. |
-| `quack migrate` | Applies the core Postgres migrations and the history store's schema and retention, all embedded in the binary, and creates the Redpanda topics if they are missing. Safe to run repeatedly. |
+| `quack migrate` | Applies the core Postgres migrations and the history store's schema and retention, all embedded in the binary, creates the Redpanda topics if they are missing, and republishes every device to `device-config.v1`. Safe to run repeatedly. |
+| `quack registry sync` | Republishes every device's snapshot to `device-config.v1` (after restoring a database, say). |
 | `quack history copy` | Copies stored history into another backend, to move between [history drivers](./05_core_concepts/history.md#switching-backends). |
 | `quack admin ...` | `create-user [--admin]`, `set-password`, `import-key`: bootstrap and emergency tasks that run straight against the database. |
 | `quack import-django` | One-off import from the legacy Django database. |
-| `quack dev ...` | Development helpers: `demo`, `simulate`, plus `seed` and `hook` for the contract suite. |
+| `quack dev ...` | Development helpers: `demo`, `simulate [--transport websocket\|rest\|grpc\|mixed]`, `token` (a JWT for a demo device), plus `seed` and `hook` for the contract suite. |
 
-Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database reachable) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total`, `quack_ingest_lag_seconds` and `quack_ingest_dead_letters_total`.
+Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database reachable and, on gateways, the device registry loaded) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total`, `quack_ingest_lag_seconds` and `quack_ingest_dead_letters_total`.
 
 **Infrastructure:**
 
@@ -53,6 +54,22 @@ Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database r
 | **Web app** (`web/`) | React single-page app. In production it is built into the image and served by the `api` role. In development Vite serves it on :5173 and proxies `/api/`, `/browser/` and `/device/` to :8080. |
 
 ## Data flows
+
+### One device core, three transports
+
+```mermaid
+flowchart LR
+  WS["WebSocket<br/>/device/node_red/"] --> C
+  R["REST<br/>/device/v1/*"] --> C
+  G["gRPC<br/>DeviceService"] --> C
+  C["device core<br/>auth · validate · element by id/name<br/>· client-id dedupe · rate limits"] --> P["publish<br/>(local fan-out + element-events.v1)"]
+  REG[("device registry<br/>in memory, from device-config.v1")] -.-> C
+  RL[("rate-limit buckets<br/>ratelimit.Limiter")] -.-> C
+```
+
+Every transport authenticates with the same device JWT and calls the same core, so rules can't drift between them: validation (JSON, 64 KiB, storable text), the element (by id, or by name on REST and gRPC), retries with a client id, the per-device guard and the per-element [rate limit](./05_core_concepts/rate_limits.md), then the same publish path as below. The core reads devices, keys and limits from the **device registry**, a copy of the compacted `device-config.v1` topic that every gateway keeps in memory ([details](./05_core_concepts/realtime_events.md#device-config-v1)). The message path therefore never reads Postgres.
+
+Only delivery differs. WebSocket and gRPC streams are connections in the hub, and get messages pushed. REST devices long-poll `GET /device/v1/sync`, which answers from the newest command per element that every gateway keeps in memory.
 
 ### Device → browser (local fast path + bus)
 
@@ -213,7 +230,8 @@ For longer ranges, clients use the REST endpoint `GET /api/v1/elements/{id}/hist
 
 - Run as many `quack serve` instances as you need behind a load balancer that supports WebSockets. **No sticky sessions are needed.** Every gateway reads **every partition** of the three topics, without a consumer group and starting at the end. A message published on gateway A therefore reaches subscribers on gateway B.
 - Each instance needs a unique `QUACK_GATEWAY_ID`. If it is unset, one is generated from the hostname plus random bytes, which is fine for most deployments. The ID is used in presence leases and to skip the gateway's own events.
-- You can split roles: `QUACK_ROLES=gateway` on socket nodes and `QUACK_ROLES=api` on REST nodes. Several `api` instances can run the outbox relay at the same time; `FOR UPDATE SKIP LOCKED` keeps them from colliding.
+- You can split roles: `QUACK_ROLES=gateway` on socket nodes and `QUACK_ROLES=api` on REST nodes. Several `api` instances can run the outbox relay; an advisory lock lets one drain at a time, so each topic key keeps its order (needed by `device-config.v1`).
+- **Device REST requests** may hit any gateway. That is fine for correctness, but rate-limit buckets and retry ids are per instance. Hash on the `X-Quack-Device` header at the load balancer to keep them exact ([REST → Behind a load balancer](./04_api_reference/device_rest_api.md#behind-a-load-balancer)). gRPC needs an HTTP/2-capable load balancer; streams are recycled every `QUACK_STREAM_MAX_AGE` (30 min) so they spread out again after a scale-out.
 - **Limit:** every gateway processes all element traffic. This is fine into the tens of thousands of messages per second. Beyond that, you need partition-aware routing, which is not implemented.
 - The protocol has no per-socket state that another gateway would need, so a client can simply reconnect to any instance.
 
@@ -241,13 +259,16 @@ Presence answers one question: "is this device connected to any gateway?" It mus
 |---|---|---|
 | Outbound queue per socket | 2048 frames | When full, the socket is closed with **1013** (try again later). Fan-out never blocks. |
 | Inbound frame size | 64 KiB | A larger frame closes the socket (1009, message too big). |
-| Device messages | `QUACK_DEVICE_MSG_RATE` (50/s, burst 50) | Excess frames are dropped silently (`quack_dropped_total{reason="device_rate_limit"}`). |
+| Device messages | Per element (default `QUACK_ELEMENT_MSG_RATE` 50/s) plus a per-device guard (`QUACK_DEVICE_MSG_RATE` 500/s), on every transport | Dropped (WebSocket: silently), or the newest held for elements set to `latest`. REST and gRPC report it per message, and answer `429`/`RESOURCE_EXHAUSTED` when everything was over. See [Rate limits](./05_core_concepts/rate_limits.md). |
+| Message size | 64 KiB on every transport; REST and gRPC bodies ≤ 1 MiB and 500 messages | A larger WebSocket frame closes the socket (1009); on REST and gRPC the message is `rejected` (`too_large`). |
+| Produce buffer | 200,000 records / 64 MiB | Over 75 %, publishing waits up to 2 s for Redpanda to catch up (back-pressure on the device's socket or request) instead of dropping. Only a longer outage fills it and drops (`quack_bus_produce_errors_total`). |
 | Browser frames | `QUACK_BROWSER_MSG_RATE` (100/s, burst 100) | Excess frames get an `error` frame with `rate_limited`. |
 | Keep-alive | WebSocket ping every 30 s | No pong within 15 s closes the socket with **1001**. |
 | Shutdown | SIGINT / SIGTERM | All sockets are closed with **1001** "server shutting down", and HTTP is drained for up to 10 s. |
 
 ### Deploying behind a proxy
 
-- Forward WebSocket upgrades for `/device/node_red/` and `/browser/simple/`, and keep the original `Host` header. The browser socket accepts an `Origin` whose host equals `Host`, or one listed in `QUACK_ALLOWED_ORIGINS`.
+- Forward WebSocket upgrades for `/device/node_red/` and `/browser/simple/`, and keep the original `Host` header.
+- For gRPC, forward HTTP/2 to the server. Without TLS between the proxy and the server, it speaks h2c (HTTP/2 with prior knowledge) on the same port. The browser socket accepts an `Origin` whose host equals `Host`, or one listed in `QUACK_ALLOWED_ORIGINS`.
 - Terminate TLS at the proxy and keep `QUACK_COOKIE_SECURE=true` (the default).
 - The server does not trust `X-Forwarded-For`. The login rate limiter therefore keys on the proxy's address plus the username.

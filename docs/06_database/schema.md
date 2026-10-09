@@ -9,6 +9,7 @@ Two stores, both migrated by `quack migrate`:
 |---|---|
 | `00001_core.sql` | Identity, devices, permissions, presence, connections, outbox, audit log |
 | `00003_dashboards.sql` | `dashboards` |
+| `00005_element_limits.sql` | Per-element rate limits (`elements.msg_rate`, `msg_burst`, `over_limit`); `outbox.payload` nullable for tombstones |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -68,6 +69,9 @@ erDiagram
     text description
     jsonb details "widget config"
     timestamptz created_at
+    float8 msg_rate "nullable: server default"
+    integer msg_burst "nullable: = rate"
+    text over_limit "drop | latest"
   }
   element_styles {
     bigserial id PK
@@ -122,7 +126,7 @@ erDiagram
     bigserial id PK
     text topic
     text key
-    jsonb payload "full CloudEvent"
+    jsonb payload "full CloudEvent, NULL = tombstone"
     timestamptz created_at
     timestamptz published_at
   }
@@ -165,6 +169,7 @@ erDiagram
 
 - `element_permissions` has `CHECK ((user_id IS NULL) <> (group_id IS NULL))`, plus partial unique indexes on `(element_id, user_id)` and `(element_id, group_id)`. There is one grant per subject per element, and the API upserts it.
 - `elements.points` is constrained to `BETWEEN 0 AND 1000`.
+- `elements.msg_rate > 0` and `msg_burst >= 1` when set, and `over_limit IN ('drop', 'latest')`. The API also caps the rate at `QUACK_ELEMENT_MSG_RATE_MAX`. See [Rate limits](../05_core_concepts/rate_limits.md).
 - `jwt_public_keys.algorithm` is constrained to `IN ('RS256', 'ES256')`.
 
 **IDs.** New devices, elements, keys, dashboards and connection rows get **UUIDv7** ids (time-ordered). Rows imported from Django keep their original ids. Users and groups use `bigserial`, so imported Django user ids are preserved too.
@@ -175,7 +180,7 @@ erDiagram
 |---|---|---|
 | `device_presence` | Gateways | One lease per open device socket. Refreshed every `QUACK_PRESENCE_HEARTBEAT`; dead after `QUACK_PRESENCE_TTL`. The sweeper deletes expired rows under an advisory lock. See [Architecture → Presence](../02_architecture.md#presence-leases-and-the-sweeper). |
 | `device_connections` | Gateways | An append-only audit of connections (client address, path, user agent, gateway, connection id), with `disconnected_at` set on close. Readable at `GET /api/v1/admin/connections`. |
-| `outbox` | Every admin mutation (same transaction) | Control events waiting to be published. A partial index on unpublished rows keeps the relay query cheap. Published rows are purged after 7 days. |
+| `outbox` | Every admin mutation (same transaction) | Events waiting to be published: control events (`control-events.v1`), and full device snapshots for any change to a device, its key or its elements (`device-config.v1`; a `NULL` payload is a tombstone for a deleted device). A partial index on unpublished rows keeps the relay query cheap. One relay drains at a time (advisory lock), so rows of a key are published in order. Published rows are purged after 7 days. |
 | `audit_log` | Every admin mutation (same transaction) | Who changed what, with the new state in `data`. Readable at `GET /api/v1/admin/audit`. |
 | `sessions` | Login | Only token hashes. Expired rows are purged hourly. |
 

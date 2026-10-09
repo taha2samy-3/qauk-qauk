@@ -31,7 +31,7 @@ mise install        # Go, Task, golangci-lint
 task infra:up       # Postgres/TimescaleDB (127.0.0.1:5433) + Redpanda (127.0.0.1:19092); add HISTORY=clickhouse for ClickHouse
 task demo           # build, migrate, seed demo data, write server/bin/demo-devices.json
 task dev            # api + gateway on http://127.0.0.1:8080 (keep running)
-task simulate       # new terminal: the demo devices connect and stream values
+task simulate       # new terminal: the demo devices connect and stream values (one per transport: WebSocket, REST, gRPC)
 task web:install    # new terminal: install web dependencies
 task web:dev        # Vite dev server on http://127.0.0.1:5173
 ```
@@ -47,6 +47,13 @@ Open **http://127.0.0.1:5173** and log in:
 - *Greenhouse A* (ES256): temperature, humidity, soil moisture, an irrigation pump switch, a fan-speed slider.
 - *Boiler room* (RS256): water temperature, pressure, a burner switch.
 - *Weather station* (ES256): `Climate`, whose messages are objects (`{temperature, humidity, battery, ts, gps{lat,lng}}`) for trying attribute bindings, and a `Gate relay` that speaks `{"relay": "ON"}`.
+
+`task simulate` connects each demo device over a different [device transport](./04_api_reference/README.md#which-device-transport): *Greenhouse A* over the WebSocket, *Boiler room* over [REST](./04_api_reference/device_rest_api.md) (commands by long-poll), *Weather station* over [gRPC](./04_api_reference/device_grpc_api.md) (a `Session` stream). `task simulate TRANSPORT=rest` (or `websocket`, `grpc`) uses one for all. To call the APIs by hand, get a token for a demo device:
+
+```sh
+TOKEN=$(server/bin/quack dev token --file server/bin/demo-devices.json --device "Boiler room")
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/device/v1/elements
+```
 
 The simulator confirms each dashboard command by sending it back as the new state, the way a real actuator would.
 
@@ -330,7 +337,12 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_COOKIE_SECURE` | `true` | serve | Sets `Secure` on the session cookie. Set it to `false` only for plain-HTTP development. |
 | `QUACK_SESSION_TTL` | `336h` (14 days) | serve | Session lifetime from login. It is not extended by activity. |
 | `QUACK_DEVICE_JWT_MAX_LIFETIME` | `24h` | serve | Maximum `exp - iat` (or `exp - now`) for device tokens. 30 s of leeway is added. |
-| `QUACK_DEVICE_MSG_RATE` | `50` | serve | Messages per second per device socket (token bucket, burst = rate). The excess is dropped. `0` disables the limit. |
+| `QUACK_DEVICE_MSG_RATE` | `500` | serve | Per-device guard: messages per second for all of a device's connections and requests, on every transport. `0` disables it. (It was a per-socket limit of 50 until 2026-10-09.) See [Rate limits](./05_core_concepts/rate_limits.md). |
+| `QUACK_ELEMENT_MSG_RATE` | `50` | serve | Rate of elements that have no limit of their own. `0` = unlimited. |
+| `QUACK_ELEMENT_MSG_RATE_MAX` | `1000` | serve | Highest per-element rate an admin may set. |
+| `QUACK_RATELIMIT_DRIVER` | `local` | serve | Where rate-limit buckets live. Only `local` (in memory, per instance) exists today. |
+| `QUACK_SYNC_MAX_WAIT` | `60s` | serve | Longest long-poll of `GET /device/v1/sync`. |
+| `QUACK_STREAM_MAX_AGE` | `30m` | serve | gRPC streams are closed (`UNAVAILABLE`) after this plus up to 10 % jitter, so clients spread over new instances. `0` = never. |
 | `QUACK_BROWSER_MSG_RATE` | `100` | serve | Frames per second per browser socket. The excess gets a `rate_limited` error. `0` disables the limit. |
 | `QUACK_PRESENCE_HEARTBEAT` | `10s` | serve | How often a gateway refreshes its presence leases and runs the sweeper. |
 | `QUACK_PRESENCE_TTL` | `30s` | serve | A lease older than this counts as dead (the device shows as disconnected). |
