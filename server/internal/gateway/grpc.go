@@ -150,16 +150,21 @@ func (s *grpcDevice) Session(ctx context.Context, stream *connect.BidiStream[dev
 				return err
 			}
 			metrics.MessagesIn.WithLabelValues("grpc").Inc()
+			item := fromProto(req.GetPublish())
 			res := restResult{Status: "rejected"}
 			if err := g.allowDevice(d.deviceID, 1); err != nil {
 				res.Code, res.Error = "rate_limited", err.Error()
 			} else if cur, ok := g.registry.Lookup(d.deviceID); ok {
 				var rs []restResult
-				rs, _, _ = g.publishItems(cur, d.id, []restItem{fromProto(req.GetPublish())})
+				rs, _, _ = g.publishItems(cur, d.id, []restItem{item})
 				res = rs[0]
 			}
-			b, _ := json.Marshal(res)
-			d.Send(append([]byte{resultMarker}, b...))
+			// Like the WebSocket, a stream is fire-and-forget: results come
+			// back only for rejected messages and for messages with an id.
+			if res.Status == "rejected" || item.ID != "" {
+				b, _ := json.Marshal(res)
+				d.Send(append([]byte{resultMarker}, b...))
+			}
 		}
 	}
 	return g.runStream(ctx, dev, dk, info, write, func() error { return stream.Send(nil) }, recv)

@@ -18,7 +18,8 @@ service DeviceService {
   // elements, as they happen.
   rpc Watch(WatchRequest) returns (stream WatchResponse);
   // Session is the WebSocket equivalent: publish and receive on one stream.
-  // Needs HTTP/2.
+  // Publishing is fire-and-forget: a PublishResult comes back only for a
+  // rejected message, or for a message with an id. Needs HTTP/2.
   rpc Session(stream SessionRequest) returns (stream SessionResponse);
   // ListElements returns the device and its elements.
   rpc ListElements(ListElementsRequest) returns (ListElementsResponse);

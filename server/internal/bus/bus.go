@@ -57,6 +57,19 @@ func EnsureTopics(ctx context.Context, brokers []string) error {
 }
 
 // Producer publishes CloudEvents in structured mode.
+const (
+	maxBufferedBytes   = 64 << 20
+	maxBufferedRecords = 200_000
+	// Over these, Publish waits (up to backpressureWait) for the buffer to
+	// drain before handing over the record: bursts slow the publisher (a
+	// device's read loop, a REST request) instead of losing messages. Only
+	// when Redpanda is unreachable for longer does the buffer fill and
+	// records get dropped (counted by OnError).
+	backpressureBytes   = maxBufferedBytes * 3 / 4
+	backpressureRecords = maxBufferedRecords * 3 / 4
+	backpressureWait    = 2 * time.Second
+)
+
 type Producer struct {
 	cl  *kgo.Client
 	log *slog.Logger
@@ -74,7 +87,8 @@ func NewProducer(brokers []string, acksAll bool, log *slog.Logger) (*Producer, e
 		// TryProduce refuses new ones once the buffer is full, instead of
 		// blocking every socket's read loop (and buffering gigabytes).
 		kgo.RecordDeliveryTimeout(30 * time.Second),
-		kgo.MaxBufferedBytes(64 << 20),
+		kgo.MaxBufferedBytes(maxBufferedBytes),
+		kgo.MaxBufferedRecords(maxBufferedRecords),
 	}
 	if acksAll {
 		opts = append(opts, kgo.RequiredAcks(kgo.AllISRAcks()))
@@ -108,8 +122,9 @@ func RawRecord(topic, key string, value []byte) *kgo.Record {
 	}
 }
 
-// Publish sends asynchronously and never blocks; failures (including a full
-// buffer while Redpanda is unreachable) are logged and reported to OnError.
+// Publish sends asynchronously. It only waits while the produce buffer is
+// nearly full (backpressure, at most backpressureWait); failures (including a
+// full buffer while Redpanda is unreachable) are logged and reported to OnError.
 func (p *Producer) Publish(ctx context.Context, topic string, ev *events.Event) {
 	rec, err := Record(topic, ev)
 	if err != nil {
@@ -121,6 +136,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, ev *events.Event) 
 
 // PublishRecord is Publish for a prepared record.
 func (p *Producer) PublishRecord(ctx context.Context, rec *kgo.Record) {
+	p.waitForRoom(ctx)
 	topic := rec.Topic
 	p.cl.TryProduce(ctx, rec, func(_ *kgo.Record, err error) {
 		if err != nil {
@@ -130,6 +146,20 @@ func (p *Producer) PublishRecord(ctx context.Context, rec *kgo.Record) {
 			}
 		}
 	})
+}
+
+// waitForRoom applies backpressure while the produce buffer is nearly full.
+func (p *Producer) waitForRoom(ctx context.Context) {
+	full := func() bool {
+		return p.cl.BufferedProduceRecords() >= backpressureRecords || p.cl.BufferedProduceBytes() >= backpressureBytes
+	}
+	if !full() {
+		return
+	}
+	deadline := time.Now().Add(backpressureWait)
+	for full() && time.Now().Before(deadline) && ctx.Err() == nil {
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // PublishSync sends records and waits for all acks.
