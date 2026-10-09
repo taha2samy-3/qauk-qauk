@@ -328,6 +328,7 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_HISTORY_MAX_BUCKETS` | `1500` | serve | Most buckets per history request (larger requests get 422). |
 | `QUACK_HISTORY_REPLAY_WINDOW` | `720h` | serve | How far back the replay looks for an element's last values. |
 | `QUACK_KAFKA_BROKERS` | `localhost:19092` | serve, ingest, migrate | Redpanda seed brokers. |
+| `QUACK_TOPIC_PREFIX` | *(empty)* | all | Prefix for every Redpanda topic (e.g. `staging.`). **Environments that share a Redpanda cluster must use different prefixes**, or each would see the other's events and devices ([why](./05_core_concepts/realtime_events.md#sharing-a-cluster)). The integration tests use `it.` and the contract suite `contract.`. |
 | `QUACK_KAFKA_ACKS_ALL` | `true` | serve | `true` means `acks=all` (durable). `false` means `acks=1` (lower latency, may lose events on broker failure). |
 | `QUACK_INGEST_GROUP` | `quack-ingest` | ingest | Consumer group of the ingester. **Use a different value per environment/database** sharing a Redpanda cluster ([why](./02_architecture.md#the-ingester-consumer-group)). |
 | `QUACK_HTTP_ADDR` | `:8080` | serve, ingest | Listen address. The ingester only serves `/healthz` and `/metrics` on it (the tasks and compose use `:9100`). |

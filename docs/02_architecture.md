@@ -238,7 +238,8 @@ For longer ranges, clients use the REST endpoint `GET /api/v1/elements/{id}/hist
 ### The ingester consumer group
 
 - `quack ingest` instances with the **same** `QUACK_INGEST_GROUP` share the work. Run up to 12 replicas, one per partition of `element-events.v1`.
-- **`QUACK_INGEST_GROUP` must be different for every environment (every target database) that shares a Redpanda cluster.** Redpanda tracks committed offsets **per group**. Suppose staging and production, or a test database, ingest from the same cluster with the same group name. They would then split the partitions between them, and each database would silently get only part of the events. The integration tests use their own group (`quack-ingest-it`) for this reason.
+- **Environments sharing a Redpanda cluster need their own `QUACK_TOPIC_PREFIX`** (see [Sharing a cluster](./05_core_concepts/realtime_events.md#sharing-a-cluster)); with it, their consumer groups don't collide either.
+- **`QUACK_INGEST_GROUP` must be different for every environment (every target database) that shares a Redpanda cluster without a topic prefix.** Redpanda tracks committed offsets **per group**. Suppose staging and production, or a test database, ingest from the same cluster with the same group name. They would then split the partitions between them, and each database would silently get only part of the events. The integration tests use their own group (`quack-ingest-it`) for this reason.
 - A **new** group starts from the earliest retained offset. Topic retention is 7 days, so a fresh database backfills the last week of events.
 
 ### Presence: leases and the sweeper

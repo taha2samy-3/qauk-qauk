@@ -130,6 +130,10 @@ A gateway emits this only on a **transition**:
 
 The topic is compacted, so it keeps the latest state per device. The source of truth is the `device_presence` lease table; see [Architecture → Presence](../02_architecture.md#presence-leases-and-the-sweeper). Gateways turn these events into `element_connection_status` frames for subscribers of the device's elements.
 
+## Sharing a cluster
+
+Topic names are fixed, and every gateway reads every topic. So two environments (two databases, say staging and production) on one Redpanda cluster would see each other's element events, and, through `device-config.v1`, each other's **devices**: a device of one environment could authenticate on the other. Give each environment its own `QUACK_TOPIC_PREFIX` (`staging.` gives `staging.element-events.v1`, and so on), or its own cluster. `quack migrate` creates the prefixed topics. The integration tests run on `it.` topics that they delete and recreate on every run, and the contract suite on `contract.`.
+
 ## Writing your own consumer
 
 - Use your **own consumer group** and treat the stream as at-least-once: deduplicate on the CloudEvent `id`.
