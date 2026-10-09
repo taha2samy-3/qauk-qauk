@@ -114,7 +114,9 @@ test('Node-RED flow feeding the platform', async ({ page }) => {
   test.skip(!up, `Node-RED not running on ${NODE_RED}`)
   await page.goto(NODE_RED)
   await expect(page.locator('#red-ui-workspace')).toBeVisible()
-  await expect(page.getByText('connected').first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.locator('.red-ui-flow-node-status-label').filter({ hasText: /^connected$/ }).first()).toBeVisible({
+    timeout: 20_000,
+  })
   await page.locator('#red-ui-tab-debug-link-button').click().catch(() => undefined)
   await snap(page, 'transports-nodered-flow', 1500)
 })
