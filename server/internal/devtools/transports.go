@@ -109,6 +109,7 @@ type restLink struct {
 	base, token string
 	http        *http.Client
 	cursor      string
+	synced      bool // the first sync (current values, not waited for) is done
 	pending     []incomingFrame
 }
 
@@ -149,15 +150,18 @@ func (l *restLink) recv(ctx context.Context) (incomingFrame, error) {
 			Cursor   string          `json:"cursor"`
 			Messages []incomingFrame `json:"messages"`
 		}
-		if err := l.do(ctx, http.MethodGet, "/device/v1/sync?wait=30s&cursor="+l.cursor, nil, &out); err != nil {
+		wait := "30s"
+		if !l.synced {
+			wait = "0" // first call: learn the cursor, skip commands sent before this device came up
+		}
+		if err := l.do(ctx, http.MethodGet, "/device/v1/sync?wait="+wait+"&cursor="+l.cursor, nil, &out); err != nil {
 			return incomingFrame{}, err
 		}
-		if l.cursor == "" && out.Cursor != "" {
-			// first call: skip commands sent before this device came up
-			l.cursor = out.Cursor
+		l.cursor = out.Cursor
+		if !l.synced {
+			l.synced = true
 			continue
 		}
-		l.cursor = out.Cursor
 		l.pending = out.Messages
 	}
 	f := l.pending[0]
