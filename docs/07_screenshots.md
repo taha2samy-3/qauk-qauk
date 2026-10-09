@@ -31,6 +31,30 @@ Every widget has a configuration sheet: title, units, ranges, colored thresholds
 
 ![Widget configuration sheet](./imgs/screenshots/dashboard-config-light.webp)
 
+## Device transports
+
+One dashboard fed by all three device transports plus Node-RED: *Greenhouse A* over the WebSocket, *Boiler room* over
+REST, *Weather station* over gRPC, and the *Packing line* flow in Node-RED. Every switch was flipped in the browser,
+reached its device over that device's transport, and was confirmed back. Captured by `web/e2e/protocols.spec.ts`.
+
+![Dashboard fed by WebSocket, REST, gRPC and Node-RED devices, light theme](./imgs/screenshots/transports-dashboard-light.webp)
+
+![The same dashboard, dark theme](./imgs/screenshots/transports-dashboard-dark.webp)
+
+| All four devices online | The Node-RED flow behind *Packing line* |
+|---|---|
+| ![Devices page with four online devices](./imgs/screenshots/transports-devices-light.webp) | ![Node-RED flow with dashboard commands in the debug sidebar](./imgs/screenshots/transports-nodered-flow.webp) |
+
+| REST with curl | gRPC with buf curl |
+|---|---|
+| ![curl calls against the REST device API](./imgs/screenshots/transcript-rest-curl.webp) | ![buf curl calls against the gRPC device API](./imgs/screenshots/transcript-grpc-buf-curl.webp) |
+
+## Rate limits per element
+
+| Element list | Element form |
+|---|---|
+| ![Elements with their rate limits](./imgs/screenshots/admin-element-limits-light.webp) | ![The rate-limit section of the element form](./imgs/screenshots/admin-element-limit-dialog-light.webp) |
+
 ## Dashboards list and tablets
 
 | Your dashboards | Tablet layout |
