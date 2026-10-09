@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/coder/websocket"
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -220,4 +222,29 @@ func (l *grpcLink) close() {
 	_ = l.stream.CloseRequest()
 	l.mu.Unlock()
 	l.cancel()
+}
+
+// Token prints a device JWT for a demo device (by name or id), for trying
+// the REST and gRPC APIs by hand (curl, buf curl).
+func Token(file, device string, ttl time.Duration) (string, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	var demo DemoFile
+	if err := json.Unmarshal(b, &demo); err != nil {
+		return "", err
+	}
+	for _, d := range demo.Devices {
+		if d.Name != device && d.ID != device {
+			continue
+		}
+		key, err := parsePrivate(d.PrivateKeyPEM)
+		if err != nil {
+			return "", err
+		}
+		return jwt.NewWithClaims(jwt.GetSigningMethod(d.Alg), jwt.MapClaims{"id": d.ID, "iat": time.Now().Unix(),
+			"exp": time.Now().Add(ttl).Unix()}).SignedString(key)
+	}
+	return "", fmt.Errorf("no demo device %q in %s", device, file)
 }

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/devtools"
@@ -11,10 +13,24 @@ import (
 
 func devCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: quack dev seed|hook|demo|simulate [flags]")
+		return errors.New("usage: quack dev seed|hook|demo|simulate|token [flags]")
 	}
-	if args[0] == "simulate" { // talks only to the gateway, no database needed
+	if args[0] == "simulate" || args[0] == "token" { // no database needed
 		switch args[0] {
+		case "token":
+			fs := newFlagSet("token")
+			file := fs.String("file", "demo-devices.json", "demo device keys written by `dev demo`")
+			device := fs.String("device", "", "demo device name or id")
+			ttl := fs.Duration("ttl", time.Hour, "token lifetime (at most QUACK_DEVICE_JWT_MAX_LIFETIME)")
+			if err := fs.Parse(args[1:]); err != nil {
+				return err
+			}
+			tok, err := devtools.Token(*file, *device, *ttl)
+			if err != nil {
+				return err
+			}
+			fmt.Println(tok)
+			return nil
 		case "simulate":
 			fs := newFlagSet("simulate")
 			file := fs.String("file", "demo-devices.json", "demo device keys written by `dev demo`")
