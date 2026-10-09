@@ -189,7 +189,9 @@ func (p *restPub) publish(ctx context.Context, msgs []map[string]any) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var out struct{ Results []struct{ Status, Error string } }
+	var out struct {
+		Results []struct{ Status, Error string }
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 {
 		return fmt.Errorf("status %d: %v", resp.StatusCode, err)
 	}
