@@ -68,6 +68,9 @@ type ElementCreateIn struct {
 		Points      int             `json:"points" minimum:"0" maximum:"1000" doc:"History window replayed to new subscribers"`
 		Description string          `json:"description,omitempty"`
 		Details     json.RawMessage `json:"details,omitempty" doc:"Free-form widget configuration"`
+		MsgRate     *float64        `json:"msg_rate,omitempty" minimum:"0" doc:"Rate limit in messages per second; 0 = server default (QUACK_ELEMENT_MSG_RATE)"`
+		MsgBurst    *int            `json:"msg_burst,omitempty" minimum:"0" doc:"Rate-limit bucket size; 0 = same as the rate"`
+		OverLimit   *string         `json:"over_limit,omitempty" enum:"drop,latest" doc:"drop: discard messages over the limit; latest: keep the newest and send it when the bucket refills"`
 	}
 }
 
@@ -78,6 +81,9 @@ type ElementPatchIn struct {
 		Points      *int             `json:"points,omitempty" minimum:"0" maximum:"1000"`
 		Description *string          `json:"description,omitempty"`
 		Details     *json.RawMessage `json:"details,omitempty"`
+		MsgRate     *float64         `json:"msg_rate,omitempty" minimum:"0" doc:"Rate limit in messages per second; 0 = server default (QUACK_ELEMENT_MSG_RATE)"`
+		MsgBurst    *int             `json:"msg_burst,omitempty" minimum:"0" doc:"Rate-limit bucket size; 0 = same as the rate"`
+		OverLimit   *string          `json:"over_limit,omitempty" enum:"drop,latest" doc:"drop: discard messages over the limit; latest: keep the newest and send it when the bucket refills"`
 	}
 }
 
@@ -245,7 +251,8 @@ func (a *API) registerAdminDevices(api huma.API) {
 			}
 			b := in.Body
 			e, err := a.svc.CreateElement(ctx, service.UserActor(admin), service.ElementInput{DeviceID: b.DeviceID, Name: b.Name,
-				Points: b.Points, Description: b.Description, Details: b.Details})
+				Points: b.Points, Description: b.Description, Details: b.Details,
+				Limits: service.ElementLimits{MsgRate: b.MsgRate, MsgBurst: b.MsgBurst, OverLimit: b.OverLimit}})
 			if err != nil {
 				return nil, a.fail(err)
 			}
@@ -270,7 +277,8 @@ func (a *API) registerAdminDevices(api huma.API) {
 			}
 			b := in.Body
 			e, err := a.svc.UpdateElement(ctx, service.UserActor(admin), in.ID, service.ElementPatch{Name: b.Name, Points: b.Points,
-				Description: b.Description, Details: b.Details})
+				Description: b.Description, Details: b.Details,
+				Limits: service.ElementLimits{MsgRate: b.MsgRate, MsgBurst: b.MsgBurst, OverLimit: b.OverLimit}})
 			if err != nil {
 				return nil, a.fail(err)
 			}

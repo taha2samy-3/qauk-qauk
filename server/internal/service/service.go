@@ -20,9 +20,16 @@ import (
 
 type Service struct {
 	Pool *pgxpool.Pool
+	// ElementRateMax is the highest per-element rate an admin may set.
+	ElementRateMax float64
 }
 
-func New(pool *pgxpool.Pool) *Service { return &Service{Pool: pool} }
+// DefaultElementRateMax matches QUACK_ELEMENT_MSG_RATE_MAX's default.
+const DefaultElementRateMax = 1000
+
+func New(pool *pgxpool.Pool) *Service {
+	return &Service{Pool: pool, ElementRateMax: DefaultElementRateMax}
+}
 
 // Actor identifies who performs a mutation (for the audit log).
 type Actor struct {
@@ -83,6 +90,57 @@ func record(ctx context.Context, tx pgx.Tx, a Actor, action, entity, entityID st
 		}
 	}
 	return nil
+}
+
+// publishDevices enqueues a fresh device-config snapshot for each device, or
+// a tombstone for one that no longer exists, in the caller's transaction.
+// LockDevices serializes snapshot writers per device (see store.LockDevices).
+func publishDevices(ctx context.Context, tx pgx.Tx, ids ...uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := store.LockDevices(ctx, tx, ids); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		cfg, err := store.DeviceConfig(ctx, tx, id)
+		var payload []byte
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			// tombstone: compaction drops the device from the topic
+		case err != nil:
+			return err
+		default:
+			ev, err := events.New(events.TypeDeviceConfig, events.SourceAPI, id.String(), cfg)
+			if err != nil {
+				return err
+			}
+			if payload, err = json.Marshal(ev); err != nil {
+				return err
+			}
+		}
+		if err := store.EnqueueOutbox(ctx, tx, events.TopicDeviceConfig, id.String(), payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SyncDeviceConfigs republishes the snapshot of every device (backfill for
+// device-config.v1, e.g. after an upgrade or an import). Safe to repeat.
+func (s *Service) SyncDeviceConfigs(ctx context.Context) (int, error) {
+	ids, err := store.DeviceIDs(ctx, s.Pool)
+	if err != nil {
+		return 0, err
+	}
+	const batch = 200
+	for start := 0; start < len(ids); start += batch {
+		chunk := ids[start:min(start+batch, len(ids))]
+		if err := s.tx(ctx, func(tx pgx.Tx) error { return publishDevices(ctx, tx, chunk...) }); err != nil {
+			return start, err
+		}
+	}
+	return len(ids), nil
 }
 
 func i64(v int64) *int64         { return &v }

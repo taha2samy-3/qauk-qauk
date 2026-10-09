@@ -25,6 +25,11 @@ type Relay struct {
 
 const batchSize = 200
 
+// drainLockKey makes one relay drain at a time, so rows are published in id
+// order even with several API replicas. device-config.v1 relies on this: the
+// newest snapshot of a device must be the last record for its key.
+const drainLockKey = 0x71756163_6b6f7574 // "quackout"
+
 // Run drains the outbox whenever a NOTIFY arrives, and at least every second.
 // Multiple relays may run concurrently; SKIP LOCKED keeps them from colliding.
 func (r *Relay) Run(ctx context.Context) error {
@@ -55,6 +60,10 @@ func (r *Relay) drain(ctx context.Context) error {
 	for {
 		var n int
 		err := db.InTx(ctx, r.Pool, func(tx pgx.Tx) error {
+			var locked bool
+			if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, int64(drainLockKey)).Scan(&locked); err != nil || !locked {
+				return err // another relay is draining; it will publish these rows
+			}
 			rows, err := store.LockUnpublished(ctx, tx, batchSize)
 			if err != nil || len(rows) == 0 {
 				return err

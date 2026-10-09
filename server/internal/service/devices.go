@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -45,7 +46,10 @@ type KeyPatch struct {
 func (s *Service) UpdateKey(ctx context.Context, a Actor, id uuid.UUID, p KeyPatch) (store.Key, error) {
 	var k store.Key
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var err error
+		devs, err := lockKeyDevices(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if k, err = store.GetKey(ctx, tx, id); err != nil {
 			return err
 		}
@@ -61,6 +65,9 @@ func (s *Service) UpdateKey(ctx context.Context, a Actor, id uuid.UUID, p KeyPat
 		if k, err = store.UpdateKey(ctx, tx, k); err != nil {
 			return err
 		}
+		if err := publishDevices(ctx, tx, devs...); err != nil {
+			return err
+		}
 		return record(ctx, tx, a, "update", "jwt_key", id.String(), map[string]any{"name": k.Name, "is_active": k.IsActive},
 			events.ControlChanged{Kind: events.KindJWTKey, Op: events.OpUpdate, ID: id.String()})
 	})
@@ -69,12 +76,32 @@ func (s *Service) UpdateKey(ctx context.Context, a Actor, id uuid.UUID, p KeyPat
 
 func (s *Service) DeleteKey(ctx context.Context, a Actor, id uuid.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		devs, err := lockKeyDevices(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if err := store.DeleteKey(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := publishDevices(ctx, tx, devs...); err != nil {
 			return err
 		}
 		return record(ctx, tx, a, "delete", "jwt_key", id.String(), nil,
 			events.ControlChanged{Kind: events.KindJWTKey, Op: events.OpDelete, ID: id.String()})
 	})
+}
+
+// lockKeyDevices locks the devices using a key, before the key changes.
+func lockKeyDevices(ctx context.Context, tx pgx.Tx, keyID uuid.UUID) ([]uuid.UUID, error) {
+	ds, err := store.DevicesUsingKey(ctx, tx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, len(ds))
+	for i, d := range ds {
+		ids[i] = d.ID
+	}
+	return store.LockDevices(ctx, tx, ids)
 }
 
 // --- Devices ---
@@ -106,6 +133,9 @@ func (s *Service) CreateDevice(ctx context.Context, a Actor, in DeviceInput) (st
 		if d, err = store.InsertDevice(ctx, tx, d); err != nil {
 			return err
 		}
+		if err := publishDevices(ctx, tx, d.ID); err != nil {
+			return err
+		}
 		return record(ctx, tx, a, "create", "device", d.ID.String(), d,
 			events.ControlChanged{Kind: events.KindDevice, Op: events.OpCreate, ID: d.ID.String(), DeviceID: uid(d.ID)})
 	})
@@ -121,6 +151,9 @@ type DevicePatch struct {
 func (s *Service) UpdateDevice(ctx context.Context, a Actor, id uuid.UUID, p DevicePatch) (store.Device, error) {
 	var d store.Device
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := store.LockDevices(ctx, tx, []uuid.UUID{id}); err != nil {
+			return err
+		}
 		var err error
 		if d, err = store.GetDevice(ctx, tx, id); err != nil {
 			return err
@@ -140,6 +173,9 @@ func (s *Service) UpdateDevice(ctx context.Context, a Actor, id uuid.UUID, p Dev
 		if d, err = store.UpdateDevice(ctx, tx, d); err != nil {
 			return err
 		}
+		if err := publishDevices(ctx, tx, id); err != nil {
+			return err
+		}
 		return record(ctx, tx, a, "update", "device", id.String(), d,
 			events.ControlChanged{Kind: events.KindDevice, Op: events.OpUpdate, ID: id.String(), DeviceID: uid(id)})
 	})
@@ -149,11 +185,17 @@ func (s *Service) UpdateDevice(ctx context.Context, a Actor, id uuid.UUID, p Dev
 // DeleteDevice also emits element deletions for its (cascade-deleted) elements.
 func (s *Service) DeleteDevice(ctx context.Context, a Actor, id uuid.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := store.LockDevices(ctx, tx, []uuid.UUID{id}); err != nil {
+			return err
+		}
 		elems, err := store.ListElements(ctx, tx, &id)
 		if err != nil {
 			return err
 		}
 		if err := store.DeleteDevice(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := publishDevices(ctx, tx, id); err != nil {
 			return err
 		}
 		ctrls := []events.ControlChanged{{Kind: events.KindDevice, Op: events.OpDelete, ID: id.String(), DeviceID: uid(id)}}
@@ -174,6 +216,46 @@ type ElementInput struct {
 	Points      int
 	Description string
 	Details     json.RawMessage
+	Limits      ElementLimits
+}
+
+// ElementLimits are an element's rate-limit settings. In a patch, nil leaves
+// a field unchanged; a rate or burst of 0 resets it to the server default.
+type ElementLimits struct {
+	MsgRate   *float64
+	MsgBurst  *int
+	OverLimit *string
+}
+
+// apply merges the patch into e and validates the result.
+func (l ElementLimits) apply(e *store.Element, maxRate float64) error {
+	if l.MsgRate != nil {
+		e.MsgRate = l.MsgRate
+		if *l.MsgRate == 0 {
+			e.MsgRate = nil
+		}
+	}
+	if l.MsgBurst != nil {
+		e.MsgBurst = l.MsgBurst
+		if *l.MsgBurst == 0 {
+			e.MsgBurst = nil
+		}
+	}
+	if l.OverLimit != nil {
+		e.OverLimit = *l.OverLimit
+	}
+	if e.OverLimit == "" {
+		e.OverLimit = store.OverLimitDrop
+	}
+	switch {
+	case e.MsgRate != nil && (*e.MsgRate < 0 || *e.MsgRate > maxRate):
+		return invalid("msg_rate", fmt.Sprintf("must be between 0 and %g messages per second", maxRate))
+	case e.MsgBurst != nil && (*e.MsgBurst < 0 || float64(*e.MsgBurst) > maxRate):
+		return invalid("msg_burst", fmt.Sprintf("must be between 0 and %g", maxRate))
+	case e.OverLimit != store.OverLimitDrop && e.OverLimit != store.OverLimitLatest:
+		return invalid("over_limit", `must be "drop" or "latest"`)
+	}
+	return nil
 }
 
 func validateElement(name string, points int, details json.RawMessage) error {
@@ -198,9 +280,18 @@ func (s *Service) CreateElement(ctx context.Context, a Actor, in ElementInput) (
 	if in.ID != nil {
 		e.ID = *in.ID
 	}
+	if err := in.Limits.apply(&e, s.ElementRateMax); err != nil {
+		return store.Element{}, err
+	}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := store.LockDevices(ctx, tx, []uuid.UUID{in.DeviceID}); err != nil {
+			return err
+		}
 		var err error
 		if e, err = store.InsertElement(ctx, tx, e); err != nil {
+			return err
+		}
+		if err := publishDevices(ctx, tx, e.DeviceID); err != nil {
 			return err
 		}
 		return record(ctx, tx, a, "create", "element", e.ID.String(), e,
@@ -214,13 +305,27 @@ type ElementPatch struct {
 	Points      *int
 	Description *string
 	Details     *json.RawMessage
+	Limits      ElementLimits
+}
+
+// lockElementDevice locks the device owning an element (elements never move
+// between devices), then reads the element.
+func lockElementDevice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (store.Element, error) {
+	e, err := store.GetElement(ctx, tx, id)
+	if err != nil {
+		return e, err
+	}
+	if _, err := store.LockDevices(ctx, tx, []uuid.UUID{e.DeviceID}); err != nil {
+		return e, err
+	}
+	return store.GetElement(ctx, tx, id)
 }
 
 func (s *Service) UpdateElement(ctx context.Context, a Actor, id uuid.UUID, p ElementPatch) (store.Element, error) {
 	var e store.Element
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		if e, err = store.GetElement(ctx, tx, id); err != nil {
+		if e, err = lockElementDevice(ctx, tx, id); err != nil {
 			return err
 		}
 		if p.Name != nil {
@@ -238,7 +343,13 @@ func (s *Service) UpdateElement(ctx context.Context, a Actor, id uuid.UUID, p El
 		if err := validateElement(e.Name, e.Points, e.Details); err != nil {
 			return err
 		}
+		if err := p.Limits.apply(&e, s.ElementRateMax); err != nil {
+			return err
+		}
 		if e, err = store.UpdateElement(ctx, tx, e); err != nil {
+			return err
+		}
+		if err := publishDevices(ctx, tx, e.DeviceID); err != nil {
 			return err
 		}
 		return record(ctx, tx, a, "update", "element", id.String(), e,
@@ -249,11 +360,14 @@ func (s *Service) UpdateElement(ctx context.Context, a Actor, id uuid.UUID, p El
 
 func (s *Service) DeleteElement(ctx context.Context, a Actor, id uuid.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		e, err := store.GetElement(ctx, tx, id)
+		e, err := lockElementDevice(ctx, tx, id)
 		if err != nil {
 			return err
 		}
 		if err := store.DeleteElement(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := publishDevices(ctx, tx, e.DeviceID); err != nil {
 			return err
 		}
 		return record(ctx, tx, a, "delete", "element", id.String(), nil,

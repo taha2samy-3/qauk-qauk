@@ -30,8 +30,12 @@ type API struct {
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
+	svc := service.New(pool)
+	if cfg.ElementMsgRateMax > 0 {
+		svc.ElementRateMax = cfg.ElementMsgRateMax
+	}
 	return &API{cfg: cfg, pool: pool, hist: hist, histSem: make(chan struct{}, max(cfg.HistoryMaxQueries, 1)),
-		svc: service.New(pool), log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
+		svc: svc, log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
 }
 
 type ctxKey int

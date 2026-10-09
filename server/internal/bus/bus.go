@@ -32,6 +32,8 @@ var Topics = []TopicSpec{
 	{Name: events.TopicPresence, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact")}},
 	{Name: events.TopicElementState, Partitions: 12, Configs: map[string]*string{"cleanup.policy": ptr("compact")}},
 	{Name: events.TopicElementEventsDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}}, // 30 days
+	// Tombstones of deleted devices are kept a day so slow readers still see them.
+	{Name: events.TopicDeviceConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
 }
 
 // EnsureTopics creates missing topics. Existing topics are left untouched.
@@ -95,6 +97,9 @@ func Record(topic string, ev *events.Event) (*kgo.Record, error) {
 }
 
 func RawRecord(topic, key string, value []byte) *kgo.Record {
+	if value == nil { // tombstone (compacted topics)
+		return &kgo.Record{Topic: topic, Key: []byte(key)}
+	}
 	return &kgo.Record{
 		Topic:   topic,
 		Key:     []byte(key),
