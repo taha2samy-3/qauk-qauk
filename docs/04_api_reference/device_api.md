@@ -58,11 +58,16 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/device/elements
 {
   "device": { "id": "01a117df-e03e-76a5-8234-005322891808", "name": "Greenhouse" },
   "elements": [
-    { "id": "01a117df-e06c-75b5-a03c-50331c6a9707", "name": "Climate", "description": "", "points": 200, "details": { "widget": "chart" } },
-    { "id": "01a117df-e099-7292-9770-1005eef2b944", "name": "Gate relay", "description": "", "points": 50, "details": { "widget": "switch" } }
-  ]
+    { "id": "01a117df-e06c-75b5-a03c-50331c6a9707", "name": "Climate", "description": "", "points": 200, "details": { "widget": "chart" },
+      "rate": 1, "burst": 1, "over_limit": "latest" },
+    { "id": "01a117df-e099-7292-9770-1005eef2b944", "name": "Gate relay", "description": "", "points": 50, "details": { "widget": "switch" },
+      "rate": 50, "burst": 50, "over_limit": "drop" }
+  ],
+  "device_rate": 500
 }
 ```
+
+`rate`, `burst` and `over_limit` are each element's effective [rate limit](../05_core_concepts/rate_limits.md), with server defaults filled in, and `device_rate` is the per-device guard. Clients can enforce them to report overruns instead of losing messages silently; the Node-RED nodes do.
 
 | Status | When |
 |---|---|
