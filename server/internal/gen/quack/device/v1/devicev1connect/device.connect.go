@@ -56,7 +56,8 @@ type DeviceServiceClient interface {
 	// elements, as they happen.
 	Watch(context.Context, *connect.Request[v1.WatchRequest]) (*connect.ServerStreamForClient[v1.WatchResponse], error)
 	// Session is the WebSocket equivalent: publish and receive on one stream.
-	// Needs HTTP/2.
+	// Publishing is fire-and-forget: a PublishResult comes back only for a
+	// rejected message, or for a message with an id. Needs HTTP/2.
 	Session(context.Context) *connect.BidiStreamForClient[v1.SessionRequest, v1.SessionResponse]
 	// ListElements returns the device and its elements.
 	ListElements(context.Context, *connect.Request[v1.ListElementsRequest]) (*connect.Response[v1.ListElementsResponse], error)
@@ -136,7 +137,8 @@ type DeviceServiceHandler interface {
 	// elements, as they happen.
 	Watch(context.Context, *connect.Request[v1.WatchRequest], *connect.ServerStream[v1.WatchResponse]) error
 	// Session is the WebSocket equivalent: publish and receive on one stream.
-	// Needs HTTP/2.
+	// Publishing is fire-and-forget: a PublishResult comes back only for a
+	// rejected message, or for a message with an id. Needs HTTP/2.
 	Session(context.Context, *connect.BidiStream[v1.SessionRequest, v1.SessionResponse]) error
 	// ListElements returns the device and its elements.
 	ListElements(context.Context, *connect.Request[v1.ListElementsRequest]) (*connect.Response[v1.ListElementsResponse], error)

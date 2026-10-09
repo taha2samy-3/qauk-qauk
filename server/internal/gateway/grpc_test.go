@@ -148,14 +148,26 @@ func TestGRPCSessionPublishesAndReceives(t *testing.T) {
 	defer cancel()
 	stream := c.Session(ctx)
 	stream.RequestHeader().Set("Authorization", "Bearer "+td.token(t))
+	// fire-and-forget: no result for a plain message...
 	if err := stream.Send(&devicev1.SessionRequest{Publish: &devicev1.DeviceMessage{Element: "led", Message: value(t, map[string]any{"on": true})}}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := stream.Receive()
-	if err != nil || res.GetResult().GetStatus() != "accepted" {
-		t.Fatalf("publish result %v %v", res, err)
+	// ...one for a message with an id, and one for a rejected message
+	if err := stream.Send(&devicev1.SessionRequest{Publish: &devicev1.DeviceMessage{Element: "led", Message: value(t, 1), Id: "s-1"}}); err != nil {
+		t.Fatal(err)
 	}
-	if msgs := pub.messages(t); len(msgs) != 1 || msgs[0].Origin.ConnID == "" {
+	if err := stream.Send(&devicev1.SessionRequest{Publish: &devicev1.DeviceMessage{Element: "nope", Message: value(t, 1)}}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := stream.Receive()
+	if err != nil || res.GetResult().GetStatus() != "accepted" || res.GetResult().GetEventId() == "" {
+		t.Fatalf("result for the message with an id: %v %v", res, err)
+	}
+	res, err = stream.Receive()
+	if err != nil || res.GetResult().GetCode() != "unknown_element" {
+		t.Fatalf("result for the rejected message: %v %v", res, err)
+	}
+	if msgs := pub.messages(t); len(msgs) != 2 || msgs[0].Origin.ConnID == "" {
 		t.Fatalf("published %+v", msgs)
 	}
 	// its own message is not echoed; a user's is
