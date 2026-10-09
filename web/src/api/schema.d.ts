@@ -570,7 +570,22 @@ export interface components {
             details: unknown;
             device_id: string;
             id: string;
+            /**
+             * Format: int64
+             * @description Bucket size; null = same as the rate
+             */
+            msg_burst: number | null;
+            /**
+             * Format: double
+             * @description Messages per second; null = server default
+             */
+            msg_rate: number | null;
             name: string;
+            /**
+             * @description drop: discard extra messages; latest: keep the newest and send it when the bucket refills
+             * @enum {string}
+             */
+            over_limit: "drop" | "latest";
             /** Format: int64 */
             points: number;
         };
@@ -585,7 +600,22 @@ export interface components {
             /** @description Free-form widget configuration */
             details?: unknown;
             device_id: string;
+            /**
+             * Format: int64
+             * @description Rate-limit bucket size; 0 = same as the rate
+             */
+            msg_burst?: number;
+            /**
+             * Format: double
+             * @description Rate limit in messages per second; 0 = server default (QUACK_ELEMENT_MSG_RATE)
+             */
+            msg_rate?: number;
             name: string;
+            /**
+             * @description drop: discard messages over the limit; latest: keep the newest and send it when the bucket refills
+             * @enum {string}
+             */
+            over_limit?: "drop" | "latest";
             /**
              * Format: int64
              * @description History window replayed to new subscribers
@@ -601,7 +631,22 @@ export interface components {
             readonly $schema?: string;
             description?: string;
             details?: unknown;
+            /**
+             * Format: int64
+             * @description Rate-limit bucket size; 0 = same as the rate
+             */
+            msg_burst?: number;
+            /**
+             * Format: double
+             * @description Rate limit in messages per second; 0 = server default (QUACK_ELEMENT_MSG_RATE)
+             */
+            msg_rate?: number;
             name?: string;
+            /**
+             * @description drop: discard messages over the limit; latest: keep the newest and send it when the bucket refills
+             * @enum {string}
+             */
+            over_limit?: "drop" | "latest";
             /** Format: int64 */
             points?: number;
         };
@@ -897,7 +942,22 @@ export interface components {
             details: unknown;
             device_id: string;
             id: string;
+            /**
+             * Format: int64
+             * @description Bucket size; null = same as the rate
+             */
+            msg_burst: number | null;
+            /**
+             * Format: double
+             * @description Messages per second; null = server default
+             */
+            msg_rate: number | null;
             name: string;
+            /**
+             * @description drop: discard extra messages; latest: keep the newest and send it when the bucket refills
+             * @enum {string}
+             */
+            over_limit: "drop" | "latest";
             permission: string;
             /** Format: int64 */
             points: number;
