@@ -1,5 +1,9 @@
 # 10. MQTT connections
 
+<p align="center">
+  <img src="/brand/logo-gateway.svg" alt="Quack Quack Gateway Hub" width="80" height="80" />
+</p>
+
 Devices that already talk to an MQTT broker (Mosquitto, EMQX, HiveMQ, AWS IoT, The Things Stack, ChirpStack…) can feed dashboards without changing their firmware. Quack Quack connects to the broker as an **MQTT 5 client**: it subscribes to your topics, turns messages into element values, and publishes dashboard commands back.
 
 **We are a subscriber, not a broker.** Quack Quack doesn't run or embed a broker, and devices never connect to it over MQTT. The broker and its security (who may publish on which topic) stay yours.
@@ -165,6 +169,210 @@ A downlink sends dashboard commands for one element of one granted device to the
 The device should confirm by publishing its new state, which an uplink rule maps back to the same element: the dashboard switch then shows the confirmed state, as with the other transports.
 
 **Command inversion:** If an element has an [element pipeline](./05_core_concepts/element_pipeline.md) with invertible steps (such as `scale`, `round`, `clamp`, or `map`), dashboard commands pass through the pipeline's **inverse** before reaching the downlink encoder. The device on the broker receives actuator units, while dashboards and history maintain engineering units.
+
+---
+
+## Complete Guide: Listening to Every Element from an MQTT Broker
+
+This section explains how to configure an MQTT broker so that incoming messages automatically update every element defined in your devices, power real-time dashboards, and trigger threshold alert webhooks.
+
+### 1. Conceptual Architecture: How MQTT Telemetry Reaches Elements
+
+```mermaid
+flowchart TD
+    subgraph Broker ["External MQTT Broker (Mosquitto / EMQX / HiveMQ / AWS IoT)"]
+        PUB["IoT Sensors / PLCs / Microcontrollers"] -- "Publish telemetry" --> TOPIC[("Topics (e.g. factory/line-1/telemetry)")]
+    end
+
+    subgraph Gateway ["Quack Quack Gateway Core (QUACK_ROLES=api,gateway,mqtt)"]
+        TOPIC -- "MQTT 5 Subscribe (QoS 1)" --> SLOT["Connection Slot"]
+        
+        subgraph Station1 ["Station 1: Source Mapping"]
+            SLOT --> DEC{"Format & Decoder"}
+            DEC -- "Binary bytes" --> JS["decodeUplink() JS Sandbox"]
+            DEC -- "JSON / Text / Number" --> PARSED["Normalized Data Object"]
+            JS --> PARSED
+            PARSED --> EXT["Device Extractor (Topic segment / Payload field)"]
+            EXT --> FM["Field Map (Maps JSON paths to Element Names)"]
+        end
+
+        subgraph Station2 ["Station 2: Element Pipeline"]
+            FM -- "Element Value A" --> EP1["Pipeline (Scale, Deadband, Clamp, Script)"]
+            FM -- "Element Value B" --> EP2["Pipeline (Scale, Deadband, Clamp, Script)"]
+            FM -- "Element Value C" --> EP3["Pipeline (Scale, Deadband, Clamp, Script)"]
+        end
+
+        EP1 & EP2 & EP3 --> CORE["Device Core (Quotas, Rate Limits, Grants)"]
+    end
+
+    subgraph Platform ["Real-Time Platform"]
+        CORE --> RP[("Redpanda element-events.v1")]
+        RP --> WS["Live WebSocket Stream &rarr; Browser Dashboards"]
+        RP --> TS[("TimescaleDB / ClickHouse History")]
+        RP --> ALERTS["Alert Evaluator &rarr; Webhooks (Slack/Discord/Teams)"]
+    end
+```
+
+Incoming telemetry passes through two stations before reaching your elements:
+1. **Station 1 (Source Mapping)**: Dissects the raw MQTT message, identifies which granted device sent it, and evaluates a **Field Map** to route fields into specific element names.
+2. **Station 2 (Element Pipeline)**: Runs transformations, calibration scales, anti-jitter deadbands, and unit conversions on each element individually before persisting to TimescaleDB/ClickHouse and streaming to dashboards.
+
+---
+
+### 2. Common Ingestion Patterns
+
+#### Pattern A: Multi-Metric JSON Payload (One Message Updates Multiple Elements)
+
+In typical industrial IoT and smart building systems, a single device broadcasts multiple sensor readings inside a single JSON packet to minimize network overhead and broker connections.
+
+**Incoming MQTT Packet:**
+- **Topic:** `factory/cell-01/telemetry`
+- **Payload:**
+  ```json
+  {
+    "temperature": 24.8,
+    "humidity": 58.2,
+    "pressure": 101.4,
+    "motor_speed": 1420,
+    "compressor_active": true
+  }
+  ```
+
+**Uplink Rule Configuration:**
+- **Topic Filter:** `factory/+/telemetry`
+- **Device Extractor:** Topic Segment `1` (which extracts `cell-01`).
+- **Format:** `json`
+- **Field Map:**
+
+| Element Name in Quack | Field Value Path | Wrap Mode | When | Purpose |
+|---|---|---|---|---|
+| `Temperature` | `temperature` | `value` | `exists` | Updates element with `{"value": 24.8}` |
+| `Humidity` | `humidity` | `value` | `exists` | Updates element with `{"value": 58.2}` |
+| `Pressure` | `pressure` | `value` | `exists` | Updates element with `{"value": 101.4}` |
+| `Motor Speed` | `motor_speed` | `value` | `exists` | Updates element with `{"value": 1420}` |
+| `Compressor` | `compressor_active` | `value` | `exists` | Updates switch with `{"value": true}` |
+
+> **Tip:** Setting `when: "exists"` guarantees that if the device sends a partial message (e.g. only battery and temperature), the missing fields are cleanly skipped rather than causing the message to be dead-lettered.
+
+---
+
+#### Pattern B: Topic-Per-Metric Hierarchy (Wildcards `+` and `#`)
+
+Some systems use a topic tree where each sensor reading is published to its own unique topic.
+
+**Incoming MQTT Packets:**
+- `devices/boiler-42/temperature/state` &rarr; Payload: `88.5`
+- `devices/boiler-42/pressure/state` &rarr; Payload: `14.2`
+- `devices/boiler-42/burner/state` &rarr; Payload: `true`
+
+**Uplink Rule Configuration:**
+- **Topic Filter:** `devices/+/temperature/state`
+- **Device Extractor:** Topic Segment `1` (extracts `boiler-42`).
+- **Format:** `number`
+- **Field Map:**
+  - `element`: `"Temperature"`, `value`: `""` (empty value path uses the entire payload), `wrap`: `"value"`.
+
+Create parallel rules for `devices/+/pressure/state` and `devices/+/burner/state` to route each topic directly to the corresponding element.
+
+---
+
+#### Pattern C: Binary / Hex Frames with JavaScript Decoders
+
+For constrained devices (LoRaWAN, Zigbee, BLE gateways, or Modbus RTU over MQTT), payloads are transmitted as compact binary byte buffers.
+
+**Incoming MQTT Packet:**
+- **Topic:** `lora/node-08/up`
+- **Payload:** `0x19 0x3E 0x01` (3 raw bytes)
+
+**Decoder Script (`decodeUplink`):**
+```javascript
+function decodeUplink(input) {
+  // input.bytes is an array of raw uint8 integers
+  var temp = input.bytes[0];          // 0x19 = 25 °C
+  var humidity = input.bytes[1];      // 0x3E = 62 %
+  var status = (input.bytes[2] & 1);  // 0x01 = Active
+
+  return {
+    data: {
+      temperature: temp,
+      humidity: humidity,
+      active: status === 1
+    },
+    warnings: [],
+    errors: []
+  };
+}
+```
+
+**Field Map:**
+- `{"element": "Temperature", "value": "temperature"}`
+- `{"element": "Humidity", "value": "humidity"}`
+- `{"element": "Status", "value": "active"}`
+
+The JavaScript decoder unpacks the binary buffer into structured JSON, and the field map distributes each property to its respective element.
+
+---
+
+### 3. Step-by-Step Walkthrough in the Admin Console
+
+#### Step 1: Define Device and Elements
+1. Navigate to **Admin → Devices** and create your device (e.g., `Boiler room`).
+2. Navigate to **Admin → Elements** and add the elements you want to monitor (e.g., `Temperature`, `Pressure`, `Burner`).
+3. *(Optional)* Click **Pipeline** on any element to add transformation steps (such as `scale` $\times 0.1$, `clamp` $[0, 100]$, or `deadband` $0.5$ to eliminate noise).
+
+#### Step 2: Create the MQTT Connection
+1. Navigate to **Admin → MQTT** and click **New connection**.
+2. Fill in your broker details:
+   - **Broker URL:** `mqtt://127.0.0.1:1883` (or `mqtts://your-cluster.emqx.io:8883` for cloud brokers).
+   - **Client ID Prefix:** `quack-gw` (unique per gateway cluster).
+   - **Authentication:** Choose `none`, `password` (using `env:MQTT_PASSWORD`), or `mtls`.
+   - **Replicas:** Set to `1` (or more for shared subscription load-balancing).
+3. Click **Create Connection**. The dashboard shows your connection slots and active gateway owner.
+
+#### Step 3: Grant the Device
+1. Open the newly created connection and scroll to **Granted Devices**.
+2. Click **Grant device**:
+   - Select your platform device (`Boiler room`).
+   - Enter the **External ID** used by your broker/topic (e.g., `boiler-room-1`).
+3. Click **Grant**. The gateway will now accept messages that resolve to this external ID.
+
+#### Step 4: Add Uplink Rules
+1. Under **Uplink Rules**, click **Add rule**.
+2. Enter the **Topic filter** (e.g., `quack/demo/+/up`).
+3. Set the **Device extraction**:
+   - Choose `Topic segment` and enter the 0-indexed segment number (e.g., segment `2` in `quack/demo/{device}/up`).
+4. Select the **Payload format** (`json`, `text`, `number`, or `bytes`).
+5. Add your **Field Map** entries mapping JSON paths to your platform elements.
+6. Click **Save Rule**. Within 1 second, the gateway updates its subscriptions on the live topic bus without restarting.
+
+#### Step 5: Test & Validate Ingestion
+1. In the rule editor, expand the **Test & capture** drawer.
+2. Enter a simulated topic and sample JSON payload, then click **Run pipeline**.
+3. Verify that every element produces the expected numeric or boolean value.
+4. Click **Capture live messages** to inspect raw packets arriving from real hardware.
+5. If any message fails validation, open **Admin → MQTT → Rejected messages** to see the exact reason (e.g., ungranted device, schema mismatch, or rate limit quota exceeded).
+
+---
+
+### 4. Closing the Loop: Controlling Actuators via Downlinks
+
+To send commands from dashboard switches, sliders, or automations back to devices on the MQTT broker:
+
+1. Open the connection and scroll to **Downlinks**.
+2. Click **Add downlink**:
+   - Select the target device external ID (`boiler-room-1`) and the actuator element (`Burner`).
+   - Define the **Topic template**: `quack/demo/{device}/cmd/{element}`.
+   - Choose the encoder:
+     ```json
+     {"template": {"state": "{{value}}"}}
+     ```
+3. When an operator flips the switch on a dashboard:
+   - The command is validated by permissions.
+   - It runs through the element's **inverse pipeline** (Station 2).
+   - Slot 0 publishes the encoded payload to the broker with MQTT 5 QoS 1.
+   - The device receives the command, applies it, and publishes its new state on the uplink topic to confirm the switch position.
+
+---
 
 ## Try it
 

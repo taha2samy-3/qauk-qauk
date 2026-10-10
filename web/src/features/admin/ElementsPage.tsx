@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Boxes, Paintbrush, Pencil, Plus, Trash2, Workflow } from 'lucide-react'
+import { Bell, Boxes, Paintbrush, Pencil, Plus, Trash2, Workflow } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useSearchParams } from 'react-router'
@@ -29,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { applyProblem, toastError } from '@/lib/forms'
 import { isRecord } from '@/lib/utils'
 import { adminApi, adminKeys, useAdminDevices, useAdminElements, useAdminMutation, useStyles } from './api'
+import { AlertRulesSheet } from './alerts/AlertRulesSheet'
 import { FormDialog, RowActions } from './FormDialog'
 import { PipelineSheet } from './PipelineSheet'
 
@@ -441,6 +442,7 @@ export function ElementsPage() {
   const [open, setOpen] = useState(false)
   const [stylesOf, setStylesOf] = useState<AdminElement | null>(null)
   const [pipelineOf, setPipelineOf] = useState<AdminElement | null>(null)
+  const [alertsOf, setAlertsOf] = useState<AdminElement | null>(null)
   const deviceName = (id: string) => devices.data?.find((d) => d.id === id)?.name ?? id.slice(0, 8)
 
   const columns: Column<AdminElement>[] = [
@@ -535,6 +537,9 @@ export function ElementsPage() {
       headClassName: 'w-28',
       cell: (e) => (
         <RowActions>
+          <Button variant="ghost" size="xs" onClick={() => setAlertsOf(e)}>
+            <Bell className="size-3.5 mr-1" /> Alerts
+          </Button>
           <Button variant="ghost" size="xs" onClick={() => setPipelineOf(e)}>
             <Workflow className="size-3.5 mr-1" /> Pipeline
           </Button>
@@ -639,6 +644,7 @@ export function ElementsPage() {
       <ElementDialog element={editing} defaultDevice={deviceFilter} open={open} onOpenChange={setOpen} />
       <StylesSheet element={stylesOf} onOpenChange={(o) => !o && setStylesOf(null)} />
       <PipelineSheet element={pipelineOf} onOpenChange={(o) => !o && setPipelineOf(null)} />
+      <AlertRulesSheet element={alertsOf} open={!!alertsOf} onOpenChange={(o) => !o && setAlertsOf(null)} />
       {confirm.dialog}
     </Page>
   )

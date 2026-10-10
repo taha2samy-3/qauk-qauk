@@ -32,6 +32,7 @@ Quack Quack is the realtime core of an IoT system. It sits between **devices**, 
 - A REST API (OpenAPI 3.1) for login, the current user's elements, element history, dashboards and a full admin surface (users, groups, keys, devices, elements, styles, permissions, connections, presence, audit log).
 - A React web app with drag-and-drop dashboards, live widgets, history charts with time-range selection, admin pages, and light and dark themes.
 - An ingester that writes every element event from Redpanda into the history store (TimescaleDB or ClickHouse), batched and idempotent, with a dead-letter topic for unstorable data.
+- An integrated alert and notification engine: per-element alert rules (above, below, outside range, equals) with hysteresis anti-flapping and auto-recovery, dispatching to universal webhooks (Standard HMAC-SHA256, Slack, Discord, MS Teams, Telegram, custom templates) with exponential backoff & jitter.
 - Admin tooling: `quack admin create-user | set-password | import-key`, and `quack import-django` for migration.
 - Quality gates: unit and integration tests, a 62-test black-box WebSocket contract suite, a load test and Playwright end-to-end tests.
 

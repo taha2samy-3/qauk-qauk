@@ -225,7 +225,12 @@ export function DashboardsListPage() {
   return (
     <Page wide>
       <PageHeader
-        title="Dashboards"
+        title={
+          <span className="flex items-center gap-2.5">
+            <img src="/brand/logo-analytics.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Dashboards</span>
+          </span>
+        }
         description="Live views of your devices. Build your own, or open ones shared with you."
         actions={
           <Button onClick={() => setCreateOpen(true)} data-testid="new-dashboard">

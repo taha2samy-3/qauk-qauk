@@ -56,12 +56,20 @@ Contextual extensions of the original mark for specialized subsystems and docume
     <img src="/brand/logo-badge.svg" alt="Circular Badge mark"/>
     <figcaption><strong>Badge</strong><br/>Circular avatar & token<br/><a :href="$withBase('/brand/logo-badge.svg')" download>SVG</a></figcaption>
   </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-alerts.svg" alt="Alerts &amp; Webhooks mark"/>
+    <figcaption><strong>Alerts &amp; Channels</strong><br/>Multi-channel notifications<br/><a :href="$withBase('/brand/logo-alerts.svg')" download>SVG</a></figcaption>
+  </figure>
 </div>
 
 <div class="brand-grid">
   <figure class="brand-tile light">
     <img src="/brand/logo-pipeline-wordmark.svg" alt="Element Pipeline wordmark"/>
     <figcaption>Pipeline engine wordmark · <a :href="$withBase('/brand/logo-pipeline-wordmark.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-alerts-wordmark.svg" alt="Alerts &amp; Webhooks wordmark"/>
+    <figcaption>Alerts &amp; channels wordmark · <a :href="$withBase('/brand/logo-alerts-wordmark.svg')" download>SVG</a></figcaption>
   </figure>
 </div>
 

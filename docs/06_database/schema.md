@@ -13,6 +13,8 @@ Two stores, both migrated by `quack migrate`:
 | `00006_mqtt.sql` | MQTT connections, uplinks, downlinks, decoders |
 | `00007_mqtt_cluster.sql` | MQTT clustering, status and gateway members |
 | `00008_element_pipelines.sql` | Element pipelines and version history (`element_pipelines`, `element_pipeline_versions`) |
+| `00009_webhooks.sql` | Webhook endpoints and deliveries (`webhook_endpoints`, `webhook_deliveries`) |
+| `00010_element_alerts.sql` | Per-element alert rules with thresholds, hysteresis and severities (`element_alert_rules`) |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -166,10 +168,12 @@ erDiagram
   elements ||--o{ element_styles : ""
   elements ||--o| element_pipelines : "active pipeline"
   elements ||--o{ element_pipeline_versions : "version history"
+  elements ||--o{ element_alert_rules : "alert rules"
   elements ||--o{ element_permissions : ""
   users |o--o{ element_permissions : "direct grant"
   groups |o--o{ element_permissions : "group grant"
   users ||--o{ dashboards : owns
+  webhook_endpoints ||--o{ webhook_deliveries : "attempts"
   devices ||..o{ device_presence : "live leases"
   devices ||..o{ device_connections : "connection audit"
   elements ||..o{ element_event : "history store (no FK)"
@@ -180,7 +184,8 @@ erDiagram
 
 - Deleting a **user** cascades to their sessions, memberships, direct grants and dashboards.
 - Deleting a **group** cascades to its memberships and grants.
-- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines and pipeline versions.
+- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines, pipeline versions, and alert rules.
+- Deleting a **webhook endpoint** cascades to its delivery logs.
 - Deleting a **key** sets `devices.public_key_id` to `NULL`, so those devices can no longer connect.
 - `device_connections`, `device_presence` and `audit_log` keep their rows. The history store keeps a deleted element's events until retention drops them (it has no foreign keys into Postgres).
 

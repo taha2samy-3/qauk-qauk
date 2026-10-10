@@ -30,6 +30,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/outbox"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
+	"github.com/taha2samy/quackquack/server/internal/webhook"
 )
 
 const usage = `quack - Quack Quack backend
@@ -220,6 +221,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		relay := &outbox.Relay{Pool: pool, Producer: producer, Log: log, Published: func(n int) { metrics.OutboxPublished.Add(float64(n)) }}
 		go func() { errc <- relay.Run(ctx) }()
 		go purgeSessions(ctx, pool, log)
+		go webhook.NewDispatcher().StartWorker(ctx, pool, 2*time.Second)
 	}
 
 	srv := &http.Server{

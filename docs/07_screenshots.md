@@ -63,6 +63,22 @@ In **Admin → Elements**, each element has an in-memory transformation pipeline
 |---|---|
 | ![Element pipeline sheet with preview and chart, light theme](./imgs/screenshots/admin-pipeline-light.webp) | ![Element pipeline sheet with preview and chart, dark theme](./imgs/screenshots/admin-pipeline-dark.webp) |
 
+## Element alert rules
+
+In **Admin → Elements**, each element row provides a dedicated **Alerts** button. The Alert Rules sheet allows administrators to configure threshold conditions (`above`, `below`, `outside_range`, `equals`), severity levels (`info`, `warning`, `critical`), and anti-flapping hysteresis bands.
+
+| Light | Dark |
+|---|---|
+| ![Element alert rules sheet with configured rules and condition form, light theme](./imgs/screenshots/admin-alerts-light.webp) | ![Element alert rules sheet, dark theme](./imgs/screenshots/admin-alerts-dark.webp) |
+
+## Webhooks
+
+Manage outbound notification destinations across Slack, Discord, Microsoft Teams, Telegram, and standard HMAC-SHA256 webhooks in **Admin → Webhooks**. Deliveries track status, HTTP latency, retries with backoff and jitter, and manual test pings.
+
+| Webhook destinations | Endpoint configuration modal |
+|---|---|
+| ![Webhooks management page with active channels](./imgs/screenshots/admin-webhooks-light.webp) | ![New Webhook endpoint dialog](./imgs/screenshots/admin-webhook-dialog-light.webp) |
+
 ## Dashboards list and tablets
 
 | Your dashboards | Tablet layout |

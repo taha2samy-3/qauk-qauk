@@ -11,6 +11,7 @@ import {
   Users,
   UsersRound,
   Boxes,
+  Webhook,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -35,5 +36,6 @@ export const ADMIN_NAV: NavItem[] = [
   { to: '/admin/connections', label: 'Connections', icon: Cable },
   { to: '/admin/mqtt', label: 'MQTT', icon: RadioTower },
   { to: '/admin/presence', label: 'Presence', icon: Activity },
+  { to: '/admin/webhooks', label: 'Webhooks', icon: Webhook },
   { to: '/admin/audit', label: 'Audit log', icon: FileClock },
 ]

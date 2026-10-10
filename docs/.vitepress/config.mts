@@ -121,6 +121,7 @@ export default withMermaid(
             { text: 'Authentication', link: '/concepts/authentication' },
             { text: 'Permissions', link: '/concepts/permissions' },
             { text: 'Element pipeline', link: '/concepts/element_pipeline' },
+            { text: 'Alerts & Webhooks', link: '/concepts/webhooks_and_alerts' },
             { text: 'Realtime events', link: '/concepts/realtime_events' },
             { text: 'History storage', link: '/concepts/history' },
             { text: 'Dashboards', link: '/concepts/dashboards' },

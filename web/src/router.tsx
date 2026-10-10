@@ -19,6 +19,7 @@ import { KeysPage } from '@/features/admin/KeysPage'
 import { PermissionsPage } from '@/features/admin/PermissionsPage'
 import { PresencePage } from '@/features/admin/PresencePage'
 import { UsersPage } from '@/features/admin/UsersPage'
+import { WebhooksPage } from '@/features/admin/webhooks/WebhooksPage'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
               { path: 'mqtt/rejected', element: <MqttRejectedPage /> },
               { path: 'mqtt/:id', element: <MqttConnectionPage /> },
               { path: 'presence', element: <PresencePage /> },
+              { path: 'webhooks', element: <WebhooksPage /> },
               { path: 'audit', element: <AuditPage /> },
             ],
           },

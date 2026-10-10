@@ -473,8 +473,8 @@ function untransform(msg, ctx) {
         <SheetContent className="sm:max-w-2xl overflow-y-auto">
           <SheetHeader>
             <div className="flex items-center justify-between">
-              <SheetTitle className="flex items-center gap-2">
-                <Workflow className="size-5 text-primary" />
+              <SheetTitle className="flex items-center gap-2.5">
+                <img src="/brand/logo-pipeline.svg" alt="" className="size-5 rounded-md shadow-xs" />
                 Pipeline · {element?.name}
               </SheetTitle>
               {currentPipeline && (

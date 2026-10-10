@@ -1,5 +1,9 @@
 # Element Pipeline
 
+<p align="center">
+  <img src="/brand/logo-pipeline-wordmark.svg" alt="Quack Quack Element Pipeline" width="370" />
+</p>
+
 The **Element Pipeline** (Station 2) runs in-memory transformations and filters on device telemetry **locally inside each gateway**, after element resolution and client deduplication, but **before** messages are published to Redpanda and evaluated against rate limits.
 
 ---
