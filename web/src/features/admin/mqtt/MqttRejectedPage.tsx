@@ -4,20 +4,8 @@ import { Page } from '@/components/layout/AppShell'
 import { RelativeTime } from '@/components/RelativeTime'
 import { PageHeader } from '@/components/states'
 import { Badge } from '@/components/ui/badge'
-import { useMqttConnections, useRejected, type MqttRejected } from './api'
+import { payloadPreview, useMqttConnections, useRejected, type MqttRejected } from './api'
 import { MqttNav } from './MqttNav'
-
-function preview(b64: unknown): string {
-  if (typeof b64 !== 'string') return ''
-  try {
-    const raw = atob(b64)
-    return /^[\x20-\x7e\s]*$/.test(raw)
-      ? raw
-      : Array.from(raw, (c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' ')
-  } catch {
-    return b64
-  }
-}
 
 export function MqttRejectedPage() {
   const rejected = useRejected(200)
@@ -56,7 +44,7 @@ export function MqttRejectedPage() {
       header: 'Payload',
       cell: (r) => (
         <Mono className="block max-w-xs truncate">
-          {preview(r.payload)} {r.payload_size > 4096 && `(${r.payload_size} B)`}
+          {payloadPreview(r.payload)} {r.payload_size > 4096 && `(${r.payload_size} B)`}
         </Mono>
       ),
     },

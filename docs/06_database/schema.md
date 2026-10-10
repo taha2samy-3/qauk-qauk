@@ -207,7 +207,7 @@ CREATE TABLE element_event (
     UNIQUE (time, event_id)
 );
 SELECT create_hypertable('element_event', 'time', chunk_time_interval => interval '1 day');
-CREATE INDEX element_event_element_time_idx ON element_event (element_id, time DESC);
+CREATE INDEX element_event_element_time_event_idx ON element_event (element_id, time DESC, event_id DESC);  -- one element, newest first (replay, history API)
 ALTER TABLE element_event SET (timescaledb.compress,
     timescaledb.compress_segmentby = 'element_id', timescaledb.compress_orderby = 'time DESC');
 

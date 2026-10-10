@@ -29,6 +29,7 @@ import {
   fieldMapEntries,
   formError,
   mqttApi,
+  payloadPreview,
   mqttKeys,
   useCaptured,
   useDecoders,
@@ -319,7 +320,7 @@ function TestPanel({ rule }: { rule: MqttUplink }) {
   return (
     <Card className="grid gap-3 p-4" data-testid="mqtt-test">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Topic" htmlFor="t-topic">
+        <Field label="Topic" htmlFor="t-topic" description="a topic this rule matches">
           <Input
             id="t-topic"
             className="font-mono"
@@ -395,13 +396,6 @@ function CaptureSheet({
 }) {
   const captured = useCaptured(rule?.id)
   const capture = useAdminMutation(mqttApi.capture, [])
-  const decode = (b64: string) => {
-    try {
-      return atob(b64)
-    } catch {
-      return b64
-    }
-  }
   return (
     <Sheet open={!!rule} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-xl">
@@ -440,7 +434,7 @@ function CaptureSheet({
                   <RelativeTime value={m.time} className="text-muted-foreground" />
                 </div>
                 <pre className="bg-muted overflow-auto rounded px-2 py-1.5 font-mono text-[11px]">
-                  {decode(m.payload as unknown as string)}
+                  {payloadPreview(m.payload)}
                 </pre>
               </li>
             ))}
