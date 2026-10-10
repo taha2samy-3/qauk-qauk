@@ -203,11 +203,13 @@ func TestPipelineDeadbandAcrossGateways(t *testing.T) {
 	if r2.Status != http.StatusOK {
 		t.Fatalf("send to gw2: %d %s", r2.Status, r2.Body)
 	}
-	var res2 []struct {
-		Status string `json:"status"`
+	var res2 struct {
+		Results []struct {
+			Status string `json:"status"`
+		} `json:"results"`
 	}
 	r2.JSON(t, &res2)
-	if len(res2) != 1 || res2[0].Status != "filtered" {
+	if len(res2.Results) != 1 || res2.Results[0].Status != "filtered" {
 		t.Fatalf("expected filtered status on gw2 using hub.Latest from gw1, got %+v", res2)
 	}
 
@@ -218,11 +220,13 @@ func TestPipelineDeadbandAcrossGateways(t *testing.T) {
 	if r3.Status != http.StatusOK {
 		t.Fatalf("send passing delta to gw2: %d %s", r3.Status, r3.Body)
 	}
-	var res3 []struct {
-		Status string `json:"status"`
+	var res3 struct {
+		Results []struct {
+			Status string `json:"status"`
+		} `json:"results"`
 	}
 	r3.JSON(t, &res3)
-	if len(res3) != 1 || res3[0].Status != "accepted" {
+	if len(res3.Results) != 1 || res3.Results[0].Status != "accepted" {
 		t.Fatalf("expected accepted status on gw2, got %+v", res3)
 	}
 }
@@ -291,18 +295,20 @@ func TestPipelinePreviewAndDLQ(t *testing.T) {
 	if rBad.Status != http.StatusOK {
 		t.Fatalf("expected 200 response with failed status, got %d", rBad.Status)
 	}
-	var badRes []struct {
-		Status string `json:"status"`
-		Code   string `json:"code"`
+	var badRes struct {
+		Results []struct {
+			Status string `json:"status"`
+			Code   string `json:"code"`
+		} `json:"results"`
 	}
 	rBad.JSON(t, &badRes)
-	if len(badRes) != 1 || badRes[0].Status != "pipeline_failed" || badRes[0].Code != "pipeline_failed" {
+	if len(badRes.Results) != 1 || badRes.Results[0].Status != "pipeline_failed" || badRes.Results[0].Code != "pipeline_failed" {
 		t.Fatalf("expected pipeline_failed in response, got %+v", badRes)
 	}
 
 	// Verify element-pipeline.dlq.v1 receives the failure record
 	dlqHit := dlqWait(func(rec map[string]any) bool {
-		return rec["element"] == fix.elem.ID.String() && rec["device"] == fix.device.ID.String()
+		return rec["element_id"] == fix.elem.ID.String() && rec["device_id"] == fix.device.ID.String()
 	})
 	if dlqHit == nil {
 		t.Fatal("expected DLQ event on element-pipeline.dlq.v1")

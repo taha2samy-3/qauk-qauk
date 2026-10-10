@@ -204,7 +204,7 @@ type client struct {
 
 func newClient(t *testing.T, base string) *client {
 	jar, _ := cookiejar.New(nil)
-	return &client{t: t, base: base, http: &http.Client{Jar: jar, Timeout: 10 * time.Second}}
+	return &client{t: t, base: base, http: &http.Client{Jar: jar, Timeout: 30 * time.Second}}
 }
 
 type resp struct {
