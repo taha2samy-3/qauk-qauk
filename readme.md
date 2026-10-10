@@ -76,6 +76,7 @@
 
 - **Realtime WebSocket gateway in Go.** One process fans out 20,000 deliveries/s with p99 latency of 22 ms. Each message is serialized once, outbound queues are bounded, and a message never echoes back to its sender.
 - **Three device transports, one core.** The [WebSocket](docs/04_api_reference/device_api.md) (legacy v1, unchanged), [REST](docs/04_api_reference/device_rest_api.md) (batches, SenML, long-poll commands, retry-safe message ids) and [gRPC](docs/04_api_reference/device_grpc_api.md) (unary and streams; gRPC-Web and Connect too). Same token, elements and rules on all three, at 6–7 ms median latency across instances ([measured](docs/refactor/baseline.md#device-transports-2026-10-09)).
+- **MQTT 5 connections.** Devices that already talk to a broker need no firmware change: the gateways subscribe to your Mosquitto, EMQX or AWS IoT broker, spread the connections between themselves with rendezvous hashing, and lose nothing on failover. A JavaScript decoder (TTN/ChirpStack codecs work as is) and a field map turn one message into many element values, and dashboard commands go back as downlinks. See [MQTT connections](docs/10_mqtt.md).
 - **Rate limits per element.** Each element (data stream) has its own limit, and over the limit it either drops or keeps only the latest value. A per-device guard sits on top, and changes apply live. See [Rate limits](docs/05_core_concepts/rate_limits.md).
 - **Drag-and-drop dashboards.** A React app with a responsive grid. Widgets: gauge, line chart, stat, switch, slider and device status. Dashboards are private or shared, and sharing never bypasses element permissions.
 - **RBAC per element.** `R` / `RC` grants for users and groups, resolved to the highest grant. Permission and group changes reach open sockets live: they upgrade, downgrade or unsubscribe.
@@ -186,6 +187,17 @@ Run `task --list` to see every task.
 | ![Sign in page](docs/imgs/screenshots/login-light.webp) | ![Permissions administration](docs/imgs/screenshots/admin-permissions-dark.webp) |
 | **Sign in** | **Administration**: users, groups, keys, devices, permissions, audit log |
 
+**One dashboard, every protocol**: WebSocket, REST, gRPC, Node-RED and MQTT devices side by side, each switch confirmed by its device.
+
+![One dashboard fed over WebSocket, REST, gRPC, Node-RED and MQTT](docs/imgs/screenshots/transports-dashboard-light.webp)
+
+| | |
+|---|---|
+| ![A dashboard fed only by MQTT](docs/imgs/screenshots/mqtt-dashboard-dark.webp) | ![MQTT connection: slots, grants, uplink rules, downlinks](docs/imgs/screenshots/mqtt-connection-light.webp) |
+| **MQTT dashboard**: two elements from one JSON message, a battery decoded from a binary frame, a compressor switch sent as a downlink | **MQTT admin**: which gateway owns each slot, granted devices, uplink rules and downlinks |
+| ![Testing a rule and capturing live MQTT messages](docs/imgs/screenshots/mqtt-test-capture-light.webp) | ![Rejected MQTT messages with their reasons](docs/imgs/screenshots/mqtt-rejected-light.webp) |
+| **Test & capture**: run a sample through the decoder and field map, watch raw messages | **Rejected messages**: ungranted devices, decoder errors, bad payloads |
+
 ![Node-RED with the Quack Quack nodes next to the live dashboard they feed](docs/imgs/screenshots/nodered-with-dashboard.webp)
 
 **Node-RED integration**: a flow sends readings to the dashboard, and the dashboard's switch is applied in Node-RED and confirmed back.
@@ -206,6 +218,7 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 | [Device gRPC API](docs/04_api_reference/device_grpc_api.md) | For gRPC clients and gateways |
 | [Rate limits](docs/05_core_concepts/rate_limits.md) | Per-element limits, the device guard, several instances |
 | [Node-RED integration](docs/09_node_red.md) | The `node-red-contrib-quackquack` nodes: install, connect a device, send telemetry, receive commands |
+| [MQTT connections](docs/10_mqtt.md) | Subscribe to your brokers: slots and rendezvous hashing, rules, decoders, downlinks, security |
 | [Browser WebSocket API](docs/04_api_reference/browser_api.md) | For frontend developers |
 | [REST API](docs/04_api_reference/rest_api.md) | Auth, CSRF, errors, resources (live docs at `/api/docs`) |
 | [Core concepts](docs/05_core_concepts/README.md) | Authentication, permissions, realtime events, dashboards |
@@ -214,10 +227,6 @@ The documentation is published as a website at **https://taha2samy-3.github.io/q
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-editor-light.webp" alt="Dashboard editor with the widget palette" width="900"/>
-</p>
-
-<p align="center">
-  <img src="docs/imgs/screenshots/transports-dashboard-light.webp" alt="One dashboard fed over WebSocket, REST, gRPC and Node-RED" width="900"/>
 </p>
 
 ## License
