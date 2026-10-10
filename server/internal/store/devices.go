@@ -204,6 +204,32 @@ func DeviceConfig(ctx context.Context, db DBTX, id uuid.UUID) (events.DeviceConf
 		cfg.Elements[i] = events.ElementConfig{ID: e.ID, Name: e.Name, Points: e.Points, Rate: e.MsgRate,
 			Burst: e.MsgBurst, OverLimit: overLimit(e.OverLimit)}
 	}
+	if len(els) > 0 {
+		elementIDs := make([]uuid.UUID, len(els))
+		for i, e := range els {
+			elementIDs[i] = e.ID
+		}
+		rows, err := db.Query(ctx, `SELECT element_id, version, steps FROM element_pipelines WHERE element_id = ANY($1)`, elementIDs)
+		if err == nil {
+			type pipeRow struct {
+				ElementID uuid.UUID       `db:"element_id"`
+				Version   int             `db:"version"`
+				Steps     json.RawMessage `db:"steps"`
+			}
+			pipes, err := pgx.CollectRows(rows, pgx.RowToStructByName[pipeRow])
+			if err == nil {
+				pipeMap := make(map[uuid.UUID]pipeRow, len(pipes))
+				for _, p := range pipes {
+					pipeMap[p.ElementID] = p
+				}
+				for i, e := range els {
+					if pr, ok := pipeMap[e.ID]; ok && len(pr.Steps) > 0 && string(pr.Steps) != "[]" && string(pr.Steps) != "null" {
+						cfg.Elements[i].Pipeline = &events.PipelineConfig{Version: pr.Version, Steps: pr.Steps}
+					}
+				}
+			}
+		}
+	}
 	return cfg, nil
 }
 

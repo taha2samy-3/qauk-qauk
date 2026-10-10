@@ -46,6 +46,12 @@ func init() {
 		MessagesIn.WithLabelValues(k)
 		FramesOut.WithLabelValues(k)
 	}
+	for _, k := range []string{"builtin", "script"} {
+		PipelineSeconds.WithLabelValues(k)
+	}
+	for _, r := range []string{"deadband", "drop_if", "script"} {
+		PipelineFiltered.WithLabelValues(r)
+	}
 }
 
 // MQTT transport (gateway role mqtt).
@@ -75,4 +81,25 @@ var (
 	MQTTDownlinks = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "quack_mqtt_downlinks_total", Help: "Commands published to MQTT, by result.",
 	}, []string{"result"})
+)
+
+// Element pipeline (station 2).
+var (
+	PipelineSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "quack_pipeline_seconds",
+		Help:    "Element pipeline execution time per message.",
+		Buckets: []float64{0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.02},
+	}, []string{"kind"})
+	PipelineFiltered = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_pipeline_filtered_total",
+		Help: "Messages filtered by element pipeline.",
+	}, []string{"reason"})
+	PipelineFailed = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_pipeline_failed_total",
+		Help: "Pipeline step failures.",
+	}, []string{"step"})
+	PipelineCompileErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "quack_pipeline_compile_errors_total",
+		Help: "Pipeline compilation errors when receiving device snapshots.",
+	})
 )

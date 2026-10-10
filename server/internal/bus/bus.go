@@ -37,6 +37,7 @@ var Topics = []TopicSpec{
 	{Name: events.TopicDeviceConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
 	{Name: events.TopicMQTTConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
 	{Name: events.TopicMQTTDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}},  // 30 days
+	{Name: events.TopicElementPipelineDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}}, // 30 days
 	{Name: events.TopicMQTTCapture, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("3600000")}}, // 1 hour
 }
 

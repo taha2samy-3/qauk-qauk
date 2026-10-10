@@ -109,6 +109,7 @@ func (a *API) Register(api huma.API) {
 	a.registerAdminOps(api)
 	a.registerDashboards(api)
 	a.registerAdminMQTT(api)
+	a.registerAdminPipeline(api)
 }
 
 func Config() huma.Config {
