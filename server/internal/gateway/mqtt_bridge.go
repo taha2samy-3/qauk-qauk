@@ -108,6 +108,10 @@ func (c mqttCore) OnCommand(fn func(mqtt.Command)) func() {
 	}
 }
 
+func (c mqttCore) SendUserError(userID string, code, description string, elementID uuid.UUID) {
+	c.g.SendUserError(userID, code, description, elementID)
+}
+
 // mqttCluster reads live gateways with the mqtt role from gateway_members.
 type mqttCluster struct{ g *Gateway }
 

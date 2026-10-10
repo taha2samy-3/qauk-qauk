@@ -203,6 +203,55 @@ func TestWireFramesAreLegacyCompatible(t *testing.T) {
 	}
 }
 
+func TestHubSendUserErrorDeliveryAndDisconnected(t *testing.T) {
+	h := NewHub()
+	elID := uuid.New()
+
+	// 1. User has no connected sessions -> safely drops without panic
+	h.SendUserError("999", "delivery_failed", "MQTT broker unreachable after retries", elID)
+	h.SendUserError("invalid-uid", "delivery_failed", "MQTT broker unreachable after retries", elID)
+
+	// 2. Connect a browser client for user 100
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := &browserClient{
+		client:   newClient(ctx, nil, "b-1", "browser"),
+		userID:   100,
+		username: "operator",
+		subs:     map[uuid.UUID]string{},
+	}
+	h.AddBrowser(b)
+
+	// 3. Send error frame to user 100
+	h.SendUserError("100", "delivery_failed", "MQTT broker unreachable after retries", elID)
+
+	b.mu.Lock()
+	if len(b.queue) != 1 {
+		t.Fatalf("expected 1 frame in client queue, got %d", len(b.queue))
+	}
+	frameJSON := string(b.queue[0])
+	b.mu.Unlock()
+
+	expected := `{"type":"error","error_code":"delivery_failed","description":"MQTT broker unreachable after retries","element_id":"` + elID.String() + `"}`
+	if frameJSON != expected {
+		t.Errorf("frame got %s, want %s", frameJSON, expected)
+	}
+
+	// 4. Disconnect user 100
+	h.RemoveBrowser(b)
+	b.mu.Lock()
+	b.queue = nil
+	b.mu.Unlock()
+
+	// 5. User is now disconnected -> safely drops without panic
+	h.SendUserError("100", "delivery_failed", "MQTT broker unreachable after retries", elID)
+	b.mu.Lock()
+	if len(b.queue) != 0 {
+		t.Errorf("disconnected user should not receive frames, got %d", len(b.queue))
+	}
+	b.mu.Unlock()
+}
+
 func TestOriginPolicy(t *testing.T) {
 	p := NewOriginPolicy([]string{"https://app.example.com", " http://localhost:5173/ "})
 	for origin, want := range map[string]bool{

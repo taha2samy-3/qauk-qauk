@@ -59,7 +59,12 @@ export function PresencePage() {
   return (
     <Page>
       <PageHeader
-        title="Presence"
+        title={
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-presence.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Presence</span>
+          </div>
+        }
         description="Live device leases held by gateways. A device is online while its lease is fresh."
         actions={
           <div className="flex items-center gap-3 text-sm">

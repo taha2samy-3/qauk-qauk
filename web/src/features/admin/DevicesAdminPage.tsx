@@ -234,7 +234,12 @@ export function DevicesAdminPage() {
   return (
     <Page>
       <PageHeader
-        title="Devices"
+        title={
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-device.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Devices</span>
+          </div>
+        }
         description="Physical or virtual devices and the keys they authenticate with."
         actions={
           <Button

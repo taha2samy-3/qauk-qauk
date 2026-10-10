@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -312,6 +313,35 @@ func (h *Hub) AllBrowserClients() []*browserClient {
 		}
 	}
 	return out
+}
+
+// SendUserError routes an error frame to all connected browser clients of the given user.
+// If the user has disconnected or has no active sockets, it safely returns without panicking.
+func (h *Hub) SendUserError(userIDStr string, code, description string, elementID uuid.UUID) {
+	uid, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	m, ok := h.users[uid]
+	if !ok || len(m) == 0 {
+		h.mu.RUnlock()
+		return
+	}
+	clients := make([]*browserClient, 0, len(m))
+	for _, b := range m {
+		clients = append(clients, b)
+	}
+	h.mu.RUnlock()
+
+	var elStr string
+	if elementID != uuid.Nil {
+		elStr = elementID.String()
+	}
+	frame := errorFrame(code, description, elStr)
+	for _, b := range clients {
+		b.Send(frame)
+	}
 }
 
 // NeedsHistory reports whether stored history must be loaded before replay.

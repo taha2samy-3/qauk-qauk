@@ -83,7 +83,15 @@ export function AuditPage() {
 
   return (
     <Page wide>
-      <PageHeader title="Audit log" description="Administrative changes, newest first." />
+      <PageHeader
+        title={
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-audit.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Audit log</span>
+          </div>
+        }
+        description="Administrative changes, newest first."
+      />
       <DataTable
         label="Audit log"
         data={audit.data}

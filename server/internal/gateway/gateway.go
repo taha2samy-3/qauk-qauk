@@ -206,3 +206,9 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 
 // Device returns a device's snapshot from the in-memory registry.
 func (g *Gateway) Device(id uuid.UUID) (*registry.Device, bool) { return g.registry.Lookup(id) }
+
+// SendUserError routes an error frame to a user's dashboard clients.
+func (g *Gateway) SendUserError(userID string, code, description string, elementID uuid.UUID) {
+	g.hub.SendUserError(userID, code, description, elementID)
+}
+

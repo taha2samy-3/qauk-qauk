@@ -589,7 +589,12 @@ export function ElementsPage() {
   return (
     <Page wide>
       <PageHeader
-        title="Elements"
+        title={
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-element.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Elements</span>
+          </div>
+        }
         description="Values and controls exposed by devices."
         actions={
           <Button

@@ -478,7 +478,7 @@ test('publish real SCADA and LoRaWAN packets and snapshot dashboards', async ({ 
   // 4. Snapshot Test & Capture Console for SCADA Rule
   const connsRes = await page.request.get('/api/v1/admin/mqtt/connections')
   const conns = (await connsRes.json()) as { id: string; name: string }[]
-  const connId = conns.find((c) => c.name === 'Demo broker')?.id!
+  const connId = conns.find((c) => c.name === 'Demo broker')?.id ?? ''
   await page.goto(`/admin/mqtt/${connId}`)
   await expect(page.getByRole('table', { name: 'Uplink rules' })).toBeVisible()
 

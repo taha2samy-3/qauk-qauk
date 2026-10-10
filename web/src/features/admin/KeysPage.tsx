@@ -278,7 +278,12 @@ export function KeysPage() {
   return (
     <Page>
       <PageHeader
-        title="Keys"
+        title={
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-keys.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Keys</span>
+          </div>
+        }
         description="Public keys that devices use to authenticate."
         actions={
           <Button onClick={() => setCreateOpen(true)}>

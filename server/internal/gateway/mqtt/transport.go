@@ -58,6 +58,8 @@ type Core interface {
 	Publish(p Publication, done func(error)) error
 	// OnCommand registers fn for every user command.
 	OnCommand(fn func(Command)) (cancel func())
+	// SendUserError routes a real-time error frame to the originating user's dashboard sessions.
+	SendUserError(userID string, code, description string, elementID uuid.UUID)
 }
 
 // Cluster lists the live gateways that have the mqtt role.
@@ -85,15 +87,18 @@ type RecordSink interface {
 }
 
 type Options struct {
-	GatewayID        string
-	Brokers          []string
-	Heartbeat        time.Duration // how often members are re-read
-	AllowInsecureTLS bool
-	Log              *slog.Logger
-	Core             Core
-	Cluster          Cluster
-	Status           StatusSink
-	Records          RecordSink
+	GatewayID           string
+	Brokers             []string
+	Heartbeat           time.Duration // how often members are re-read
+	AllowInsecureTLS    bool
+	Log                 *slog.Logger
+	Core                Core
+	Cluster             Cluster
+	Status              StatusSink
+	Records             RecordSink
+	MaxRetries          int
+	RetryInitialBackoff time.Duration
+	RetryMaxBackoff     time.Duration
 	// Follow replaces bus.Follow (tests).
 	Follow func(ctx context.Context, fn func(key, value []byte), caughtUp func()) error
 }
@@ -106,11 +111,12 @@ type slotKey struct {
 type Transport struct {
 	o Options
 
-	mu      sync.Mutex
-	conns   map[string]*connConfig // by connection id
-	members []cluster.Member
-	slots   map[slotKey]*slot
-	devIdx  map[uuid.UUID][]*connConfig // device → connections serving it
+	mu       sync.Mutex
+	conns    map[string]*connConfig // by connection id
+	members  []cluster.Member
+	slots    map[slotKey]*slot
+	devIdx   map[uuid.UUID][]*connConfig // device → connections serving it
+	inFlight atomic.Int32
 
 	wake  chan struct{}
 	ready atomic.Bool
