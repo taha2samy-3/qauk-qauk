@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/registry"
@@ -194,9 +196,13 @@ func (g *Gateway) onDeviceFrame(d *deviceClient, data []byte) {
 			in.ClientTS = &t
 		}
 	}
-	// Protocol v1 has no device error frames: rejected messages are dropped
-	// (and counted in quack_dropped_total by reason).
+	// Protocol v1 has no device error frames for generic rejections, but pipeline
+	// failures return an error frame with the reason text.
 	if _, err := g.publishDeviceMessage(dev, d.id, in); err != nil {
+		var ep *elementpipe.ErrPipeline
+		if errors.As(err, &ep) {
+			d.Send(errorFrame("pipeline_failed", ep.Reason, f.ElementID))
+		}
 		g.log.Debug("gateway: device message dropped", "device", d.deviceID, "element_id", f.ElementID, "err", err)
 	}
 }
