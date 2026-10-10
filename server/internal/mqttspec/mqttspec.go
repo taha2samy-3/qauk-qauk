@@ -162,10 +162,10 @@ func ParsePath(s string) (Path, error) {
 	var p Path
 	s = strings.TrimSpace(s)
 	for i := 0; i < len(s); {
-		switch {
-		case s[i] == '.':
+		switch s[i] {
+		case '.':
 			i++
-		case s[i] == '[':
+		case '[':
 			end := strings.IndexByte(s[i:], ']')
 			if end < 0 {
 				return nil, errors.New("unclosed [")

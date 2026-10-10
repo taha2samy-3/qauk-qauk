@@ -110,7 +110,7 @@ func encodeCommand(c *connConfig, d *downlink, devExt string, cmd Command) ([]by
 		if err := json.Unmarshal(d.encoder.Template, &tpl); err != nil {
 			return nil, err
 		}
-		var value any = msg
+		value := msg
 		if m, ok := msg.(map[string]any); ok {
 			if v, ok := m["value"]; ok {
 				value = v
