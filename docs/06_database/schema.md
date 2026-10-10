@@ -297,6 +297,16 @@ WHERE ep.element_id = '<uuid>'
 
 To connect in local dev: `psql postgres://quack:quack@127.0.0.1:5433/quack`. With `HISTORY=clickhouse`: `clickhouse client --port 19000 --user quack --password quack --database quack`, or the HTTP interface on http://127.0.0.1:18123/play.
 
-## MQTT Configuration (Phase A)
+## MQTT connections
 
-The `mqtt_connections`, `mqtt_uplinks`, `mqtt_downlinks`, `decoders`, and `decoder_versions` tables define the MQTT configurations and Source Pipelines for processing external MQTT 5 traffic. Connections are assigned to devices via `mqtt_connection_devices`, and their realtime status is tracked in `mqtt_connection_status`.
+Migrations `00006_mqtt.sql` and `00007_mqtt_cluster.sql`. The tables are the source of truth for [MQTT connections](../10_mqtt.md); every change is published, in the same transaction, as a snapshot of the whole connection to the compacted topic `mqtt-config.v1` (through the outbox), which is what the gateways read.
+
+| Table | Holds |
+|---|---|
+| `mqtt_connections` | One broker connection: `broker_url`, `client_id_prefix` (slot *n* connects as `<prefix>-<n>`), `keepalive`, `session_expiry`, `receive_maximum`, `replicas`, `auth` and `tls` (JSON with **secret references** such as `env:NAME` or `file:/path`, never secret values), `enabled`. |
+| `mqtt_connection_devices` | The grants: which devices a connection may write, and the `external_id` each one has in topics or payloads (unique per connection). |
+| `mqtt_uplinks` | Rules: `topic_filter`, `qos`, `format` (`json`, `text`, `number`, `bytes`), an optional `decoder_id`, `device` (where the external id comes from: a topic level, a payload field or a fixed value), `field_map`, `time`, `enabled`, and `capture_until` (raw messages are copied to `mqtt-capture.v1` until then). |
+| `mqtt_downlinks` | Commands to the broker: `device_external_id` + `element`, `topic_template` (`{device}`, `{element}`, `{user}`), `encoder` (a payload template or a decoder's `encodeDownlink`), `qos`, `retain` and MQTT 5 properties. |
+| `decoders`, `decoder_versions` | JavaScript decoders and every saved version of each. |
+| `mqtt_connection_status` | Per connection and slot: the owning `gateway_id`, `connected`, the last MQTT reason code and error, and counters. Written by the owning gateway. |
+| `gateway_members` | Live gateways: `roles`, `weight` (`QUACK_MQTT_WEIGHT`) and `last_seen`, refreshed with the presence heartbeat. Members seen within `QUACK_PRESENCE_TTL` share the MQTT slots. |

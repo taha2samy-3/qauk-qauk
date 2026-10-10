@@ -465,7 +465,7 @@ func parseWait(s string, maxWait time.Duration) (time.Duration, error) {
 // --- presence of connectionless devices ---
 
 // restPresence tracks devices active over request/response calls (REST, and
-// unary gRPC) on this instance. A device
+// unary gRPC) or over MQTT on this instance. A device
 // counts as connected for QUACK_PRESENCE_TTL after its last request; the
 // lease is written once (the gateway heartbeat refreshes it), not per request.
 type restPresence struct {

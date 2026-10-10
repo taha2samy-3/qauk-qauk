@@ -166,7 +166,6 @@ func simulateMQTTDevice(ctx context.Context, d DemoDevice, mqttURL string, log *
 		return err
 	}
 	log.Info("simulator: connected", "device", d.Name, "transport", "mqtt", "broker", mqttURL)
-	_ = publish(base+"/state", []byte(`{"compressor":0}`))
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	start := time.Now()
@@ -186,6 +185,14 @@ func simulateMQTTDevice(ctx context.Context, d DemoDevice, mqttURL string, log *
 			hum := 81 + 7*math.Sin(2*math.Pi*t/110) + rand.Float64()
 			if err := publish(base+"/up", fmt.Appendf(nil, `{"t":%.2f,"h":%.1f,"ts":%d}`, temp, hum, now.UnixMilli())); err != nil {
 				return err
+			}
+			if n%30 == 0 { // periodic state report, as real devices do (also covers a missed first one)
+				stateMu.Lock()
+				v := state
+				stateMu.Unlock()
+				if err := publish(base+"/state", fmt.Appendf(nil, `{"compressor":%v}`, v)); err != nil {
+					return err
+				}
 			}
 			if n%5 == 0 { // binary frame for the JavaScript decoder
 				battery := 3.9 - 0.2*math.Mod(t/900, 1)

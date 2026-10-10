@@ -75,15 +75,15 @@ func (t *Time) UnmarshalJSON(b []byte) error {
 
 // Event is a CloudEvents 1.0 event in structured JSON mode.
 type Event struct {
-	SpecVersion     string          `json:"specversion"`
-	ID              string          `json:"id"`
-	Source          string          `json:"source"`
-	Type            string          `json:"type"`
-	Subject         string          `json:"subject"`
-	Time            Time            `json:"time"`
-	DataContentType string          `json:"datacontenttype"`
-	DataSchema      string          `json:"dataschema"`
-	PartitionKey    string          `json:"partitionkey"`
+	SpecVersion     string `json:"specversion"`
+	ID              string `json:"id"`
+	Source          string `json:"source"`
+	Type            string `json:"type"`
+	Subject         string `json:"subject"`
+	Time            Time   `json:"time"`
+	DataContentType string `json:"datacontenttype"`
+	DataSchema      string `json:"dataschema"`
+	PartitionKey    string `json:"partitionkey"`
 	// QuackVia is an extension attribute: the transport connection a device
 	// message came through when it isn't the device's own (e.g. mqtt/<id>).
 	QuackVia string          `json:"quackvia,omitempty"`

@@ -14,6 +14,7 @@ const rewrites: Record<string, string> = {
   '07_screenshots.md': 'guide/screenshots.md',
   '08_brand.md': 'guide/brand.md',
   '09_node_red.md': 'guide/node-red.md',
+  '10_mqtt.md': 'guide/mqtt.md',
   '04_api_reference/README.md': 'api/index.md',
   '04_api_reference/:page': 'api/:page',
   '05_core_concepts/README.md': 'concepts/index.md',
@@ -24,7 +25,7 @@ const rewrites: Record<string, string> = {
   'refactor/baseline.md': 'design/performance-baseline.md',
   'refactor/PLATFORM_REVIEW.md': 'design/platform-review.md',
   'refactor/DEVICE_ADAPTERS_PLAN.md': 'design/device-adapters-plan.md',
-  'refactor/MQTT_ADAPTER_PROMPT.md': 'design/mqtt-adapter-prompt.md',
+  'refactor/MQTT_ADAPTER_PLAN.md': 'design/mqtt-adapter-plan.md',
 }
 
 /** Site URL (without base) for a source file path relative to docs/. */
@@ -106,6 +107,7 @@ export default withMermaid(
             { text: 'Overview', link: '/guide/overview' },
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'Node-RED integration', link: '/guide/node-red' },
+            { text: 'MQTT connections', link: '/guide/mqtt' },
             { text: 'Architecture', link: '/guide/architecture' },
             { text: 'Screenshots', link: '/guide/screenshots' },
             { text: 'Brand & logos', link: '/guide/brand' },
@@ -144,7 +146,7 @@ export default withMermaid(
             { text: 'Performance baseline', link: '/design/performance-baseline' },
             { text: 'Platform review & roadmap', link: '/design/platform-review' },
             { text: 'Device adapters plan', link: '/design/device-adapters-plan' },
-            { text: 'MQTT adapter (task prompt)', link: '/design/mqtt-adapter-prompt' },
+            { text: 'MQTT adapter plan', link: '/design/mqtt-adapter-plan' },
           ],
         },
       ],

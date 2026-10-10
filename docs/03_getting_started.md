@@ -47,6 +47,7 @@ Open **http://127.0.0.1:5173** and log in:
 - *Greenhouse A* (ES256): temperature, humidity, soil moisture, an irrigation pump switch, a fan-speed slider.
 - *Boiler room* (RS256): water temperature, pressure, a burner switch.
 - *Weather station* (ES256): `Climate`, whose messages are objects (`{temperature, humidity, battery, ts, gps{lat,lng}}`) for trying attribute bindings, and a `Gate relay` that speaks `{"relay": "ON"}`.
+- *Cold room*, with `MQTT=1` only: a device that has no key and talks only to the Mosquitto broker. Its temperature and humidity arrive in one JSON message, its battery in a binary frame decoded by JavaScript, and its `Compressor` switch is a downlink. See [MQTT connections](./10_mqtt.md#try-it).
 
 `task simulate` connects each demo device over a different [device transport](./04_api_reference/README.md#which-device-transport): *Greenhouse A* over the WebSocket, *Boiler room* over [REST](./04_api_reference/device_rest_api.md) (commands by long-poll), *Weather station* over [gRPC](./04_api_reference/device_grpc_api.md) (a `Session` stream). `task simulate TRANSPORT=rest` (or `websocket`, `grpc`) uses one for all. To call the APIs by hand, get a token for a demo device:
 
@@ -67,7 +68,7 @@ The simulator confirms each dashboard command by sending it back as the new stat
 | `task console` | Redpanda Console on http://127.0.0.1:8090 to inspect topics and CloudEvents. |
 | `task migrate` | Applies the core and history migrations and creates the topics. `task dev` and `task demo` already run it. |
 | `task web:build` | Builds the web app into `web/dist`. `task dev` then also serves it on http://127.0.0.1:8080. |
-| `task start MQTT=1` | Runs the full stack (like `task start`) and starts the MQTT role, launching an embedded Mosquitto for demo MQTT gateways. |
+| `task start MQTT=1` | The full stack plus a **Mosquitto** container (dev broker: 1883 anonymous, 1884 user `quack`/`quack`, 8883 mTLS) and the `mqtt` role. The demo adds the *Cold room*, a device that only speaks MQTT, and its connection, decoder and rules. See [MQTT connections](./10_mqtt.md#try-it). |
 
 **Ports:**
 
@@ -79,6 +80,7 @@ The simulator confirms each dashboard command by sending it back as the new stat
 | 5433 | PostgreSQL + TimescaleDB (user, password and database are all `quack`) |
 | 19000, 18123 | ClickHouse native protocol and HTTP, with `HISTORY=clickhouse` (user and password `quack`, database `quack`) |
 | 19092 | Redpanda Kafka API (external listener) |
+| 1883, 1884, 8883 | Mosquitto, with `MQTT=1`: anonymous, password (`quack`/`quack`), mTLS (certificates in `docker/mqtt/certs`, made by `task mqtt:certs`) |
 | 8090 | Redpanda Console (`task console`) |
 
 **Tests:**
@@ -333,7 +335,7 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_KAFKA_ACKS_ALL` | `true` | serve | `true` means `acks=all` (durable). `false` means `acks=1` (lower latency, may lose events on broker failure). |
 | `QUACK_INGEST_GROUP` | `quack-ingest` | ingest | Consumer group of the ingester. **Use a different value per environment/database** sharing a Redpanda cluster ([why](./02_architecture.md#the-ingester-consumer-group)). |
 | `QUACK_HTTP_ADDR` | `:8080` | serve, ingest | Listen address. The ingester only serves `/healthz` and `/metrics` on it (the tasks and compose use `:9100`). |
-| `QUACK_ROLES` | `api,gateway` | serve | Roles to enable: `api`, `gateway` or both. |
+| `QUACK_ROLES` | `api,gateway` | serve | Roles to enable: `api`, `gateway`, `mqtt` (needs `gateway`). |
 | `QUACK_GATEWAY_ID` | `gw-<hostname>-<random>` | serve | Unique id of this gateway instance (presence leases, own-event detection). |
 | `QUACK_ALLOWED_ORIGINS` | *(empty)* | serve | Extra trusted origins (`scheme://host[:port]`) for the browser WebSocket and for cross-origin API writes. Same-host requests are always allowed. |
 | `QUACK_COOKIE_SECURE` | `true` | serve | Sets `Secure` on the session cookie. Set it to `false` only for plain-HTTP development. |
@@ -347,7 +349,10 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_STREAM_MAX_AGE` | `30m` | serve | gRPC streams are closed (`UNAVAILABLE`) after this plus up to 10 % jitter, so clients spread over new instances. `0` = never. |
 | `QUACK_BROWSER_MSG_RATE` | `100` | serve | Frames per second per browser socket. The excess gets a `rate_limited` error. `0` disables the limit. |
 | `QUACK_PRESENCE_HEARTBEAT` | `10s` | serve | How often a gateway refreshes its presence leases and runs the sweeper. |
-| `QUACK_PRESENCE_TTL` | `30s` | serve | A lease older than this counts as dead (the device shows as disconnected). |
+| `QUACK_PRESENCE_TTL` | `30s` | serve | A lease older than this counts as dead (the device shows as disconnected). It is also how long a dead `mqtt` gateway keeps its MQTT slots before the others take them over. |
+| `QUACK_MQTT_WEIGHT` | `1` | serve (`mqtt`) | This gateway's weight in the MQTT slot assignment: a gateway with weight 2 owns about twice as many slots. |
+| `QUACK_MQTT_CONNECTION_MSG_RATE` | `5000` | serve (`mqtt`) | Messages per second one MQTT connection may turn into values on one gateway. The excess is rejected (dead-lettered). |
+| `QUACK_ALLOW_INSECURE_TLS` | `false` | serve | Lets MQTT connections use passwords without TLS and `insecure_skip_verify`. For development brokers only. |
 | `QUACK_WEB_DIR` | `../web` | serve | Directory of the built web app, served at `/` with SPA fallback. It is ignored if missing; set it to empty to disable. The tasks use `web/dist`, and the image uses `/web`. |
 | `QUACK_LOG_LEVEL` | `info` | all | `debug`, `info`, `warn`, `error`. Logs are JSON on stderr. |
 | `QUACK_KAFKA_DEBUG` | *(unset)* | ingest | Any value enables franz-go client logs for the consumer group. |

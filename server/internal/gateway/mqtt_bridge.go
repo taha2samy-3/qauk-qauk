@@ -69,6 +69,9 @@ func (c mqttCore) Publish(p mqtt.Publication, done func(error)) error {
 	if err := g.allowDevice(dev.ID, 1); err != nil {
 		return err
 	}
+	// MQTT devices never connect to us: like REST, a device is online while
+	// its messages keep arriving (QUACK_PRESENCE_TTL)
+	g.rest.touch(g, dev.ID, "mqtt", viaMQTT+p.ConnectionID, "")
 	_, err := g.publishDeviceMessage(dev, viaMQTT+p.ConnectionID, DeviceMessage{Element: p.Element, ByName: true,
 		Message: p.Message, ClientTS: p.TS, Done: done})
 	return err

@@ -270,6 +270,10 @@ func TestMQTTUplinkToDashboard(t *testing.T) {
 	if ev == nil || ev.QuackVia != "mqtt/"+f.conn.ID || ev.Type != events.TypeElementMessage {
 		t.Fatalf("CloudEvent from MQTT: %+v", ev)
 	}
+	// the device is online while its messages arrive (no connection of its own)
+	if ok, err := store.DeviceConnected(context.Background(), pool, f.device.ID, time.Minute); err != nil || !ok {
+		t.Fatalf("an MQTT device sending values must be online: %v %v", ok, err)
+	}
 }
 
 // A JS decoder for a binary payload; a device that isn't granted is refused
