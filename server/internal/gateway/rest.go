@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/registry"
 )
@@ -160,11 +161,16 @@ func (g *Gateway) publishItems(dev *registry.Device, origin string, items []rest
 		}
 		res.Status, res.EventID = pr.Status, pr.EventID
 		if err != nil {
-			res.Status, res.Code, res.Error = "rejected", errorCode(err), err.Error()
-			var rl *RateLimitedError
-			if errors.As(err, &rl) {
-				limited++
-				wait = max(wait, rl.RetryAfter)
+			var ep *elementpipe.ErrPipeline
+			if errors.As(err, &ep) {
+				res.Status, res.Code, res.Error = "pipeline_failed", "pipeline_failed", ep.Reason
+			} else {
+				res.Status, res.Code, res.Error = "rejected", errorCode(err), err.Error()
+				var rl *RateLimitedError
+				if errors.As(err, &rl) {
+					limited++
+					wait = max(wait, rl.RetryAfter)
+				}
 			}
 		}
 		results[i] = res
@@ -175,7 +181,10 @@ func (g *Gateway) publishItems(dev *registry.Device, origin string, items []rest
 func errorCode(err error) string {
 	var rl *RateLimitedError
 	var us *UnstorableError
+	var ep *elementpipe.ErrPipeline
 	switch {
+	case errors.As(err, &ep):
+		return "pipeline_failed"
 	case errors.As(err, &rl):
 		return "rate_limited"
 	case errors.As(err, &us):

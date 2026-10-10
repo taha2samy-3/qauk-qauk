@@ -18,6 +18,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/config"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/gateway/mqtt"
 	"github.com/taha2samy/quackquack/server/internal/history"
@@ -139,7 +140,13 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 		if err != nil {
 			return
 		}
-		dev, br := renderMessage(&m, ev.Time)
+		var pipe *elementpipe.Pipeline
+		if dev, ok := g.registry.Lookup(m.DeviceID); ok {
+			if el, ok := dev.Element(m.ElementID); ok {
+				pipe = el.Pipeline
+			}
+		}
+		dev, br := renderMessage(&m, ev.Time, pipe)
 		g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
 		g.notifyCommand(&m, id, ev.Time.Time)
 	case events.TypeDevicePresence:
@@ -160,11 +167,11 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 // first (fast path), then publish to the bus for other gateways and the
 // ingester. It returns the event id.
 func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) string {
-	return g.publishElementDone(m, localOrigin, nil)
+	return g.publishElementDone(m, localOrigin, nil, 0)
 }
 
 // publishElementDone is publishElement with a durability callback (nil: none).
-func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error)) string {
+func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error), pipelineVersion int) string {
 	ev, err := events.New(events.TypeElementMessage, events.GatewaySource(g.cfg.GatewayID), m.ElementID.String(), m)
 	if err != nil {
 		g.log.Error("gateway: build event", "err", err)
@@ -176,7 +183,16 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 	if strings.HasPrefix(localOrigin, viaMQTT) {
 		ev.QuackVia = localOrigin
 	}
-	dev, br := renderMessage(m, ev.Time)
+	if pipelineVersion > 0 {
+		ev.QuackPipeline = &pipelineVersion
+	}
+	var pipe *elementpipe.Pipeline
+	if dev, ok := g.registry.Lookup(m.DeviceID); ok {
+		if el, ok := dev.Element(m.ElementID); ok {
+			pipe = el.Pipeline
+		}
+	}
+	dev, br := renderMessage(m, ev.Time, pipe)
 	id := uuid.MustParse(ev.ID)
 	g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
 	g.notifyCommand(m, id, ev.Time.Time)

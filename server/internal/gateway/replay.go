@@ -127,8 +127,10 @@ func (g *Gateway) loadHistory(ctx context.Context, el elementInfo) ([]ringEntry,
 func entryFromEvent(r history.Event) ringEntry {
 	m := &events.ElementMessage{ElementID: r.ElementID, DeviceID: r.DeviceID, Source: r.Source,
 		Actor: events.Actor{ID: r.ActorID, Name: r.ActorName}, Message: r.Payload}
-	_, br := renderMessage(m, events.Time{Time: r.Time})
-	return ringEntry{id: r.ID, at: r.Time, frame: br}
+	_, br := renderMessage(m, events.Time{Time: r.Time}, nil)
+	var parsed map[string]any
+	_ = json.Unmarshal(r.Payload, &parsed)
+	return ringEntry{id: r.ID, at: r.Time, frame: br, message: parsed}
 }
 
 // warmLatest loads the latest stored value of every element from the
@@ -148,8 +150,10 @@ func (g *Gateway) warmLatest(ctx context.Context) {
 		if err != nil || ev.DecodeData(&m) != nil {
 			return
 		}
-		_, br := renderMessage(&m, ev.Time)
-		g.hub.Remember(m.ElementID, ringEntry{id: id, at: ev.Time.Time, frame: br})
+		_, br := renderMessage(&m, ev.Time, nil)
+		var parsed map[string]any
+		_ = json.Unmarshal(m.Message, &parsed)
+		g.hub.Remember(m.ElementID, ringEntry{id: id, at: ev.Time.Time, frame: br, message: parsed})
 		n++
 	})
 	if err != nil && ctx.Err() == nil {
