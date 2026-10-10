@@ -76,6 +76,10 @@ old Django admin.
 
 ![Permissions administration, dark theme](./imgs/screenshots/admin-permissions-dark.webp)
 
+## MQTT Administration
+
+Manage external MQTT 5 client connections, uplink parsing rules, downlinks, and test Javascript decoders in a live sandbox. (Screenshots pending `e2e/mqtt.spec.ts` generation).
+
 ## Friendly empty and error states
 
 Empty and error states show a duck that fits the situation. Here is the lost duck on the "page not found" screen:

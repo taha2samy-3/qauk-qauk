@@ -70,6 +70,10 @@ type DeviceMessage struct {
 	// ClientID makes retries safe: the same id from the same device within
 	// dedupeTTL is acknowledged without publishing again (optional).
 	ClientID string
+	// Done, if set, is called once an accepted message is durable on the bus
+	// (or failed), and at once for duplicates and coalesced messages. It is
+	// not called when publishDeviceMessage returns an error.
+	Done func(error)
 }
 
 type PublishResult struct {
@@ -175,6 +179,7 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 		dedupeKey = dev.ID.String() + "/" + in.ClientID
 		if prev, seen := g.dedupe.claim(dedupeKey); seen {
 			res.EventID, res.Status = prev, StatusDuplicate
+			callDone(in.Done, nil)
 			return res, nil
 		}
 	}
@@ -195,6 +200,7 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 		metrics.Dropped.WithLabelValues("element_rate_coalesced").Inc()
 		res.Status = StatusCoalesced
 		g.dedupe.put(dedupeKey, "")
+		callDone(in.Done, nil)
 		return res, nil
 	}
 	ok, wait := g.limits.Allow("e:"+el.ID.String(), g.elementLimit(el), 1)
@@ -204,15 +210,22 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 			metrics.Dropped.WithLabelValues("element_rate_coalesced").Inc()
 			res.Status = StatusCoalesced
 			g.dedupe.put(dedupeKey, "")
+			callDone(in.Done, nil)
 			return res, nil
 		}
 		metrics.Dropped.WithLabelValues("element_rate_limit").Inc()
 		g.dedupe.release(dedupeKey) // not published: a retry must go through
 		return res, &RateLimitedError{Scope: "element", RetryAfter: wait}
 	}
-	res.EventID = g.publishElement(m, origin)
+	res.EventID = g.publishElementDone(m, origin, in.Done)
 	g.dedupe.put(dedupeKey, res.EventID)
 	return res, nil
+}
+
+func callDone(done func(error), err error) {
+	if done != nil {
+		done(err)
+	}
 }
 
 // --- over_limit = latest -------------------------------------------------------

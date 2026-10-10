@@ -92,7 +92,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements,
-		element_permissions, device_presence, device_connections, outbox, audit_log RESTART IDENTITY CASCADE`); err != nil {
+		element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
+		gateway_members RESTART IDENTITY CASCADE`); err != nil {
 		fmt.Println("truncate:", err)
 		os.Exit(1)
 	}
@@ -117,9 +118,10 @@ func TestMain(m *testing.M) {
 
 // instance is one running `quack serve` (api + gateway + outbox relay).
 type instance struct {
-	URL string
-	srv *httptest.Server
-	gw  *gateway.Gateway
+	URL  string
+	srv  *httptest.Server
+	gw   *gateway.Gateway
+	stop func() // stops it now (also runs at test end)
 }
 
 func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...func(*config.Config)) *instance {
@@ -164,19 +166,23 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...fun
 	srv.Config.Protocols.SetHTTP1(true)
 	srv.Config.Protocols.SetUnencryptedHTTP2(true)
 	srv.Start()
-	t.Cleanup(func() {
-		srv.CloseClientConnections()
-		srv.Close()
-		cancel()
-		done := make(chan struct{})
-		go func() { wg.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			t.Errorf("%s: components did not stop within 15s", gatewayID)
-		}
-		producer.Close()
-	})
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			srv.CloseClientConnections()
+			srv.Close()
+			cancel()
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(15 * time.Second):
+				t.Errorf("%s: components did not stop within 15s", gatewayID)
+			}
+			producer.Close()
+		})
+	}
+	t.Cleanup(stop)
 	time.Sleep(1500 * time.Millisecond) // bus consumer reaches end offsets
 	deadline := time.Now().Add(20 * time.Second)
 	for !gw.Ready() && time.Now().Before(deadline) {
@@ -185,7 +191,7 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...fun
 	if !gw.Ready() {
 		t.Fatalf("%s: device registry not ready", gatewayID)
 	}
-	return &instance{URL: srv.URL, srv: srv, gw: gw}
+	return &instance{URL: srv.URL, srv: srv, gw: gw, stop: stop}
 }
 
 // --- HTTP client ---

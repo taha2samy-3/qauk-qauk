@@ -31,6 +31,7 @@ type API struct {
 
 func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
 	svc := service.New(pool)
+	svc.AllowInsecureTLS = cfg.AllowInsecureTLS
 	if cfg.ElementMsgRateMax > 0 {
 		svc.ElementRateMax = cfg.ElementMsgRateMax
 	}
@@ -107,6 +108,7 @@ func (a *API) Register(api huma.API) {
 	a.registerAdminDevices(api)
 	a.registerAdminOps(api)
 	a.registerDashboards(api)
+	a.registerAdminMQTT(api)
 }
 
 func Config() huma.Config {

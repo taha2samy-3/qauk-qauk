@@ -67,6 +67,7 @@ The simulator confirms each dashboard command by sending it back as the new stat
 | `task console` | Redpanda Console on http://127.0.0.1:8090 to inspect topics and CloudEvents. |
 | `task migrate` | Applies the core and history migrations and creates the topics. `task dev` and `task demo` already run it. |
 | `task web:build` | Builds the web app into `web/dist`. `task dev` then also serves it on http://127.0.0.1:8080. |
+| `task start MQTT=1` | Runs the full stack (like `task start`) and starts the MQTT role, launching an embedded Mosquitto for demo MQTT gateways. |
 
 **Ports:**
 

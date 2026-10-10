@@ -36,10 +36,11 @@ func devCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []st
 			file := fs.String("file", "demo-devices.json", "demo device keys written by `dev demo`")
 			wsBase := fs.String("ws-base", "ws://127.0.0.1:8080", "gateway base URL (ws:// or http://)")
 			transport := fs.String("transport", "websocket", "websocket, rest, grpc, or mixed (one device per transport)")
+			mqttURL := fs.String("mqtt-url", "", "broker for the demo devices that talk MQTT (skipped when empty)")
 			if err := fs.Parse(args[1:]); err != nil {
 				return err
 			}
-			return devtools.Simulate(ctx, *file, *wsBase, *transport, log)
+			return devtools.Simulate(ctx, *file, *wsBase, *transport, *mqttURL, log)
 		}
 	}
 	pool, err := openPool(ctx, cfg)
@@ -69,10 +70,11 @@ func devCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []st
 		out := fs.String("out", "demo-devices.json", "where to write demo device keys")
 		user := fs.String("admin", "admin", "admin username to create")
 		pass := fs.String("password", "admin12345", "admin password (dev only)")
+		mqttURL := fs.String("mqtt-url", "", "also create an MQTT connection to this broker for the Cold room device")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		return devtools.Demo(ctx, pool, *out, *user, *pass)
+		return devtools.Demo(ctx, pool, *out, *user, *pass, *mqttURL)
 
 	}
 	return errors.New("unknown dev command")

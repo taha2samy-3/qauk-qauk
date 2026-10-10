@@ -7,6 +7,7 @@ flowchart TB
   subgraph Clients
     D["Devices / Node-RED"]
     B["Browser (React app)"]
+    MB["MQTT Brokers<br/>(Mosquitto, EMQX)"]
   end
   P["Reverse proxy / LB<br/>(optional, TLS)"]
   D -- "wss /device/node_red/<br/>https /device/v1/* (REST)<br/>gRPC quack.device.v1" --> P
@@ -14,13 +15,17 @@ flowchart TB
   subgraph S["quack serve (xN)"]
     API["api role<br/>REST, sessions, outbox relay,<br/>static web app"]
     GW["gateway role<br/>device core (WS, REST, gRPC),<br/>device registry, fan-out,<br/>ring buffers, presence"]
+    MQ["mqtt role<br/>HRW connections,<br/>sourcepipe, pub/sub"]
   end
   P --> API
   P --> GW
+  MB <--"MQTT 5"--> MQ
   API -- "tx: change + audit + outbox" --> PG[("PostgreSQL 17<br/>(metadata)")]
   API -- "outbox relay" --> RP[("Redpanda")]
   GW <-- "element-events.v1<br/>control-events.v1<br/>presence.v1<br/>element-state.v1<br/>device-config.v1" --> RP
+  MQ <-- "mqtt-config.v1<br/>element-events.v1" --> RP
   GW -- "permissions, presence leases,<br/>registry misses" --> PG
+  MQ -- "connection status,<br/>presence" --> PG
   GW -- "replay (batched)" --> H
   API -- "history API" --> H
   RP --> IN["quack ingest (xM)"]
@@ -32,8 +37,9 @@ Everything server-side is one Go binary, `quack`:
 | Command | What it runs |
 |---|---|
 | `quack serve` | The HTTP server. The roles come from `QUACK_ROLES` (default `api,gateway`). |
-| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1` and `device-config.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
+| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1`, `device-config.v1`, `mqtt-config.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
 | &nbsp;&nbsp;role `gateway` | The device transports (WebSocket `/device/node_red/`, [REST](./04_api_reference/device_rest_api.md) `/device/v1/*`, [gRPC](./04_api_reference/device_grpc_api.md) `quack.device.v1.DeviceService`) on one **device core**, the browser socket `/browser/simple/`, the in-memory **device registry**, in-memory fan-out, per-element history ring buffers, presence leases and the sweeper, and the bus consumers. |
+| &nbsp;&nbsp;role `mqtt` | The MQTT 5 clients acting as subscribers (never a broker) towards external brokers via Highest Random Weight (HRW) distribution. Evaluates the Source Pipeline (`goja` decoder + field map) to produce CloudEvents directly onto the bus. |
 | `quack ingest` | The history writer. It consumes `element-events.v1` in a consumer group and appends to the [history store](./05_core_concepts/history.md) (events, numeric points and rollups). It publishes each element's newest value to `element-state.v1`, and dead-letters unstorable events to `element-events.dlq.v1`. It serves `/healthz` and `/metrics` on `QUACK_HTTP_ADDR`. |
 | `quack migrate` | Applies the core Postgres migrations and the history store's schema and retention, all embedded in the binary, creates the Redpanda topics if they are missing, and republishes every device to `device-config.v1`. Safe to run repeatedly. |
 | `quack registry sync` | Republishes every device's snapshot to `device-config.v1` (after restoring a database, say). |

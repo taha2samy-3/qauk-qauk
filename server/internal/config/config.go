@@ -48,6 +48,14 @@ type Config struct {
 	// RateLimitDriver selects where rate-limit buckets live: "local" (in
 	// memory, per instance). See docs/refactor/DEVICE_ADAPTERS_PLAN.md.
 	RateLimitDriver string `env:"QUACK_RATELIMIT_DRIVER" envDefault:"local"`
+	// AllowInsecureTLS permits MQTT connections without TLS verification, or
+	// with passwords over plain TCP. Development only.
+	AllowInsecureTLS bool `env:"QUACK_ALLOW_INSECURE_TLS"`
+	// MQTTWeight is this gateway's share of MQTT connections (HRW weight).
+	MQTTWeight float64 `env:"QUACK_MQTT_WEIGHT" envDefault:"1"`
+	// MQTTConnectionMsgRate bounds the element values one MQTT connection
+	// may publish per second (0 = unlimited).
+	MQTTConnectionMsgRate float64 `env:"QUACK_MQTT_CONNECTION_MSG_RATE" envDefault:"5000"`
 	// SyncMaxWait caps the long-poll wait of GET /device/v1/sync.
 	SyncMaxWait time.Duration `env:"QUACK_SYNC_MAX_WAIT" envDefault:"60s"`
 	// StreamMaxAge closes long gRPC streams (plus jitter) so clients
@@ -87,6 +95,9 @@ func Load() (*Config, error) {
 	}
 	if c.RateLimitDriver != "local" {
 		return nil, fmt.Errorf("config: QUACK_RATELIMIT_DRIVER=%q is not supported (supported: local)", c.RateLimitDriver)
+	}
+	if c.HasRole("mqtt") && !c.HasRole("gateway") {
+		return nil, fmt.Errorf("config: the mqtt role runs inside the gateway: use QUACK_ROLES=gateway,mqtt (a separate deployment is the future split plan)")
 	}
 	if c.GatewayID == "" {
 		host, _ := os.Hostname()

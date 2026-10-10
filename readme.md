@@ -32,7 +32,7 @@
 
 ---
 
-**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices authenticate with their own key and send telemetry over a WebSocket, REST (with SenML) or gRPC; users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in a pluggable history store (TimescaleDB or ClickHouse), so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
+**Quack Quack** connects devices (microcontrollers, gateways, Node-RED flows) to people. Devices authenticate with their own key and send telemetry over a WebSocket, REST (with SenML), gRPC, or via **MQTT 5** connections. Users watch it live on dashboards they build themselves and send commands back to switches and sliders. Every element has its own read (`R`) or read-and-control (`RC`) grant, so each user only sees and controls what they are allowed to. Every message is also stored in a pluggable history store (TimescaleDB or ClickHouse), so charts show history and new viewers get the latest values instantly. The backend is a single Go binary; Redpanda carries events between instances.
 
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-view-light.webp" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>

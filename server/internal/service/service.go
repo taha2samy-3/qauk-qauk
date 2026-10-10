@@ -22,6 +22,9 @@ type Service struct {
 	Pool *pgxpool.Pool
 	// ElementRateMax is the highest per-element rate an admin may set.
 	ElementRateMax float64
+	// AllowInsecureTLS permits MQTT connections without TLS verification or
+	// passwords over plain TCP (QUACK_ALLOW_INSECURE_TLS, development only).
+	AllowInsecureTLS bool
 }
 
 // DefaultElementRateMax matches QUACK_ELEMENT_MSG_RATE_MAX's default.

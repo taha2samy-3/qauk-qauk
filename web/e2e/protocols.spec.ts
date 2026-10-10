@@ -6,7 +6,8 @@ import { ADMIN, deleteDashboardsNamed, login, useTheme } from './helpers'
  * Screenshots for the device-transport docs, against `task start` (the
  * simulator in its default "mixed" mode: Greenhouse A over WebSocket, Boiler
  * room over REST, Weather station over gRPC) plus a Node-RED flow feeding the
- * "Packing line (Node-RED)" device (see docs/09_node_red.md).
+ * "Packing line (Node-RED)" device (see docs/09_node_red.md). With
+ * `task start MQTT=1` the Cold room also reports over MQTT (docs/10_mqtt.md).
  *
  * Optional: NODE_RED_URL (default http://127.0.0.1:1880) and TRANSCRIPTS, a
  * directory of *.txt terminal transcripts rendered as terminal screenshots.
@@ -27,12 +28,17 @@ const WIDGETS: W[] = [
   { type: 'gauge', el: 'Water temperature', title: 'Boiler room · REST', at: [3, 0, 3, 6], options: { unit: '°C', min: 0, max: 120, baseColor: 'green', thresholds: [{ value: 80, color: 'orange' }] } },
   { type: 'stat', el: 'Climate', title: 'Weather station · gRPC', at: [6, 0, 3, 6], options: { field: 'temperature', unit: '°C', sparkline: true, decimals: 1, color: 'purple' } },
   { type: 'stat', el: 'Line speed', title: 'Packing line · Node-RED', at: [9, 0, 3, 6], options: { unit: 'm/min', sparkline: true, decimals: 1, color: 'orange' } },
-  { type: 'switch', el: 'Irrigation pump', title: 'Pump · WebSocket', at: [0, 6, 3, 4] },
-  { type: 'switch', el: 'Burner', title: 'Burner · REST sync', at: [3, 6, 3, 4] },
-  { type: 'switch', el: 'Gate relay', title: 'Gate · gRPC stream', at: [6, 6, 3, 4], options: { field: 'relay', onValue: 'ON', offValue: 'OFF', onLabel: 'Open', offLabel: 'Closed' } },
-  { type: 'switch', el: 'Conveyor', title: 'Conveyor · Node-RED', at: [9, 6, 3, 4] },
-  { type: 'line', el: 'Pressure', title: 'Boiler pressure (REST)', at: [0, 10, 6, 6], options: { unit: 'bar', range: '15m', color: 'green', area: true } },
-  { type: 'line', el: 'Line speed', title: 'Line speed (Node-RED, limit 5/s keep latest)', at: [6, 10, 6, 6], options: { unit: 'm/min', range: '15m', color: 'orange' } },
+  { type: 'gauge', el: 'Cold room temperature', title: 'Cold room · MQTT', at: [0, 6, 3, 6], options: { unit: '°C', min: -10, max: 15, baseColor: 'blue', thresholds: [{ value: 8, color: 'red' }] } },
+  { type: 'stat', el: 'Battery', title: 'Battery · MQTT binary + JS decoder', at: [3, 6, 3, 6], options: { unit: 'V', decimals: 1, sparkline: true, color: 'orange' } },
+  { type: 'line', el: 'Cold room humidity', title: 'Cold room humidity (MQTT)', at: [6, 6, 6, 6], options: { unit: '%', range: '15m', color: 'green', area: true } },
+  { type: 'switch', el: 'Irrigation pump', title: 'Pump · WebSocket', at: [0, 12, 2, 4] },
+  { type: 'switch', el: 'Burner', title: 'Burner · REST sync', at: [2, 12, 2, 4] },
+  { type: 'switch', el: 'Gate relay', title: 'Gate · gRPC stream', at: [4, 12, 2, 4], options: { field: 'relay', onValue: 'ON', offValue: 'OFF', onLabel: 'Open', offLabel: 'Closed' } },
+  { type: 'switch', el: 'Conveyor', title: 'Conveyor · Node-RED', at: [6, 12, 2, 4] },
+  { type: 'switch', el: 'Compressor', title: 'Compressor · MQTT', at: [8, 12, 2, 4] },
+  { type: 'stat', el: 'Cold room humidity', title: 'Humidity · MQTT', at: [10, 12, 2, 4], options: { unit: '%', decimals: 0, color: 'green' } },
+  { type: 'line', el: 'Pressure', title: 'Boiler pressure (REST)', at: [0, 16, 6, 6], options: { unit: 'bar', range: '15m', color: 'green', area: true } },
+  { type: 'line', el: 'Line speed', title: 'Line speed (Node-RED, limit 5/s keep latest)', at: [6, 16, 6, 6], options: { unit: 'm/min', range: '15m', color: 'orange' } },
 ]
 
 async function snap(page: Page, name: string, wait = 1200) {
@@ -69,7 +75,7 @@ test('commands reach every transport and come back', async ({ page }) => {
   await page.goto(`/dashboards/${dashboardId}`)
   // every switch is driven by a different transport; each device echoes the new state
   // (a round trip each way; the screenshots then show them all on)
-  for (const title of ['Pump · WebSocket', 'Burner · REST sync', 'Gate · gRPC stream', 'Conveyor · Node-RED']) {
+  for (const title of ['Pump · WebSocket', 'Burner · REST sync', 'Gate · gRPC stream', 'Conveyor · Node-RED', 'Compressor · MQTT']) {
     const sw = widget(page, title).getByTestId('switch-widget')
     const toggle = widget(page, title).getByRole('switch')
     const start = await sw.getAttribute('data-state')
@@ -87,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
     await useTheme(page, theme)
     await login(page, ADMIN)
     await page.goto(`/dashboards/${dashboardId}`)
-    for (const t of ['Greenhouse A', 'Boiler room', 'Weather station', 'Packing line']) {
+    for (const t of ['Greenhouse A', 'Boiler room', 'Weather station', 'Packing line', 'Cold room']) {
       await expect(widget(page, t).first()).toBeVisible()
     }
     await expect(page.getByTestId('gauge').first()).not.toHaveAttribute('data-value', '')

@@ -37,8 +37,8 @@ jobs:
       - name: Unit tests (race)
         if: matrix.history == 'timescale'
         run: task test
-      - name: Start Postgres/TimescaleDB, Redpanda and ClickHouse
-        run: HISTORY=clickhouse task infra:up
+      - name: Start Postgres/TimescaleDB, Redpanda, ClickHouse and Mosquitto
+        run: HISTORY=clickhouse MQTT=1 task infra:up
       - name: Create test databases
         run: |
           docker compose -f docker/compose.yaml exec -T db psql -U quack -d quack -c "CREATE DATABASE quack_contract" || true

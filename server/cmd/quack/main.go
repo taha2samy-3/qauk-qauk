@@ -182,6 +182,13 @@ func syncRegistry(ctx context.Context, cfg *config.Config, log *slog.Logger) err
 		return fmt.Errorf("device registry: %w", err)
 	}
 	log.Info("device registry snapshots queued", "devices", n)
+
+	m, err := service.New(pool).SyncMQTTConfigs(ctx)
+	if err != nil {
+		return fmt.Errorf("mqtt config registry: %w", err)
+	}
+	log.Info("mqtt config snapshots queued", "connections", m)
+
 	return nil
 }
 

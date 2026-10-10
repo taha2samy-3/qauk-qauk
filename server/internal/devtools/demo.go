@@ -31,6 +31,9 @@ type DemoDevice struct {
 	Alg           string        `json:"alg"`
 	PrivateKeyPEM string        `json:"private_key_pem"`
 	Elements      []DemoElement `json:"elements"`
+	// MQTTID is set for devices that talk MQTT (through the dev broker): their
+	// external id on the demo MQTT connection.
+	MQTTID string `json:"mqtt_id,omitempty"`
 }
 
 type DemoElement struct {
@@ -44,7 +47,9 @@ type DemoElement struct {
 
 // Demo creates (additively) an admin, a viewer, a group and two demo devices
 // with sensors and actuators, and writes their keys to out.
-func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass string) error {
+// With mqttURL set it also creates an MQTT connection to that broker for the
+// "Cold room" device (rules, a decoder and a downlink).
+func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mqttURL string) error {
 	svc := service.New(pool)
 	devices, err := store.ListDevices(ctx, pool)
 	if err != nil {
@@ -91,6 +96,7 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 	plan := []struct {
 		name, alg string
 		elems     []el
+		mqtt      string // external id when the device talks MQTT
 	}{
 		{"Greenhouse A", "ES256", []el{
 			{"Temperature", "sensor", `{"title":"Temperature","unit":"°C","minValue":-10,"maxValue":50}`, 15, 32, 60, 100},
@@ -98,19 +104,28 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 			{"Soil moisture", "chart", `{"title":"Soil moisture","unit":"%"}`, 20, 60, 120, 300},
 			{"Irrigation pump", "switch", `{"title":"Irrigation pump"}`, 0, 1, 0, 20},
 			{"Fan speed", "slider", `{"title":"Fan speed","unit":"%","min":0,"max":100,"step":5}`, 0, 100, 0, 20},
-		}},
+		}, ""},
 		{"Boiler room", "RS256", []el{
 			{"Water temperature", "sensor", `{"title":"Water temperature","unit":"°C","minValue":0,"maxValue":120}`, 55, 85, 45, 100},
 			{"Pressure", "chart", `{"title":"Pressure","unit":"bar"}`, 1.2, 2.4, 30, 300},
 			{"Burner", "switch", `{"title":"Burner"}`, 0, 1, 0, 20},
-		}},
+		}, ""},
 		// A device that does not speak {"value": N}: one message carries many
 		// attributes (nested GPS, its own epoch-ms timestamp), and the relay
 		// reports and accepts "ON"/"OFF" strings. Bind widgets to attributes.
 		{"Weather station", "ES256", []el{
 			{"Climate", "multi", `{"title":"Climate"}`, 0, 0, 120, 200},
 			{"Gate relay", "relay", `{"title":"Gate relay"}`, 0, 0, 0, 20},
-		}},
+		}, ""},
+		// Talks MQTT to a broker (task start MQTT=1): JSON readings, a binary
+		// battery frame decoded by a JavaScript decoder, and a compressor
+		// switch commanded over a downlink topic.
+		{"Cold room", "ES256", []el{
+			{"Cold room temperature", "sensor", `{"title":"Cold room","unit":"°C","minValue":-30,"maxValue":0}`, -23, -16, 80, 100},
+			{"Cold room humidity", "sensor", `{"title":"Humidity","unit":"%","minValue":0,"maxValue":100}`, 72, 90, 110, 100},
+			{"Battery", "sensor", `{"title":"Battery","unit":"V","minValue":3,"maxValue":4.2}`, 3.6, 3.9, 900, 50},
+			{"Compressor", "switch", `{"title":"Compressor"}`, 0, 1, 0, 20},
+		}, "cold-room-1"},
 	}
 	for _, p := range plan {
 		if existing[p.name] {
@@ -128,7 +143,7 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 		if err != nil {
 			return err
 		}
-		dd := DemoDevice{ID: d.ID.String(), Name: d.Name, Alg: p.alg, PrivateKeyPEM: priv}
+		dd := DemoDevice{ID: d.ID.String(), Name: d.Name, Alg: p.alg, PrivateKeyPEM: priv, MQTTID: p.mqtt}
 		for _, e := range p.elems {
 			created, err := svc.CreateElement(ctx, a, service.ElementInput{DeviceID: d.ID, Name: e.name, Points: e.points,
 				Description: "Demo " + e.kind, Details: json.RawMessage(e.details)})
@@ -160,6 +175,11 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 	if err := os.WriteFile(out, b, 0o600); err != nil {
 		return err
 	}
+	if mqttURL != "" {
+		if err := demoMQTT(ctx, pool, svc, a, mqttURL, file); err != nil {
+			return fmt.Errorf("mqtt demo: %w", err)
+		}
+	}
 	fmt.Printf("demo ready: admin=%s viewer=viewer/viewer12345 (group operators, read-only); %d demo devices, keys in %s\n", adminUser, len(file.Devices), out)
 	return nil
 }
@@ -167,7 +187,8 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass str
 // Simulate connects every demo device and streams realistic values; it also
 // echoes actuator commands back as state (like a real device would).
 // transport is websocket, rest, grpc, or mixed (device i uses transport i%3).
-func Simulate(ctx context.Context, file, wsBase, transport string, log *slog.Logger) error {
+// Devices with an MQTT id publish to mqttURL instead (skipped when it's empty).
+func Simulate(ctx context.Context, file, wsBase, transport, mqttURL string, log *slog.Logger) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -177,11 +198,28 @@ func Simulate(ctx context.Context, file, wsBase, transport string, log *slog.Log
 		return err
 	}
 	var wg sync.WaitGroup
-	for i, d := range demo.Devices {
+	i := 0
+	for _, d := range demo.Devices {
+		if d.MQTTID != "" {
+			if mqttURL == "" {
+				log.Info("simulator: skipping an MQTT device (no --mqtt-url)", "device", d.Name)
+				continue
+			}
+			wg.Go(func() {
+				for ctx.Err() == nil {
+					if err := simulateMQTTDevice(ctx, d, mqttURL, log); err != nil && ctx.Err() == nil {
+						log.Warn("simulator: MQTT device disconnected, retrying", "device", d.Name, "err", err)
+						time.Sleep(3 * time.Second)
+					}
+				}
+			})
+			continue
+		}
 		tr, err := transportFor(transport, i)
 		if err != nil {
 			return err
 		}
+		i++
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

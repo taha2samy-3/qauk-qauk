@@ -296,3 +296,7 @@ WHERE ep.element_id = '<uuid>'
 ```
 
 To connect in local dev: `psql postgres://quack:quack@127.0.0.1:5433/quack`. With `HISTORY=clickhouse`: `clickhouse client --port 19000 --user quack --password quack --database quack`, or the HTTP interface on http://127.0.0.1:18123/play.
+
+## MQTT Configuration (Phase A)
+
+The `mqtt_connections`, `mqtt_uplinks`, `mqtt_downlinks`, `decoders`, and `decoder_versions` tables define the MQTT configurations and Source Pipelines for processing external MQTT 5 traffic. Connections are assigned to devices via `mqtt_connection_devices`, and their realtime status is tracked in `mqtt_connection_status`.

@@ -24,11 +24,21 @@ const (
 	// device id; a deleted device gets a tombstone). Gateways keep it in
 	// memory, so device authentication needs no database round-trip.
 	TopicDeviceConfig = "device-config.v1"
+	// TopicMQTTConfig holds a full snapshot per MQTT connection (compacted,
+	// keyed by connection id; tombstone on delete). Gateways with the mqtt
+	// role follow it.
+	TopicMQTTConfig = "mqtt-config.v1"
+	// TopicMQTTDLQ receives MQTT messages the source pipeline or the core
+	// rejected (raw payload, truncated, plus the reason).
+	TopicMQTTDLQ = "mqtt.dlq.v1"
+	// TopicMQTTCapture receives raw messages of uplink rules in capture mode.
+	TopicMQTTCapture = "mqtt-capture.v1"
 
 	TypeElementMessage = "io.quack.element.message.v1"
 	TypeControlChanged = "io.quack.control.changed.v1"
 	TypeDevicePresence = "io.quack.device.presence.v1"
 	TypeDeviceConfig   = "io.quack.device.config.v1"
+	TypeMQTTConfig     = "io.quack.mqtt.config.v1"
 
 	SourceAPI         = "/quack/api"
 	ContentTypeHeader = "application/cloudevents+json"
@@ -74,7 +84,10 @@ type Event struct {
 	DataContentType string          `json:"datacontenttype"`
 	DataSchema      string          `json:"dataschema"`
 	PartitionKey    string          `json:"partitionkey"`
-	Data            json.RawMessage `json:"data"`
+	// QuackVia is an extension attribute: the transport connection a device
+	// message came through when it isn't the device's own (e.g. mqtt/<id>).
+	QuackVia string          `json:"quackvia,omitempty"`
+	Data     json.RawMessage `json:"data"`
 }
 
 // New builds an event with a UUIDv7 id. The subject doubles as the partition key.

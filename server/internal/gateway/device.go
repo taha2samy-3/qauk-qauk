@@ -271,6 +271,7 @@ func (g *Gateway) presenceLoop(ctx context.Context) {
 		if err := store.HeartbeatPresence(ctx, g.pool, g.cfg.GatewayID); err != nil && ctx.Err() == nil {
 			g.log.Warn("gateway: heartbeat", "err", err)
 		}
+		g.heartbeatMember(ctx)
 		g.sweep(ctx)
 	}
 }

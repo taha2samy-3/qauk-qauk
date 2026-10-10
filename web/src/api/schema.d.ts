@@ -216,6 +216,252 @@ export interface paths {
         patch: operations["update-key"];
         trace?: never;
     };
+    "/api/v1/admin/mqtt/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list-mqtt-connections"];
+        put?: never;
+        post: operations["create-mqtt-connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get-mqtt-connection"];
+        put: operations["update-mqtt-connection"];
+        post?: never;
+        delete: operations["delete-mqtt-connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/connections/{id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["grant-mqtt-device"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/connections/{id}/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revoke-mqtt-device"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/connections/{id}/downlinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create-mqtt-downlink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/connections/{id}/uplinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create-mqtt-uplink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/decoders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list-decoders"];
+        put?: never;
+        post: operations["create-decoder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/decoders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Stores a new version and republishes every connection using it. */
+        put: operations["update-decoder"];
+        post?: never;
+        delete: operations["delete-decoder"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/downlinks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete-mqtt-downlink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/rejected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest rejected MQTT messages (mqtt.dlq.v1) */
+        get: operations["list-mqtt-rejected"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Connection state per slot, as reported by the gateways that own them */
+        get: operations["list-mqtt-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a sample message through a decoder and field map, without publishing (same sandbox as the gateways) */
+        post: operations["test-mqtt-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/uplinks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete-mqtt-uplink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/uplinks/{id}/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy received messages of this rule to mqtt-capture.v1 for up to 10 minutes */
+        post: operations["capture-mqtt-uplink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/mqtt/uplinks/{id}/captured": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest captured messages of a rule (last hour, at most 20) */
+        get: operations["list-mqtt-captured"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/permissions": {
         parameters: {
             query?: never;
@@ -522,6 +768,27 @@ export interface components {
             /** @description Visible (read-only) to every user; element permissions still apply per viewer */
             shared?: boolean;
         };
+        DecoderInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/DecoderInBody.json
+             */
+            readonly $schema?: string;
+            name: string;
+            /** @description JavaScript with decodeUplink(input) and/or encodeDownlink(input) (TTN/ChirpStack contract), ≤ 40 KB */
+            source: string;
+        };
+        DecoderUpdateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/DecoderUpdateInBody.json
+             */
+            readonly $schema?: string;
+            name: string;
+            source: string;
+        };
         Device: {
             /**
              * Format: uri
@@ -795,6 +1062,273 @@ export interface components {
             readonly $schema?: string;
             password: string;
             username: string;
+        };
+        MQTTCaptureInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTCaptureInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Capture for this long (0 = stop)
+             */
+            seconds: number;
+        };
+        MQTTCaptureOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTCaptureOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            capture_until: string | null;
+        };
+        MQTTCaptured: {
+            connection_id: string;
+            content_type?: string;
+            gateway_id: string;
+            payload: string;
+            /** Format: date-time */
+            time: string;
+            topic: string;
+            uplink_id: string;
+            user_properties?: {
+                [key: string]: string;
+            };
+        };
+        MQTTConnection: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTConnection.json
+             */
+            readonly $schema?: string;
+            /** @description {method: none|password|mtls, username, password: env:NAME|file:/path} */
+            auth?: unknown;
+            /** @description mqtt://, mqtts://, tcp://, tls://, ws:// or wss:// */
+            broker_url: string;
+            /** @description Client ids are <prefix>-<slot>; default quack-<short id> */
+            client_id_prefix?: string;
+            enabled: boolean;
+            readonly id: string;
+            /**
+             * Format: int64
+             * @description Seconds; default 60
+             */
+            keepalive?: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description In-flight QoS 1/2 messages the broker may send; default 100
+             */
+            receive_maximum?: number;
+            /**
+             * Format: int64
+             * @description Gateways that open this connection; >1 uses a shared subscription; default 1
+             */
+            replicas?: number;
+            /**
+             * Format: int64
+             * @description Seconds the broker keeps the session (and unacknowledged QoS 1 messages); default 3600
+             */
+            session_expiry?: number;
+            /** @description {ca, cert, key: env:|file: references, server_name, insecure_skip_verify} */
+            tls?: unknown;
+        };
+        MQTTConnectionDetail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTConnectionDetail.json
+             */
+            readonly $schema?: string;
+            /** @description {method: none|password|mtls, username, password: env:NAME|file:/path} */
+            auth?: unknown;
+            /** @description mqtt://, mqtts://, tcp://, tls://, ws:// or wss:// */
+            broker_url: string;
+            /** @description Client ids are <prefix>-<slot>; default quack-<short id> */
+            client_id_prefix?: string;
+            devices: components["schemas"]["MQTTGrantedDevice"][] | null;
+            downlinks: components["schemas"]["MQTTDownlink"][] | null;
+            enabled: boolean;
+            readonly id: string;
+            /**
+             * Format: int64
+             * @description Seconds; default 60
+             */
+            keepalive?: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description In-flight QoS 1/2 messages the broker may send; default 100
+             */
+            receive_maximum?: number;
+            /**
+             * Format: int64
+             * @description Gateways that open this connection; >1 uses a shared subscription; default 1
+             */
+            replicas?: number;
+            /**
+             * Format: int64
+             * @description Seconds the broker keeps the session (and unacknowledged QoS 1 messages); default 3600
+             */
+            session_expiry?: number;
+            status: components["schemas"]["MQTTStatus"][] | null;
+            /** @description {ca, cert, key: env:|file: references, server_name, insecure_skip_verify} */
+            tls?: unknown;
+            uplinks: components["schemas"]["MQTTUplink"][] | null;
+        };
+        MQTTDecoder: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTDecoder.json
+             */
+            readonly $schema?: string;
+            id: string;
+            name?: string;
+            source: string;
+            /** Format: int64 */
+            version: number;
+        };
+        MQTTDownlink: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTDownlink.json
+             */
+            readonly $schema?: string;
+            content_type?: string;
+            device_external_id: string;
+            /** @description Element name on that device */
+            element: string;
+            /** @description {template: any JSON, {{value}} replaced} | {decoder_id} (encodeDownlink) | {} = the message as is */
+            encoder: unknown;
+            readonly id: string;
+            /** Format: int64 */
+            message_expiry?: number;
+            /** Format: int64 */
+            qos: number;
+            response_topic?: string;
+            retain: boolean;
+            /** @description Placeholders {device} {element} {user} */
+            topic_template: string;
+            user_properties?: unknown;
+        };
+        MQTTGrantInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTGrantInBody.json
+             */
+            readonly $schema?: string;
+            device_id: string;
+            /** @description How the device appears in MQTT topics or payloads */
+            external_id: string;
+        };
+        MQTTGrantedDevice: {
+            device_id: string;
+            external_id: string;
+        };
+        MQTTRejected: {
+            connection_id: string;
+            device_external_id?: string;
+            gateway_id: string;
+            payload: string;
+            /** Format: int64 */
+            payload_size: number;
+            reasons: string[] | null;
+            /** Format: date-time */
+            time: string;
+            topic: string;
+            uplink_id?: string;
+        };
+        MQTTStatus: {
+            connected: boolean;
+            connection_id: string;
+            counters: unknown;
+            gateway_id: string;
+            last_error: string | null;
+            /** Format: int64 */
+            reason_code: number | null;
+            /** Format: int64 */
+            slot: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MQTTTestInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTTestInBody.json
+             */
+            readonly $schema?: string;
+            decoder_id?: string;
+            /** @description Decoder to try (or decoder_id) */
+            decoder_source?: string;
+            device: unknown;
+            field_map: unknown;
+            /**
+             * @default json
+             * @enum {string}
+             */
+            format: "json" | "text" | "number" | "bytes";
+            /** @description Text, or hex:… / base64:… for binary */
+            payload: string;
+            time?: string;
+            topic: string;
+            user_properties?: {
+                [key: string]: string;
+            };
+        };
+        MQTTTestOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTTestOutBody.json
+             */
+            readonly $schema?: string;
+            fatal: boolean;
+            rejections: string[] | null;
+            values: components["schemas"]["MQTTTestValue"][] | null;
+        };
+        MQTTTestValue: {
+            device_external_id: string;
+            element: string;
+            message: unknown;
+            /** Format: date-time */
+            ts?: string;
+        };
+        MQTTUplink: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MQTTUplink.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description Received messages go to mqtt-capture.v1 until then
+             */
+            capture_until?: string;
+            decoder_id?: string;
+            /** @description {segment: n} | {field: path} | {fixed: external id} */
+            device: unknown;
+            enabled: boolean;
+            /** @description [{element, value: path, wrap: value|raw, when: exists}] */
+            field_map: unknown;
+            /** @enum {string} */
+            format: "json" | "text" | "number" | "bytes";
+            readonly id: string;
+            /** Format: int64 */
+            qos: number;
+            /** @description Path to a timestamp (RFC 3339 or epoch ms) */
+            time?: string;
+            /** @description MQTT topic filter, + and # allowed */
+            topic_filter: string;
         };
         MeBody: {
             /**
@@ -1761,6 +2295,639 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Key"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-mqtt-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTConnection"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-mqtt-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTConnection"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTConnection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-mqtt-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTConnectionDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-mqtt-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTConnection"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTConnection"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-mqtt-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "grant-mqtt-device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTGrantInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "revoke-mqtt-device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-mqtt-downlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTDownlink"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTDownlink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-mqtt-uplink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTUplink"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTUplink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-decoders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTDecoder"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-decoder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecoderInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTDecoder"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-decoder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecoderUpdateInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTDecoder"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-decoder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-mqtt-downlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-mqtt-rejected": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTRejected"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-mqtt-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTStatus"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "test-mqtt-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTTestInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTTestOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-mqtt-uplink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "capture-mqtt-uplink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MQTTCaptureInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTCaptureOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-mqtt-captured": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MQTTCaptured"][] | null;
                 };
             };
             /** @description Error */

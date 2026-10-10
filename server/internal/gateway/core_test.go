@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/config"
@@ -35,6 +36,13 @@ func (f *fakePub) Publish(_ context.Context, _ string, ev *events.Event) {
 	f.evs = append(f.evs, ev)
 	f.mu.Unlock()
 }
+
+func (f *fakePub) PublishDurable(ctx context.Context, topic string, ev *events.Event, done func(error)) {
+	f.Publish(ctx, topic, ev)
+	done(nil)
+}
+
+func (f *fakePub) PublishRecord(context.Context, *kgo.Record) {}
 
 func (f *fakePub) messages(t *testing.T) []events.ElementMessage {
 	t.Helper()

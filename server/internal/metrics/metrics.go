@@ -47,3 +47,32 @@ func init() {
 		FramesOut.WithLabelValues(k)
 	}
 }
+
+// MQTT transport (gateway role mqtt).
+var (
+	MQTTConnected = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "quack_mqtt_connected", Help: "1 while this gateway's client for a connection slot is connected.",
+	}, []string{"connection", "slot"})
+	MQTTOwnedSlots = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "quack_mqtt_owned_slots", Help: "MQTT connection slots this gateway owns (HRW).",
+	})
+	MQTTMessages = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_mqtt_messages_received_total", Help: "MQTT messages received from brokers.",
+	}, []string{"connection"})
+	MQTTValues = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_mqtt_values_published_total", Help: "Element values published from MQTT messages.",
+	}, []string{"connection"})
+	MQTTRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_mqtt_rejected_total", Help: "MQTT messages (or values) rejected, by reason.",
+	}, []string{"reason"})
+	MQTTDecoderSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name: "quack_mqtt_decoder_seconds", Help: "Source pipeline time per message.",
+		Buckets: []float64{0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025},
+	})
+	MQTTUnacked = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "quack_mqtt_unacked", Help: "QoS 1 messages waiting for their values to be durable.",
+	})
+	MQTTDownlinks = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_mqtt_downlinks_total", Help: "Commands published to MQTT, by result.",
+	}, []string{"result"})
+)

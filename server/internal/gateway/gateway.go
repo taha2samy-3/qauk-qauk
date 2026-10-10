@@ -6,17 +6,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/gateway/mqtt"
 	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/ratelimit"
 	"github.com/taha2samy/quackquack/server/internal/registry"
@@ -25,6 +28,8 @@ import (
 // publisher sends events to the bus (a *bus.Producer; fakes in tests).
 type publisher interface {
 	Publish(ctx context.Context, topic string, ev *events.Event)
+	PublishDurable(ctx context.Context, topic string, ev *events.Event, done func(error))
+	PublishRecord(ctx context.Context, rec *kgo.Record)
 }
 
 type Gateway struct {
@@ -42,6 +47,8 @@ type Gateway struct {
 	coalesce *coalescer
 	dedupe   *dedupeCache
 	rest     *restPresence
+	mqtt     *mqtt.Transport
+	cmds     commandHooks
 
 	ctx    context.Context // lifetime of the gateway; parent of every socket
 	ctrlCh chan *events.Event
@@ -75,8 +82,11 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 	return g
 }
 
-// Ready reports whether the device registry has caught up with its topic.
-func (g *Gateway) Ready() bool { return g.registry.IsReady() }
+// Ready reports whether the device registry has caught up with its topic
+// (and, with the mqtt role, the MQTT config and members are known).
+func (g *Gateway) Ready() bool {
+	return g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+}
 
 func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1)) }
 
@@ -87,6 +97,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 	go g.replayLoop(ctx)
 	go g.warmLatest(ctx)
 	go g.restPresenceLoop(ctx)
+	var mqttDone <-chan struct{}
+	if g.cfg.HasRole("mqtt") {
+		mqttDone = g.startMQTT(ctx)
+	}
 	go func() {
 		if err := g.registry.Run(ctx, g.cfg.KafkaBrokers); err != nil && ctx.Err() == nil {
 			g.log.Error("gateway: device registry stopped", "err", err)
@@ -95,6 +109,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 	err := bus.Broadcast(ctx, g.cfg.KafkaBrokers,
 		[]string{events.TopicElementEvents, events.TopicPresence, events.TopicControlEvents}, g.log, g.onBusEvent)
 	g.shutdown()
+	if mqttDone != nil {
+		<-mqttDone
+	}
 	return err
 }
 
@@ -124,6 +141,7 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 		}
 		dev, br := renderMessage(&m, ev.Time)
 		g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
+		g.notifyCommand(&m, id, ev.Time.Time)
 	case events.TypeDevicePresence:
 		var p events.DevicePresence
 		if err := ev.DecodeData(&p); err != nil || p.GatewayID == g.cfg.GatewayID {
@@ -142,14 +160,31 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 // first (fast path), then publish to the bus for other gateways and the
 // ingester. It returns the event id.
 func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) string {
+	return g.publishElementDone(m, localOrigin, nil)
+}
+
+// publishElementDone is publishElement with a durability callback (nil: none).
+func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error)) string {
 	ev, err := events.New(events.TypeElementMessage, events.GatewaySource(g.cfg.GatewayID), m.ElementID.String(), m)
 	if err != nil {
 		g.log.Error("gateway: build event", "err", err)
+		if done != nil {
+			done(err)
+		}
 		return ""
 	}
+	if strings.HasPrefix(localOrigin, viaMQTT) {
+		ev.QuackVia = localOrigin
+	}
 	dev, br := renderMessage(m, ev.Time)
-	g.hub.Deliver(m, uuid.MustParse(ev.ID), ev.Time.Time, dev, br, localOrigin)
-	g.producer.Publish(g.ctx, events.TopicElementEvents, ev)
+	id := uuid.MustParse(ev.ID)
+	g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
+	g.notifyCommand(m, id, ev.Time.Time)
+	if done != nil {
+		g.producer.PublishDurable(g.ctx, events.TopicElementEvents, ev, done)
+	} else {
+		g.producer.Publish(g.ctx, events.TopicElementEvents, ev)
+	}
 	return ev.ID
 }
 

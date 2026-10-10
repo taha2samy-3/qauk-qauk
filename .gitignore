@@ -44,3 +44,4 @@ fixture.json
 .idea/
 *.swp
 .DS_Store
+docker/mqtt/certs/

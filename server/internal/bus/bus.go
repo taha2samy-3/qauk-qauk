@@ -35,6 +35,9 @@ var Topics = []TopicSpec{
 	{Name: events.TopicElementEventsDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}}, // 30 days
 	// Tombstones of deleted devices are kept a day so slow readers still see them.
 	{Name: events.TopicDeviceConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
+	{Name: events.TopicMQTTConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
+	{Name: events.TopicMQTTDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}},  // 30 days
+	{Name: events.TopicMQTTCapture, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("3600000")}}, // 1 hour
 }
 
 // topicPrefix namespaces every topic name on the cluster (QUACK_TOPIC_PREFIX),
@@ -207,6 +210,24 @@ func (p *Producer) PublishRecord(ctx context.Context, rec *kgo.Record) {
 				p.OnError(topic, err)
 			}
 		}
+	})
+}
+
+// PublishDurable is Publish with a callback once the record is acknowledged
+// by the broker (acks=all by default) or failed. Transports that must not
+// lose data (MQTT QoS 1) acknowledge their source only then.
+func (p *Producer) PublishDurable(ctx context.Context, topic string, ev *events.Event, done func(error)) {
+	rec, err := Record(topic, ev)
+	if err != nil {
+		done(err)
+		return
+	}
+	p.waitForRoom(ctx)
+	p.cl.TryProduce(ctx, rec, func(_ *kgo.Record, err error) {
+		if err != nil && p.OnError != nil {
+			p.OnError(topic, err)
+		}
+		done(err)
 	})
 }
 
@@ -465,4 +486,71 @@ func Follow(ctx context.Context, brokers []string, topic string, log *slog.Logge
 		}
 		check()
 	}
+}
+
+// ReadTail returns up to n of the newest records of each partition of a
+// topic (oldest first per partition), for admin views of DLQ-style topics.
+func ReadTail(ctx context.Context, brokers []string, topic string, n int64) ([]*kgo.Record, error) {
+	topic = TopicName(topic)
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		return nil, err
+	}
+	defer cl.Close()
+	adm := kadm.NewClient(cl)
+	ends, err := adm.ListEndOffsets(ctx, topic)
+	if err == nil {
+		err = ends.Error()
+	}
+	if err != nil {
+		return nil, err
+	}
+	starts, err := adm.ListStartOffsets(ctx, topic)
+	if err == nil {
+		err = starts.Error()
+	}
+	if err != nil {
+		return nil, err
+	}
+	from := map[string]map[int32]kgo.Offset{topic: {}}
+	pending := map[int32]int64{}
+	ends.Each(func(o kadm.ListedOffset) {
+		start := o.Offset - n
+		if s, ok := starts.Lookup(topic, o.Partition); ok && s.Offset > start {
+			start = s.Offset
+		}
+		if start < o.Offset {
+			from[topic][o.Partition] = kgo.NewOffset().At(start)
+			pending[o.Partition] = o.Offset
+		}
+	})
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	rd, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumePartitions(from), kgo.FetchMaxWait(200*time.Millisecond))
+	if err != nil {
+		return nil, err
+	}
+	defer rd.Close()
+	var out []*kgo.Record
+	for len(pending) > 0 {
+		fetches := rd.PollFetches(ctx)
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		fetches.EachRecord(func(r *kgo.Record) {
+			if end, ok := pending[r.Partition]; ok {
+				out = append(out, r)
+				if r.Offset+1 >= end {
+					delete(pending, r.Partition)
+				}
+			}
+		})
+		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
+			if end, ok := pending[p.Partition]; ok && p.HighWatermark >= end && len(p.Records) == 0 && p.Err == nil {
+				delete(pending, p.Partition)
+			}
+		})
+	}
+	return out, nil
 }

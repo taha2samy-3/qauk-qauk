@@ -8,12 +8,13 @@
     "specversion": {"const": "1.0"},
     "id": {"type": "string", "format": "uuid"},
     "source": {"type": "string", "pattern": "^/quack/(api|gateway/.+)$"},
-    "type": {"enum": ["io.quack.element.message.v1", "io.quack.control.changed.v1", "io.quack.device.presence.v1", "io.quack.device.config.v1"]},
+    "type": {"enum": ["io.quack.element.message.v1", "io.quack.control.changed.v1", "io.quack.device.presence.v1", "io.quack.device.config.v1", "io.quack.mqtt.config.v1"]},
     "subject": {"type": "string", "minLength": 1},
     "time": {"type": "string", "format": "date-time"},
     "datacontenttype": {"const": "application/json"},
     "dataschema": {"type": "string", "pattern": "^urn:quack:schema:"},
     "partitionkey": {"type": "string", "minLength": 1},
+    "quackvia": {"type": "string", "pattern": "^mqtt/.+$"},
     "data": {"type": "object"}
   }
 }

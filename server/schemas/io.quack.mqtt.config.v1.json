@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.mqtt.config.v1",
+  "title": "MQTT connection snapshot (mqtt-config.v1, compacted). Secrets are references only.",
+  "type": "object",
+  "required": ["connection", "uplinks", "downlinks", "decoders", "devices", "version"],
+  "properties": {
+    "connection": {
+      "type": "object",
+      "required": ["id", "name", "broker_url", "enabled"],
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "broker_url": {"type": "string", "pattern": "^(mqtt|mqtts|tcp|tls|ssl|ws|wss)://"},
+        "replicas": {"type": "integer", "minimum": 1, "maximum": 10},
+        "auth": {"type": "object", "properties": {"password": {"type": "string", "pattern": "^(env:|file:/)"}}},
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "uplinks": {"type": "array"},
+    "downlinks": {"type": "array"},
+    "decoders": {"type": "array"},
+    "devices": {"type": "array", "items": {"type": "object", "required": ["device_id", "external_id"]}},
+    "version": {"type": "integer"}
+  }
+}

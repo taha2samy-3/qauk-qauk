@@ -76,6 +76,23 @@ services:
       timeout: 3s
       retries: 40
 
+  # Development MQTT broker for the gateway's mqtt role (task mqtt:certs first).
+  # 1883 anonymous, 1884 password (quack/quack), 8883 mTLS. NOT for production.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    profiles: [mqtt]
+    ports: ["127.0.0.1:1883:1883", "127.0.0.1:1884:1884", "127.0.0.1:8883:8883"]
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mqtt/passwd:/mosquitto/config/passwd:ro
+      - ./mqtt/certs:/mosquitto/certs:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
   console:
     image: docker.redpanda.com/redpandadata/console:latest
     profiles: [tools]
@@ -124,6 +141,7 @@ services:
     volumes: [node_red_data:/data]
 
 volumes:
+  mosquitto_data:
   clickhouse_data:
   db_data:
   redpanda_data:

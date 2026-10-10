@@ -8,6 +8,10 @@ import { DashboardsListPage } from '@/features/dashboards/DashboardsListPage'
 import { DevicesPage } from '@/features/devices/DevicesPage'
 import { AuditPage } from '@/features/admin/AuditPage'
 import { ConnectionsPage } from '@/features/admin/ConnectionsPage'
+import { MqttConnectionPage } from '@/features/admin/mqtt/MqttConnectionPage'
+import { MqttConnectionsPage } from '@/features/admin/mqtt/MqttConnectionsPage'
+import { MqttDecodersPage } from '@/features/admin/mqtt/MqttDecodersPage'
+import { MqttRejectedPage } from '@/features/admin/mqtt/MqttRejectedPage'
 import { DevicesAdminPage } from '@/features/admin/DevicesAdminPage'
 import { ElementsPage } from '@/features/admin/ElementsPage'
 import { GroupsPage } from '@/features/admin/GroupsPage'
@@ -41,6 +45,10 @@ export const router = createBrowserRouter([
               { path: 'elements', element: <ElementsPage /> },
               { path: 'permissions', element: <PermissionsPage /> },
               { path: 'connections', element: <ConnectionsPage /> },
+              { path: 'mqtt', element: <MqttConnectionsPage /> },
+              { path: 'mqtt/decoders', element: <MqttDecodersPage /> },
+              { path: 'mqtt/rejected', element: <MqttRejectedPage /> },
+              { path: 'mqtt/:id', element: <MqttConnectionPage /> },
               { path: 'presence', element: <PresencePage /> },
               { path: 'audit', element: <AuditPage /> },
             ],

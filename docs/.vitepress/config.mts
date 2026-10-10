@@ -24,6 +24,7 @@ const rewrites: Record<string, string> = {
   'refactor/baseline.md': 'design/performance-baseline.md',
   'refactor/PLATFORM_REVIEW.md': 'design/platform-review.md',
   'refactor/DEVICE_ADAPTERS_PLAN.md': 'design/device-adapters-plan.md',
+  'refactor/MQTT_ADAPTER_PROMPT.md': 'design/mqtt-adapter-prompt.md',
 }
 
 /** Site URL (without base) for a source file path relative to docs/. */
@@ -143,6 +144,7 @@ export default withMermaid(
             { text: 'Performance baseline', link: '/design/performance-baseline' },
             { text: 'Platform review & roadmap', link: '/design/platform-review' },
             { text: 'Device adapters plan', link: '/design/device-adapters-plan' },
+            { text: 'MQTT adapter (task prompt)', link: '/design/mqtt-adapter-prompt' },
           ],
         },
       ],

@@ -34,7 +34,7 @@ tasks:
     silent: true
 
   start:
-    desc: "Run the whole platform locally: infra, API+gateway (:8080), ingester, demo devices, web app (:5173). Ctrl+C stops it."
+    desc: "Run the whole platform locally: infra, API+gateway (:8080), ingester, demo devices, web app (:5173). MQTT=1 adds Mosquitto, the mqtt role and an MQTT demo device. Ctrl+C stops it."
     preconditions:
       - sh: "! curl -s -o /dev/null --max-time 1 http://127.0.0.1:8080/healthz"
         msg: "The platform already seems to be running (port 8080). Use it, or run `task stop` first."
@@ -64,15 +64,23 @@ tasks:
 
   # --- infrastructure ---
   infra:up:
-    desc: "Start Postgres/TimescaleDB + Redpanda (+ ClickHouse with HISTORY=clickhouse) for local development"
-    cmds: ['{{.COMPOSE}} up -d --wait db redpanda{{if eq .HISTORY "clickhouse"}} clickhouse{{end}}']
+    desc: "Start Postgres/TimescaleDB + Redpanda (+ ClickHouse with HISTORY=clickhouse, + Mosquitto with MQTT=1) for local development"
+    cmds:
+      - task: '{{if .MQTT}}mqtt:certs{{else}}noop{{end}}'
+      - '{{.COMPOSE}} up -d --wait db redpanda{{if eq .HISTORY "clickhouse"}} clickhouse{{end}}{{if .MQTT}} mosquitto{{end}}'
+  noop:
+    internal: true
+    cmds: [":"]
+  mqtt:certs:
+    desc: Dev CA and certificates for the Mosquitto mTLS listener (docker/mqtt/certs, git-ignored)
+    cmds: [docker/mqtt/certs.sh]
   infra:down:
     desc: Stop local infrastructure (keeps volumes)
-    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse down"]
+    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse --profile mqtt down"]
   infra:reset:
     desc: Stop infrastructure and delete all data volumes
     prompt: This deletes the local database, ClickHouse and Redpanda data. Continue?
-    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse down -v"]
+    cmds: ["{{.COMPOSE}} --profile app --profile tools --profile clickhouse --profile mqtt down -v"]
   console:
     desc: Start Redpanda Console on http://127.0.0.1:8090
     cmds: ["{{.COMPOSE}} --profile tools up -d console"]
@@ -89,8 +97,11 @@ tasks:
     deps: [build]
     cmds: ["{{.BIN}} migrate"]
   dev:
-    desc: Run api+gateway locally on :8080 (needs infra:up)
+    desc: "Run api+gateway locally on :8080 (needs infra:up); MQTT=1 adds the mqtt role"
     deps: [migrate]
+    env:
+      QUACK_ROLES: '{{if .MQTT}}api,gateway,mqtt{{else}}api,gateway{{end}}'
+      QUACK_ALLOW_INSECURE_TLS: '{{if .MQTT}}true{{end}}'
     cmds: ["{{.BIN}} serve"]
   ingest:
     desc: Run the history ingester locally (metrics on :9100)
@@ -105,11 +116,11 @@ tasks:
   demo:
     desc: "Seed demo devices/elements + admin (admin/admin12345) into the dev DB"
     deps: [migrate]
-    cmds: ["{{.BIN}} dev demo --out {{.ROOT_DIR}}/server/bin/demo-devices.json"]
+    cmds: ["{{.BIN}} dev demo --out {{.ROOT_DIR}}/server/bin/demo-devices.json{{if .MQTT}} --mqtt-url mqtt://127.0.0.1:1883{{end}}"]
   simulate:
     desc: "Stream live values from the demo devices; TRANSPORT=mixed (default: one device each over WebSocket, REST, gRPC), websocket, rest or grpc"
     deps: [build]
-    cmds: ["{{.BIN}} dev simulate --file {{.ROOT_DIR}}/server/bin/demo-devices.json --ws-base ws://127.0.0.1:8080 --transport {{.TRANSPORT | default \"mixed\"}}"]
+    cmds: ["{{.BIN}} dev simulate --file {{.ROOT_DIR}}/server/bin/demo-devices.json --ws-base ws://127.0.0.1:8080 --transport {{.TRANSPORT | default \"mixed\"}}{{if .MQTT}} --mqtt-url mqtt://127.0.0.1:1883{{end}}"]
   import:django:
     desc: "Import the legacy Django DB: task import:django FROM=postgres://..."
     deps: [migrate]

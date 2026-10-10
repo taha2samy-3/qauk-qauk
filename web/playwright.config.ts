@@ -18,6 +18,9 @@ export default defineConfig({
     baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // no GPU process: screenshots need none, and a wedged GPU driver stalls
+    // requestAnimationFrame (every click then waits forever for "stable")
+    launchOptions: { args: ['--disable-gpu', '--disable-software-rasterizer'] },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
   webServer: process.env.E2E_BASE_URL
