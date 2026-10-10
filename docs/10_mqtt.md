@@ -12,15 +12,18 @@ Devices that already talk to an MQTT broker (Mosquitto, EMQX, HiveMQ, AWS IoT, T
 flowchart LR
   DEV["Devices"] -- "publish" --> BR[("Your broker")]
   BR -- "MQTT 5 subscribe<br/>(QoS 1, persistent session)" --> S["Slot owned by a gateway<br/>(role mqtt)"]
-  S --> P["Source pipeline<br/>decoder → field map"]
-  P --> CORE["Device core<br/>grants, limits"]
+  S --> P["Station 1: Source mapping<br/>decoder → field map"]
+  P --> EP["Station 2: Element pipeline<br/>scale, deadband, script"]
+  EP --> CORE["Device core<br/>grants, limits"]
   CORE --> RP[("Redpanda<br/>element-events.v1")]
   RP --> UI["Dashboards, history,<br/>Node-RED, alerts"]
   UI -- "command" --> CORE
-  CORE -- "downlink (slot 0 owner)" --> BR
+  CORE -- "inverse pipeline" --> S
+  S -- "downlink (slot 0 owner)" --> BR
 ```
 
 - MQTT runs **inside the gateway**, as the `mqtt` role (`QUACK_ROLES=api,gateway,mqtt`). There is no separate service to deploy.
+- Every value produced by an uplink rule passes through the element's **[element pipeline](./05_core_concepts/element_pipeline.md)** (Station 2) inside the gateway before rate limiting and publishing to Redpanda. Downlink commands pass through the pipeline's **inverse** before encoder formatting and transmission to the broker.
 - Every value goes through the same **device core** as the WebSocket, REST and gRPC transports, so element limits, the device rate limit, history and CloudEvents work the same. Each CloudEvent from MQTT carries the extension `quackvia=mqtt/<connection id>`.
 - A connection may only write to devices it was **granted**, by an *external id*: the name the device has in your topics or payloads.
 - A device counts as **online** while its messages keep arriving (within `QUACK_PRESENCE_TTL`), like a REST device.
@@ -160,6 +163,8 @@ A downlink sends dashboard commands for one element of one granted device to the
 | `qos`, `retain`, `content_type`, `message_expiry`, `response_topic`, `user_properties` | MQTT 5 publish options. The user property `quack-user` is always set. |
 
 The device should confirm by publishing its new state, which an uplink rule maps back to the same element: the dashboard switch then shows the confirmed state, as with the other transports.
+
+**Command inversion:** If an element has an [element pipeline](./05_core_concepts/element_pipeline.md) with invertible steps (such as `scale`, `round`, `clamp`, or `map`), dashboard commands pass through the pipeline's **inverse** before reaching the downlink encoder. The device on the broker receives actuator units, while dashboards and history maintain engineering units.
 
 ## Try it
 

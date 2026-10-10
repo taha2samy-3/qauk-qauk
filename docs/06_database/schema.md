@@ -10,6 +10,9 @@ Two stores, both migrated by `quack migrate`:
 | `00001_core.sql` | Identity, devices, permissions, presence, connections, outbox, audit log |
 | `00003_dashboards.sql` | `dashboards` |
 | `00005_element_limits.sql` | Per-element rate limits (`elements.msg_rate`, `msg_burst`, `over_limit`); `outbox.payload` nullable for tombstones |
+| `00006_mqtt.sql` | MQTT connections, uplinks, downlinks, decoders |
+| `00007_mqtt_cluster.sql` | MQTT clustering, status and gateway members |
+| `00008_element_pipelines.sql` | Element pipelines and version history (`element_pipelines`, `element_pipeline_versions`) |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -79,6 +82,20 @@ erDiagram
     text name
     jsonb details
   }
+  element_pipelines {
+    uuid element_id PK, FK
+    integer version
+    jsonb steps "step list"
+    text updated_by
+    timestamptz updated_at
+  }
+  element_pipeline_versions {
+    uuid element_id PK, FK
+    integer version PK
+    jsonb steps
+    text updated_by
+    timestamptz updated_at
+  }
   element_permissions {
     bigserial id PK
     uuid element_id FK
@@ -147,6 +164,8 @@ erDiagram
   jwt_public_keys |o--o{ devices : "assigned to"
   devices ||--o{ elements : owns
   elements ||--o{ element_styles : ""
+  elements ||--o| element_pipelines : "active pipeline"
+  elements ||--o{ element_pipeline_versions : "version history"
   elements ||--o{ element_permissions : ""
   users |o--o{ element_permissions : "direct grant"
   groups |o--o{ element_permissions : "group grant"
@@ -161,7 +180,7 @@ erDiagram
 
 - Deleting a **user** cascades to their sessions, memberships, direct grants and dashboards.
 - Deleting a **group** cascades to its memberships and grants.
-- Deleting a **device** cascades to its elements, and from there to styles and grants.
+- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines and pipeline versions.
 - Deleting a **key** sets `devices.public_key_id` to `NULL`, so those devices can no longer connect.
 - `device_connections`, `device_presence` and `audit_log` keep their rows. The history store keeps a deleted element's events until retention drops them (it has no foreign keys into Postgres).
 
@@ -310,3 +329,13 @@ Migrations `00006_mqtt.sql` and `00007_mqtt_cluster.sql`. The tables are the sou
 | `decoders`, `decoder_versions` | JavaScript decoders and every saved version of each. |
 | `mqtt_connection_status` | Per connection and slot: the owning `gateway_id`, `connected`, the last MQTT reason code and error, and counters. Written by the owning gateway. |
 | `gateway_members` | Live gateways: `roles`, `weight` (`QUACK_MQTT_WEIGHT`) and `last_seen`, refreshed with the presence heartbeat. Members seen within `QUACK_PRESENCE_TTL` share the MQTT slots. |
+
+## Element pipelines
+
+Migration `00008_element_pipelines.sql`. These tables store the per-element in-memory transformation pipelines configured through **Admin → Elements → Pipeline**. See [Element pipeline](../05_core_concepts/element_pipeline.md).
+
+| Table | Holds |
+|---|---|
+| `element_pipelines` | The active pipeline per element: `element_id` (PK, cascades on element delete), `version` (starts at 1 and increments on edit), `steps` (JSONB array of pipeline step configurations), `updated_by` (actor username or id), and `updated_at`. Changes update the element's parent device snapshot in `device-config.v1` via the outbox. |
+| `element_pipeline_versions` | Immutable version history for pipelines: `(element_id, version)` PK, `steps`, `updated_by`, and `updated_at`. Used to view history and rollback pipelines to any prior version. |
+

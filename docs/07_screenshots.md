@@ -55,6 +55,14 @@ reached its device over that device's transport, and was confirmed back. Capture
 |---|---|
 | ![Elements with their rate limits](./imgs/screenshots/admin-element-limits-light.webp) | ![The rate-limit section of the element form](./imgs/screenshots/admin-element-limit-dialog-light.webp) |
 
+## Element pipelines
+
+In **Admin → Elements**, each element has an in-memory transformation pipeline (Station 2) with steps like `scale`, `round`, `clamp`, `deadband`, `map`, and `script`. The pipeline sheet includes an interactive step editor with invertible badges, a live before-and-after preview table and chart over the last 500 history points, a test console with command inversion verification, and version rollback.
+
+| Light | Dark |
+|---|---|
+| ![Element pipeline sheet with preview and chart, light theme](./imgs/screenshots/admin-pipeline-light.webp) | ![Element pipeline sheet with preview and chart, dark theme](./imgs/screenshots/admin-pipeline-dark.webp) |
+
 ## Dashboards list and tablets
 
 | Your dashboards | Tablet layout |

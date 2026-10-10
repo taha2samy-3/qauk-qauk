@@ -43,7 +43,7 @@ message ElementMessage {                 // a command for one of this device's e
 }
 ```
 
-`message` is a `google.protobuf.Value`, so devices send the same JSON as on the other transports and dashboards bind to its attributes the same way. `PublishResult.status` is `accepted`, `duplicate`, `coalesced` or `rejected` with a `code`, exactly as in [REST](./device_rest_api.md#send-messages).
+`message` is a `google.protobuf.Value`, so devices send the same JSON as on the other transports and dashboards bind to its attributes the same way. `PublishResult.status` is `accepted`, `filtered`, `duplicate`, `coalesced`, `pipeline_failed` or `rejected` with a `code`, matching [REST](./device_rest_api.md#send-messages).
 
 ## Calls
 
@@ -56,9 +56,9 @@ buf curl --schema server/proto --protocol grpc --http2-prior-knowledge \
   http://127.0.0.1:8080/quack.device.v1.DeviceService/Publish
 ```
 
-**Watch** streams messages that users write to the device's elements. The device's own messages, sent over another connection, are not streamed back. Nothing is replayed on connect.
+**Watch** streams messages that users write to the device's elements (commands). Commands are automatically inverse-transformed if the element has an [element pipeline](../05_core_concepts/element_pipeline.md) with invertible steps. The device's own messages, sent over another connection, are not streamed back. Nothing is replayed on connect.
 
-**Session** is one bidirectional stream, like a WebSocket: send `SessionRequest{publish}` messages, and receive `SessionResponse{message}` for commands. Publishing is fire-and-forget: a `SessionResponse{result}` comes back only for a **rejected** message, or for a message with an `id`, so you can correlate acknowledgements when you need them. Like the WebSocket, it receives messages from the device's other connections too.
+**Session** is one bidirectional stream, like a WebSocket: send `SessionRequest{publish}` messages, and receive `SessionResponse{message}` for commands (also inverted). Publishing is fire-and-forget: a `SessionResponse{result}` comes back only for a **rejected** or **pipeline_failed** message, or for a message with an `id`, so you can correlate acknowledgements when you need them. Like the WebSocket, it receives messages from the device's other connections too.
 
 **ListElements** returns `device_id`, `device_name`, and for each element its `id`, `name`, `points`, `rate`, `burst` and `over_limit` (0 = the server default).
 

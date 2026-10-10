@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements,
-		element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
+		element_pipelines, element_pipeline_versions, element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
 		gateway_members RESTART IDENTITY CASCADE`); err != nil {
 		fmt.Println("truncate:", err)
 		os.Exit(1)

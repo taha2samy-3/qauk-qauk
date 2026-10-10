@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Boxes, Paintbrush, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Boxes, Paintbrush, Pencil, Plus, Trash2, Workflow } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useSearchParams } from 'react-router'
@@ -30,6 +30,7 @@ import { applyProblem, toastError } from '@/lib/forms'
 import { isRecord } from '@/lib/utils'
 import { adminApi, adminKeys, useAdminDevices, useAdminElements, useAdminMutation, useStyles } from './api'
 import { FormDialog, RowActions } from './FormDialog'
+import { PipelineSheet } from './PipelineSheet'
 
 const ALL = '__all__'
 const jsonObject = z.string().superRefine((v, ctx) => {
@@ -439,6 +440,7 @@ export function ElementsPage() {
   const [editing, setEditing] = useState<AdminElement | null>(null)
   const [open, setOpen] = useState(false)
   const [stylesOf, setStylesOf] = useState<AdminElement | null>(null)
+  const [pipelineOf, setPipelineOf] = useState<AdminElement | null>(null)
   const deviceName = (id: string) => devices.data?.find((d) => d.id === id)?.name ?? id.slice(0, 8)
 
   const columns: Column<AdminElement>[] = [
@@ -449,7 +451,14 @@ export function ElementsPage() {
       searchValue: (e) => `${e.name} ${e.description}`,
       cell: (e) => (
         <div>
-          <div className="font-medium">{e.name}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{e.name}</span>
+            {e.pipeline_version != null && e.pipeline_steps != null && e.pipeline_steps > 0 && (
+              <Badge variant="secondary" className="gap-1 font-mono text-[10px]">
+                <Workflow className="size-3" /> {e.pipeline_steps} steps · v{e.pipeline_version}
+              </Badge>
+            )}
+          </div>
           {e.description && (
             <div className="text-muted-foreground max-w-xs truncate text-xs">{e.description}</div>
           )}
@@ -526,6 +535,9 @@ export function ElementsPage() {
       headClassName: 'w-28',
       cell: (e) => (
         <RowActions>
+          <Button variant="ghost" size="xs" onClick={() => setPipelineOf(e)}>
+            <Workflow className="size-3.5 mr-1" /> Pipeline
+          </Button>
           <Button variant="ghost" size="xs" onClick={() => setStylesOf(e)}>
             <Paintbrush /> Styles
           </Button>
@@ -626,6 +638,7 @@ export function ElementsPage() {
       />
       <ElementDialog element={editing} defaultDevice={deviceFilter} open={open} onOpenChange={setOpen} />
       <StylesSheet element={stylesOf} onOpenChange={(o) => !o && setStylesOf(null)} />
+      <PipelineSheet element={pipelineOf} onOpenChange={(o) => !o && setPipelineOf(null)} />
       {confirm.dialog}
     </Page>
   )

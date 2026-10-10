@@ -69,12 +69,12 @@ flowchart LR
   WS["WebSocket<br/>/device/node_red/"] --> C
   R["REST<br/>/device/v1/*"] --> C
   G["gRPC<br/>DeviceService"] --> C
-  C["device core<br/>auth · validate · element by id/name<br/>· client-id dedupe · rate limits"] --> P["publish<br/>(local fan-out + element-events.v1)"]
+  C["device core<br/>auth · validate · element by id/name<br/>· client-id dedupe · element pipeline<br/>· rate limits"] --> P["publish<br/>(local fan-out + element-events.v1)"]
   REG[("device registry<br/>in memory, from device-config.v1")] -.-> C
   RL[("rate-limit buckets<br/>ratelimit.Limiter")] -.-> C
 ```
 
-Every transport authenticates with the same device JWT and calls the same core, so rules can't drift between them: validation (JSON, 64 KiB, storable text), the element (by id, or by name on REST and gRPC), retries with a client id, the per-device guard and the per-element [rate limit](./05_core_concepts/rate_limits.md), then the same publish path as below. The core reads devices, keys and limits from the **device registry**, a copy of the compacted `device-config.v1` topic that every gateway keeps in memory ([details](./05_core_concepts/realtime_events.md#device-config-v1)). The message path therefore never reads Postgres.
+Every transport authenticates with the same device JWT and calls the same core, so rules can't drift between them: validation (JSON, 64 KiB, storable text), the element (by id, or by name on REST and gRPC), retries with a client id, the [element pipeline](./05_core_concepts/element_pipeline.md) (in-memory Go closures / Goja script before the bus), the per-device guard and the per-element [rate limit](./05_core_concepts/rate_limits.md), then the same publish path as below. The core reads devices, keys, pipelines and limits from the **device registry**, a copy of the compacted `device-config.v1` topic that every gateway keeps in memory ([details](./05_core_concepts/realtime_events.md#device-config-v1)). The message path therefore never reads Postgres.
 
 Only delivery differs. WebSocket and gRPC streams are connections in the hub, and get messages pushed. REST devices long-poll `GET /device/v1/sync`, which answers from the newest command per element that every gateway keeps in memory.
 
