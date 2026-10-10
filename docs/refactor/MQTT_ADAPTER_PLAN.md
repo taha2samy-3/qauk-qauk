@@ -25,17 +25,22 @@ MQTT runs inside the gateway as the `mqtt` role; Quack Quack is an MQTT 5 **clie
 
 ## Deviations from the plan
 
-| Planned | Built | Why |
+Everything else follows the task prompt as agreed, including the assignment itself: weighted rendezvous hashing, top K per connection (`score = -weight / ln(u)`, the `replicas` best members own slots `0..K-1` in score order), recomputed on every heartbeat and every `mqtt-config.v1` change, fenced by the broker's session takeover.
+
+| Agreed | Built | Why |
 |---|---|---|
-| Secrets encrypted in the database (AES-256-GCM) | **References only** (`env:`, `file:`), never values | Nothing secret is stored at all, which is simpler and safer than encrypting; the API refuses plain values. |
-| SCRAM and JWT broker authentication | None, password, mTLS | MQTT 5 enhanced authentication isn't supported consistently by brokers; JWT-as-password works through the password method with a `file:` reference. |
-| Values refused by a rate limit retried later | Dead-lettered with the reason | Holding acknowledgements to retry would stall the session; the DLQ makes it visible. |
-| A hash per slot | Top-K owners per connection | Slots of one connection then always sit on different gateways. A join can shift a connection's slot order; persistent sessions make that move lossless. |
-| Device presence from MQTT not specified | Online while messages arrive (`QUACK_PRESENCE_TTL`), like REST | Dashboards showed MQTT devices as offline and disabled their controls. |
-| Downlink encoder syntax open | `{"template": …}` with `"{{value}}"` / `"{{message}}"`, or a decoder's `encodeDownlink` | Covers JSON devices without code and binary ones with the same decoder as the uplink. |
+| Secrets as `env:`/`file:` references, **or** typed in the UI and encrypted (AES-256-GCM) | References only; the API refuses plain values | Nothing secret is stored at all. Encryption at rest can be added later without changing the API. |
+| JWT as password (re-signed on every reconnect); SCRAM-SHA-256 optional | Not built: none, password, mTLS | A static token works through the password method with a `file:` reference, but it isn't re-signed. Open item. |
+| Rate-limited values held and retried after `retry_after`, to the DLQ after 30 s | Dead-lettered at once with the reason | Simpler and never stalls the session; the retry is an open item. |
+| `not_granted` counted in `quack_dropped_total{reason="mqtt_not_granted"}`; metrics labelled by connection **and** slot | Counted in `quack_mqtt_rejected_total{reason="not_granted"}`; metrics labelled by connection (and reason/result) | One MQTT-specific counter family. |
+| HRW hash input `connection_id + "/" + gateway_id` | `connection_id + "\x00" + gateway_id` | Same algorithm; the separator can't appear in an id. |
+| Decoder UI with version history, rollback and "paste a TTN codec" | Editor with the version number; history is stored (`decoder_versions`) | Rollback UI is an open item; pasting a codec works in the editor. |
+| EMQX test profile (optional) | Not built; tests use Mosquitto | Optional in the prompt. |
+| Device presence not specified | An MQTT device is online while its messages arrive (`QUACK_PRESENCE_TTL`), like REST | Without it, dashboards showed MQTT devices offline and disabled their switches. |
 
 ## Open items
 
+- The MQTT benchmark for [baseline.md](./baseline.md): MQTT → dashboard latency (p50/p95/p99) and sustained messages/s through Mosquitto, with and without a decoder, with 1 and 3 gateways.
+- JWT-as-password with re-signing, SCRAM, and the rate-limit retry (above).
+- Decoder rollback in the UI.
 - Phase F: separate deployments per role.
-- Per-connection metrics labels are by connection id; a dashboard of MQTT metrics isn't provided yet.
-- Decoder version history is stored (`decoder_versions`) but the UI doesn't offer a rollback yet.

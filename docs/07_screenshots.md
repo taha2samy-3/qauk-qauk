@@ -33,11 +33,11 @@ Every widget has a configuration sheet: title, units, ranges, colored thresholds
 
 ## Device transports
 
-One dashboard fed by all three device transports plus Node-RED: *Greenhouse A* over the WebSocket, *Boiler room* over
-REST, *Weather station* over gRPC, and the *Packing line* flow in Node-RED. Every switch was flipped in the browser,
+One dashboard fed by all three device transports plus Node-RED and MQTT: *Greenhouse A* over the WebSocket, *Boiler room* over
+REST, *Weather station* over gRPC, the *Packing line* flow in Node-RED, and the *Cold room* through an MQTT broker. Every switch was flipped in the browser,
 reached its device over that device's transport, and was confirmed back. Captured by `web/e2e/protocols.spec.ts`.
 
-![Dashboard fed by WebSocket, REST, gRPC and Node-RED devices, light theme](./imgs/screenshots/transports-dashboard-light.webp)
+![Dashboard fed by WebSocket, REST, gRPC, Node-RED and MQTT devices, light theme](./imgs/screenshots/transports-dashboard-light.webp)
 
 ![The same dashboard, dark theme](./imgs/screenshots/transports-dashboard-dark.webp)
 
@@ -76,9 +76,29 @@ old Django admin.
 
 ![Permissions administration, dark theme](./imgs/screenshots/admin-permissions-dark.webp)
 
-## MQTT Administration
+## MQTT
 
-Manage external MQTT 5 client connections, uplink parsing rules, downlinks, and test Javascript decoders in a live sandbox. (Screenshots pending `e2e/mqtt.spec.ts` generation).
+Devices that publish to an MQTT broker feed dashboards through [MQTT connections](./10_mqtt.md). The *Cold room* demo device speaks only MQTT: temperature and humidity in one JSON message, its battery in a binary frame decoded by JavaScript, and a compressor switch sent back as a downlink.
+
+| Light | Dark |
+|---|---|
+| ![A dashboard fed only by MQTT, light theme](./imgs/screenshots/mqtt-dashboard-light.webp) | ![The same dashboard, dark theme](./imgs/screenshots/mqtt-dashboard-dark.webp) |
+
+Connections show which gateway owns each slot; a connection's page lists its granted devices, uplink rules and downlinks:
+
+![MQTT connections](./imgs/screenshots/mqtt-connections-light.webp)
+
+![One MQTT connection](./imgs/screenshots/mqtt-connection-light.webp)
+
+*Test & capture* runs a sample through a rule's decoder and field map, and shows the raw messages arriving:
+
+![Testing a rule and capturing live messages](./imgs/screenshots/mqtt-test-capture-light.webp)
+
+| Decoders | Rejected messages |
+|---|---|
+| ![Decoders](./imgs/screenshots/mqtt-decoders-light.webp) | ![Rejected messages](./imgs/screenshots/mqtt-rejected-light.webp) |
+
+![Editing a decoder](./imgs/screenshots/mqtt-decoder-edit-light.webp)
 
 ## Friendly empty and error states
 
