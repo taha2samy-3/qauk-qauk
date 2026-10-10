@@ -53,6 +53,16 @@ What the device sees:
 
 Drops are counted in `quack_dropped_total{reason="element_rate_limit"}` and `{reason="device_rate_limit"}`, and held messages in `{reason="element_rate_coalesced"}`.
 
+### Relationship with the Element Pipeline
+
+The [Element Pipeline](./element_pipeline.md) executes **before** the element token bucket:
+
+```
+Validation → Resolve Element → Client-ID Dedupe → ELEMENT PIPELINE → Element Limit → Publish
+```
+
+Values filtered by pipeline steps (such as `deadband`, `drop_if`, or a `script` step returning `null`) are dropped immediately with status `"filtered"`. Because filtering happens prior to the rate limit check, **filtered values do not consume rate limit tokens**.
+
 ## The device guard
 
 `QUACK_DEVICE_MSG_RATE` (500/s) bounds a whole device, whatever its elements' limits add up to, and also counts frames that are invalid or name an element the device doesn't have. On REST and gRPC `Publish`, a batch takes as many tokens as it has messages. If the batch doesn't fit, it is refused as a whole with `429`/`RESOURCE_EXHAUSTED`.
