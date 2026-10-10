@@ -63,6 +63,14 @@ func (f *fakePub) count() int {
 	return len(f.evs)
 }
 
+func (f *fakePub) events() []*events.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*events.Event, len(f.evs))
+	copy(out, f.evs)
+	return out
+}
+
 // testGateway is a gateway without database or bus: devices come from the
 // registry, events go to a fake publisher.
 func testGateway(t *testing.T) (*Gateway, *fakePub) {

@@ -84,15 +84,23 @@ func GetDeviceAuth(ctx context.Context, db DBTX, id uuid.UUID) (DeviceAuth, erro
 
 // --- Elements ---
 
-const elementCols = `id, device_id, name, points, description, details, created_at, msg_rate, msg_burst, over_limit`
+const elementCols = `id, device_id, name, points, description, details, created_at, msg_rate, msg_burst, over_limit,
+	NULL::int AS pipeline_version, NULL::int AS pipeline_steps`
+
+const elementSelectCols = `e.id, e.device_id, e.name, e.points, e.description, e.details, e.created_at, e.msg_rate, e.msg_burst, e.over_limit,
+	p.version AS pipeline_version,
+	CASE WHEN p.steps IS NOT NULL THEN jsonb_array_length(p.steps) ELSE NULL END AS pipeline_steps`
 
 func ListElements(ctx context.Context, db DBTX, deviceID *uuid.UUID) ([]Element, error) {
-	return many[Element](db.Query(ctx, `SELECT `+elementCols+` FROM elements
-		WHERE ($1::uuid IS NULL OR device_id = $1) ORDER BY created_at, id`, deviceID))
+	return many[Element](db.Query(ctx, `SELECT `+elementSelectCols+` FROM elements e
+		LEFT JOIN element_pipelines p ON p.element_id = e.id
+		WHERE ($1::uuid IS NULL OR e.device_id = $1) ORDER BY e.created_at, e.id`, deviceID))
 }
 
 func GetElement(ctx context.Context, db DBTX, id uuid.UUID) (Element, error) {
-	return one[Element](db.Query(ctx, `SELECT `+elementCols+` FROM elements WHERE id = $1`, id))
+	return one[Element](db.Query(ctx, `SELECT `+elementSelectCols+` FROM elements e
+		LEFT JOIN element_pipelines p ON p.element_id = e.id
+		WHERE e.id = $1`, id))
 }
 
 func InsertElement(ctx context.Context, db DBTX, e Element) (Element, error) {

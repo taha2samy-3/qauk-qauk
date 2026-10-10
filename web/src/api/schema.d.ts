@@ -102,6 +102,70 @@ export interface paths {
         patch: operations["update-element"];
         trace?: never;
     };
+    "/api/v1/admin/elements/{id}/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get-element-pipeline"];
+        put: operations["save-element-pipeline"];
+        post?: never;
+        delete: operations["delete-element-pipeline"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/elements/{id}/pipeline/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview-element-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/elements/{id}/pipeline/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rollback-element-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/elements/{id}/pipeline/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test-element-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/elements/{id}/styles": {
         parameters: {
             query?: never;
@@ -853,6 +917,16 @@ export interface components {
              * @enum {string}
              */
             over_limit: "drop" | "latest";
+            /**
+             * Format: int64
+             * @description Number of steps in the pipeline
+             */
+            pipeline_steps?: number;
+            /**
+             * Format: int64
+             * @description Current pipeline version if configured
+             */
+            pipeline_version?: number;
             /** Format: int64 */
             points: number;
         };
@@ -916,6 +990,30 @@ export interface components {
             over_limit?: "drop" | "latest";
             /** Format: int64 */
             points?: number;
+        };
+        ElementPipeline: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/ElementPipeline.json
+             */
+            readonly $schema?: string;
+            element_id: string;
+            steps: unknown;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            /** Format: int64 */
+            version: number;
+        };
+        ElementPipelineVersion: {
+            element_id: string;
+            steps: unknown;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            /** Format: int64 */
+            version: number;
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -1396,6 +1494,79 @@ export interface components {
              */
             user_id?: number;
         };
+        PipelineDetails: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineDetails.json
+             */
+            readonly $schema?: string;
+            current: components["schemas"]["ElementPipeline"];
+            versions: components["schemas"]["ElementPipelineVersion"][] | null;
+        };
+        PipelinePreviewInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelinePreviewInBody.json
+             */
+            readonly $schema?: string;
+            steps: unknown;
+        };
+        PipelinePreviewOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelinePreviewOutBody.json
+             */
+            readonly $schema?: string;
+            rows: components["schemas"]["PreviewRow"][] | null;
+            summary: components["schemas"]["PreviewSummary"];
+        };
+        PipelinePutInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelinePutInBody.json
+             */
+            readonly $schema?: string;
+            /** @description Array of pipeline step configs */
+            steps: unknown;
+        };
+        PipelineRollbackInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineRollbackInBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            version: number;
+        };
+        PipelineTestInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineTestInBody.json
+             */
+            readonly $schema?: string;
+            last?: unknown;
+            message: unknown;
+            steps: unknown;
+        };
+        PipelineTestOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineTestOutBody.json
+             */
+            readonly $schema?: string;
+            after?: unknown;
+            error?: string;
+            filtered: boolean;
+            inverse?: unknown;
+            reason?: string;
+        };
         PresenceRow: {
             conn_id: string;
             /** Format: date-time */
@@ -1404,6 +1575,24 @@ export interface components {
             gateway_id: string;
             /** Format: date-time */
             last_seen_at: string;
+        };
+        PreviewRow: {
+            after?: unknown;
+            before: unknown;
+            error?: string;
+            filtered: boolean;
+            reason?: string;
+            time: string;
+        };
+        PreviewSummary: {
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            filtered: number;
+            /** Format: int64 */
+            passed: number;
+            /** Format: int64 */
+            total: number;
         };
         Style: {
             /**
@@ -1493,6 +1682,16 @@ export interface components {
              */
             over_limit: "drop" | "latest";
             permission: string;
+            /**
+             * Format: int64
+             * @description Number of steps in the pipeline
+             */
+            pipeline_steps?: number;
+            /**
+             * Format: int64
+             * @description Current pipeline version if configured
+             */
+            pipeline_version?: number;
             /** Format: int64 */
             points: number;
             styles: unknown;
@@ -1886,6 +2085,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Element"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineDetails"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelinePutInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementPipeline"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "preview-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelinePreviewInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelinePreviewOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "rollback-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelineRollbackInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementPipeline"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "test-element-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelineTestInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineTestOutBody"];
                 };
             };
             /** @description Error */
