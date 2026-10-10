@@ -13,6 +13,7 @@
   <br/><br/>
   <a href="https://taha2samy-3.github.io/qauk-qauk/"><strong>Read the docs »</strong></a>
   <br/><br/>
+  <a href="#protocols">Protocols</a> ·
   <a href="#key-features">Features</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#quick-start">Quick start</a> ·
@@ -37,6 +38,39 @@
 <p align="center">
   <img src="docs/imgs/screenshots/dashboard-view-light.webp" alt="A live dashboard with gauges, charts, switches and a slider" width="900"/>
 </p>
+
+## Protocols
+
+**Built in.** Devices connect directly over any of these. Every transport shares one device core, so tokens, elements, permissions, rate limits and history behave the same.
+
+<p align="center">
+  <img src="docs/imgs/protocols/websocket.svg" alt="WebSocket" width="110"/>
+  <img src="docs/imgs/protocols/rest.svg" alt="REST (OpenAPI 3.1, SenML)" width="110"/>
+  <img src="docs/imgs/protocols/grpc.svg" alt="gRPC, gRPC-Web, Connect" width="110"/>
+  <img src="docs/imgs/protocols/mqtt.svg" alt="MQTT 5" width="110"/>
+  <img src="docs/imgs/protocols/nodered.svg" alt="Node-RED" width="110"/>
+</p>
+
+**Through Node-RED.** The [Quack Quack nodes](docs/09_node_red.md) connect any Node-RED flow, so anything Node-RED can talk to can feed dashboards and take commands: its built-in nodes cover MQTT, HTTP, WebSocket, TCP and UDP, and community nodes add the rest.
+
+<p align="center">
+  <img src="docs/imgs/protocols/mqtt.svg" alt="MQTT" width="110"/>
+  <img src="docs/imgs/protocols/modbus.svg" alt="Modbus TCP/RTU" width="110"/>
+  <img src="docs/imgs/protocols/opcua.svg" alt="OPC UA" width="110"/>
+  <img src="docs/imgs/protocols/bacnet.svg" alt="BACnet" width="110"/>
+  <img src="docs/imgs/protocols/siemens-s7.svg" alt="Siemens S7" width="110"/>
+  <img src="docs/imgs/protocols/knx.svg" alt="KNX" width="110"/>
+  <img src="docs/imgs/protocols/coap.svg" alt="CoAP" width="110"/>
+  <img src="docs/imgs/protocols/lorawan.svg" alt="LoRaWAN" width="110"/>
+  <img src="docs/imgs/protocols/zigbee.svg" alt="Zigbee" width="110"/>
+  <img src="docs/imgs/protocols/ble.svg" alt="Bluetooth LE" width="110"/>
+  <img src="docs/imgs/protocols/serial.svg" alt="Serial" width="110"/>
+  <img src="docs/imgs/protocols/tcp-udp.svg" alt="TCP / UDP" width="110"/>
+  <img src="docs/imgs/protocols/amqp.svg" alt="AMQP" width="110"/>
+  <img src="docs/imgs/protocols/homeassistant.svg" alt="Home Assistant" width="110"/>
+</p>
+
+<sub>Brand marks from <a href="https://simpleicons.org">Simple Icons</a> (CC0); protocols without an official mark are shown as monograms. The names are trademarks of their owners.</sub>
 
 ## Key features
 
