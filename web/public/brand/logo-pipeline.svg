@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-pipe">
+  <title id="t-pipe">Quack Quack - Element Pipeline</title>
+  <defs>
+    <linearGradient id="qq-pipe-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4338CA"/>
+      <stop offset="0.5" stop-color="#0891B2"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="qq-pipe-emerald" x1="44" y1="20" x2="56" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-pipe-bg)"/>
+  
+  <!-- Duck body & head -->
+  <path d="M16.5 35.5C14.2 41.2 11 43.6 6.6 43.2C7.4 49.8 12.2 53.5 19 53.5H32.5C37.4 53.5 40.5 50.6 40.5 46.6C40.5 41.4 35.4 37.7 29 36.2Z" fill="#FFFFFF"/>
+  <circle cx="22.5" cy="27.5" r="11" fill="#FFFFFF"/>
+  <path d="M31.5 25.6C36.4 24.4 41.4 25 44.2 28.1C41.6 31.6 36.6 32.6 31.5 31.4Z" fill="#FBBF24"/>
+  <circle cx="25.4" cy="24.4" r="2.3" fill="#1E1B4B"/>
+  
+  <!-- Pipeline flow: Step 1 (Input) -> Step 2 (Transform) -> Step 3 (Bus) -->
+  <!-- Pipeline connector line -->
+  <path d="M43.5 27.5 C 47 25, 47 21, 50 21 C 53 21, 51 28, 51 31 C 51 35, 46 36, 46 40" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  
+  <!-- Step 1: Input node -->
+  <circle cx="49" cy="21" r="2.8" fill="#FFFFFF"/>
+  <circle cx="49" cy="21" r="1.3" fill="#4338CA"/>
+  
+  <!-- Step 2: Transform node (amber) -->
+  <rect x="48" y="28" width="6.5" height="6.5" rx="1.8" fill="#FBBF24"/>
+  <path d="M50 31.2H52.5" stroke="#78350F" stroke-width="1.2" stroke-linecap="round"/>
+  
+  <!-- Step 3: Clean Bus node (emerald) -->
+  <circle cx="46.5" cy="40.5" r="3.2" fill="url(#qq-pipe-emerald)"/>
+  <circle cx="46.5" cy="40.5" r="1.3" fill="#FFFFFF"/>
+  
+  <!-- Real-time pulse ripples -->
+  <path d="M55.5 24A5.5 5.5 0 0 1 55.5 34" fill="none" stroke="#34D399" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

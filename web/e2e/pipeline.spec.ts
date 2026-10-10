@@ -35,6 +35,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(runBtn).toBeVisible()
     await runBtn.click()
 
-    await snap(page, `admin-pipeline-${theme}`, 1800)
+    await expect(page.getByText('Accepted')).toBeVisible()
+    await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })
+    await snap(page, `admin-pipeline-${theme}`, 2000)
   })
 }

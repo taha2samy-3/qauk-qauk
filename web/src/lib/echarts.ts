@@ -1,7 +1,7 @@
 // Tree-shaken ECharts build: only the pieces our widgets use.
 import * as echarts from 'echarts/core'
 import { GaugeChart, LineChart } from 'echarts/charts'
-import { GridComponent, MarkLineComponent, TooltipComponent, MarkAreaComponent } from 'echarts/components'
+import { GridComponent, MarkLineComponent, TooltipComponent, MarkAreaComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([
@@ -9,6 +9,7 @@ echarts.use([
   LineChart,
   GridComponent,
   TooltipComponent,
+  LegendComponent,
   MarkLineComponent,
   MarkAreaComponent,
   CanvasRenderer,
