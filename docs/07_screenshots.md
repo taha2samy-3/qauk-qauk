@@ -124,6 +124,26 @@ Connections show which gateway owns each slot; a connection's page lists its gra
 
 ![Editing a decoder](./imgs/screenshots/mqtt-decoder-edit-light.webp)
 
+### Industrial SCADA & LoRaWAN Live Case Studies
+
+Real-world end-to-end telemetry and bidirectional downlink actuator controls:
+
+| SCADA Water Treatment Dashboard | Smart Agriculture LoRaWAN Dashboard |
+|---|---|
+| ![Live SCADA Pumping Station Dashboard](./imgs/screenshots/scada-dashboard-light.webp) | ![Live LoRaWAN Smart Agriculture Dashboard](./imgs/screenshots/lorawan-dashboard-light.webp) |
+
+| SCADA Rule Test & Capture | LoRaWAN JavaScript Codec Editor |
+|---|---|
+| ![Testing a SCADA telemetry frame](./imgs/screenshots/scada-test-capture.webp) | ![Editing the LoRaWAN TTN JavaScript decoder](./imgs/screenshots/lorawan-decoder-editor.webp) |
+
+| Configured Downlinks Table | New Downlink Configuration Dialog |
+|---|---|
+| ![Active Downlink rules table showing target devices and encoders](./imgs/screenshots/mqtt-downlinks-table.webp) | ![New downlink dialog with JSON template encoder](./imgs/screenshots/mqtt-downlink-dialog.webp) |
+
+| Live Downlink Actuation Feedback |
+|---|
+| ![Live SCADA Dashboard showing Downlink actuation in progress](./imgs/screenshots/scada-downlink-actuated.webp) |
+
 ## Friendly empty and error states
 
 Empty and error states show a duck that fits the situation. Here is the lost duck on the "page not found" screen:

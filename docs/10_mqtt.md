@@ -168,6 +168,10 @@ A downlink sends dashboard commands for one element of one granted device to the
 
 The device should confirm by publishing its new state, which an uplink rule maps back to the same element: the dashboard switch then shows the confirmed state, as with the other transports.
 
+| Configured Downlinks Table | New Downlink Configuration Dialog |
+|---|---|
+| ![Active Downlink rules table showing target devices, topics, and encoders](./imgs/screenshots/mqtt-downlinks-table.webp) | ![New downlink dialog with JSON template encoder](./imgs/screenshots/mqtt-downlink-dialog.webp) |
+
 **Command inversion:** If an element has an [element pipeline](./05_core_concepts/element_pipeline.md) with invertible steps (such as `scale`, `round`, `clamp`, or `map`), dashboard commands pass through the pipeline's **inverse** before reaching the downlink encoder. The device on the broker receives actuator units, while dashboards and history maintain engineering units.
 
 ---
@@ -383,6 +387,196 @@ To send commands from dashboard switches, sliders, or automations back to device
 | Light Theme Live Dashboard | Dark Theme Live Dashboard |
 |---|---|
 | ![A live dashboard fed by MQTT elements and downlinks, light theme](./imgs/screenshots/mqtt-dashboard-light.webp) | ![A live dashboard fed by MQTT elements and downlinks, dark theme](./imgs/screenshots/mqtt-dashboard-dark.webp) |
+
+---
+
+## Real-World Case Studies: SCADA & LoRaWAN
+
+To see how Quack Quack handles real-world deployments beyond basic telemetry, consider these two end-to-end architectures: an **Industrial Water Treatment SCADA Pumping Station** and an **Agricultural LoRaWAN IoT Node**.
+
+---
+
+### Case Study 1: Industrial SCADA Pumping Station (JSON Telemetry & Actuator Downlink)
+
+Industrial automation systems, PLCs (Siemens S7, Schneider Modicon, Allen-Bradley), and RTUs often connect to edge gateways (such as Ignition Edge, Node-RED, or Kepware) that publish aggregated PLC register blocks over MQTT.
+
+#### 1. Network & Payload Architecture
+The pumping station publishes multi-tag telemetry every 2 seconds to topic:
+`scada/plc/scada-pump-station/telemetry`
+
+```json
+{
+  "flow_m3h": 367.0,
+  "tank_pct": 87.0,
+  "pressure_bar": 5.95,
+  "vfd_hz": 49.5,
+  "valve_open": true
+}
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Operator
+    participant Dashboard as Quack Dashboard
+    participant Gateway as Quack Gateway (role mqtt)
+    participant Broker as MQTT Broker (Mosquitto/EMQX)
+    participant PLC as Pumping Station PLC / Gateway
+
+    Note over PLC,Broker: Uplink Telemetry Flow
+    PLC->>Broker: PUBLISH scada/plc/scada-pump-station/telemetry (QoS 1)
+    Broker->>Gateway: DELIVER to Slot 0 Subscription (scada/plc/+/telemetry)
+    Gateway->>Gateway: Extract external_id: "scada-pump-station" (Topic segment 2)
+    Gateway->>Gateway: Field Map to Elements (Flow, Level, Pressure, VFD, Valve)
+    Gateway->>Gateway: Apply Element Pipelines (Station 2)
+    Gateway->>Dashboard: Push via WebSocket element-events.v1
+    Note over Dashboard: Gauges & Trend Charts Update in Real Time
+
+    Note over Operator,PLC: Downlink Control Flow
+    Operator->>Dashboard: Toggle "Main Isolation Valve" Switch (OFF)
+    Dashboard->>Gateway: POST /api/v1/elements/{id}/command (value: false)
+    Gateway->>Gateway: Check User Permissions & Run Inverse Pipeline
+    Gateway->>Gateway: Template Encoder: {"command":"VALVE_CONTROL","state":false}
+    Gateway->>Broker: PUBLISH scada/plc/scada-pump-station/cmd/Main Isolation Valve (QoS 1)
+    Broker->>PLC: DELIVER Actuator Command
+    PLC->>PLC: Modbus write to coil 0001 (Close valve)
+    PLC->>Broker: PUBLISH scada/plc/scada-pump-station/telemetry (valve_open: false)
+    Broker->>Gateway: Uplink Confirmation
+    Gateway->>Dashboard: Confirmed Switch State updated to OFF
+```
+
+#### 2. Uplink Rule & Device Grant
+1. **Grant Device:**
+   - Platform Device: `Water Treatment SCADA`
+   - External ID: `scada-pump-station`
+2. **Uplink Rule:**
+   - **Topic Filter:** `scada/plc/+/telemetry`
+   - **Format:** `json`
+   - **Device Extractor:** Topic Segment `2` (`scada-pump-station`).
+   - **Field Map:**
+     - `flow_m3h` &rarr; `Discharge Flow Rate`
+     - `tank_pct` &rarr; `Reservoir Level`
+     - `pressure_bar` &rarr; `Suction Pressure`
+     - `vfd_hz` &rarr; `Pump VFD Frequency`
+     - `valve_open` &rarr; `Main Isolation Valve`
+
+#### 3. Interactive Pipeline Validation
+Before deploying to production, the rule is tested in the **Test & capture** panel using a simulated SCADA frame:
+
+![SCADA pipeline validation in the Test & Capture drawer](./imgs/screenshots/scada-test-capture.webp)
+
+Notice how the pipeline immediately parses the JSON keys and maps them directly to each monitored element with zero runtime errors.
+
+#### 4. Downlink Actuator Configuration
+To allow operators to remotely open or isolate the main discharge valve:
+- **Device External ID:** `scada-pump-station`
+- **Element:** `Main Isolation Valve`
+- **Topic Template:** `scada/plc/{device}/cmd/{element}`
+- **Payload Encoder:**
+  ```json
+  {
+    "template": {
+      "command": "VALVE_CONTROL",
+      "state": "{{value}}"
+    }
+  }
+  ```
+- **QoS:** `1` (guarantees delivery to the PLC gateway)
+
+#### 5. Live SCADA Monitoring Dashboard & Downlink Control
+Telemetry streams into real-time gauge widgets, trend line charts, and active downlink toggles:
+
+| Confirmed State (Valve Open) | Live Downlink Actuation in Progress (`Turning off...`) |
+|---|---|
+| ![Live SCADA Water Treatment Dashboard with Valve ON](./imgs/screenshots/scada-dashboard-light.webp) | ![Live SCADA Dashboard showing Downlink command execution](./imgs/screenshots/scada-downlink-actuated.webp) |
+
+Notice how clicking the switch immediately enters the pending feedback state (`Turning off...`) while slot 0 dispatches the downlink command over MQTT, transitioning to confirmed state once the PLC reports back.
+
+---
+
+### Case Study 2: Smart Agriculture LoRaWAN Node (Binary Payloads & TTN/ChirpStack Codec)
+
+Battery-powered IoT devices operating over LoRaWAN (via The Things Network, ChirpStack, or AWS IoT Core for LoRaWAN) transmit compact binary frames to minimize radio airtime and maximize battery longevity.
+
+#### 1. Binary Frame Structure
+A long-range soil probe broadcasts a 5-byte unencoded binary frame every 15 minutes to topic:
+`v3/agriculture-app/devices/eui-70b3d57ed0054321/up`
+
+Sample hex payload: `hex:2cbe028023`
+
+| Byte Offset | Field | Raw Value | Conversion Formula | Engineering Value |
+|---|---|---|---|---|
+| Byte 0 | Soil Moisture | `0x2C` (44) | $M = \text{byte}$ | `44 %` |
+| Byte 1 | Soil Temperature | `0xBE` (190) | $T = (\text{byte} - 100) / 10$ | `9.0 °C` |
+| Bytes 2–3 | Electrical Conductivity (EC) | `0x02 0x80` | $\text{EC} = (\text{b}_2 \ll 8) \mid \text{b}_3$ | `640 µS/cm` |
+| Byte 4 (bits 7..1) | Battery Voltage | `0x11` (17) | $V = 3.0 + (\text{bits} \times 0.1)$ | `4.7 V` |
+| Byte 4 (bit 0) | Solenoid Valve State | `0x01` | $\text{bit } 0 == 1$ | `true` (Active) |
+
+#### 2. JavaScript Codec (`decodeUplink` & `encodeDownlink`)
+Quack Quack adheres directly to the open **The Things Network (TTN) Device Repository** codec specification. Decoders execute inside an isolated JavaScript sandbox (Goja runtime, 20 ms strict execution ceiling, no network, no disk access):
+
+```javascript
+// The Things Network / ChirpStack Standard Codec
+function decodeUplink(input) {
+  var bytes = input.bytes;
+  if (!bytes || bytes.length < 5) {
+    return { errors: ["Frame too short for agriculture sensor"] };
+  }
+
+  var moisture = bytes[0];
+  var temp = (bytes[1] - 100) / 10.0;
+  var ec = (bytes[2] << 8) | bytes[3];
+  var batt = 3.0 + ((bytes[4] >> 1) * 0.1);
+  var valve = (bytes[4] & 1) === 1;
+
+  return {
+    data: {
+      moisture: moisture,
+      temperature: temp,
+      ec: ec,
+      battery: Number(batt.toFixed(2)),
+      valve: valve
+    },
+    warnings: [],
+    errors: []
+  };
+}
+
+// Downlink encoder: converts dashboard boolean toggle to LoRaWAN push command
+function encodeDownlink(input) {
+  var open = Boolean(input.data.value);
+  // Returns raw byte array: command byte 0x01, value 0xFF (open) or 0x00 (close)
+  return { bytes: [0x01, open ? 0xFF : 0x00] };
+}
+```
+
+![LoRaWAN JavaScript decoder editor dialog in the admin console](./imgs/screenshots/lorawan-decoder-editor.webp)
+
+#### 3. Uplink Rule & Downlink Configuration
+1. **Grant Device:**
+   - Platform Device: `LoRaWAN Soil Node`
+   - External ID: `eui-70b3d57ed0054321` (LoRaWAN DevEUI)
+2. **Uplink Rule:**
+   - **Topic Filter:** `v3/agriculture-app/devices/+/up`
+   - **Format:** `bytes`
+   - **Decoder:** `LoRaWAN Smart Agriculture Decoder`
+   - **Device Extractor:** Topic Segment `3` (`eui-70b3d57ed0054321`)
+   - **Field Map:**
+     - `moisture` &rarr; `Soil Moisture`
+     - `temperature` &rarr; `Soil Temperature`
+     - `ec` &rarr; `Electrical Conductivity`
+     - `battery` &rarr; `Sensor Battery`
+     - `valve` &rarr; `Irrigation Solenoid`
+3. **Downlink Actuator (Drip Irrigation Valve):**
+   - **Topic Template:** `v3/agriculture-app/devices/{device}/down/push`
+   - **Encoder:** Decoder ID of `LoRaWAN Smart Agriculture Decoder` (calls `encodeDownlink`)
+
+#### 4. Real-Time Soil & Irrigation Dashboard
+The binary payload is automatically converted into live metric cards, sparklines, soil saturation gauges, and remote solenoid valve controls:
+
+![Live LoRaWAN Smart Agriculture Dashboard](./imgs/screenshots/lorawan-dashboard-light.webp)
+
+---
 
 ---
 
