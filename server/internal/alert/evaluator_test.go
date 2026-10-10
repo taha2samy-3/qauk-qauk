@@ -166,4 +166,3 @@ func TestAlertEvaluatorEqualsCondition(t *testing.T) {
 		t.Fatalf("expected recovery when value leaves equals")
 	}
 }
-

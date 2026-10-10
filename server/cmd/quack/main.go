@@ -211,17 +211,20 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	defer producer.Close()
 	producer.OnError = func(topic string, _ error) { metrics.BusProduceErrors.WithLabelValues(topic).Inc() }
 
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
 	errc := make(chan error, 4)
 	var gw *gateway.Gateway
 	if cfg.HasRole("gateway") {
-		gw = gateway.New(ctx, cfg, pool, producer, hist, log)
-		go func() { errc <- gw.Run(ctx) }()
+		gw = gateway.New(runCtx, cfg, pool, producer, hist, log)
+		go func() { errc <- gw.Run(runCtx) }()
 	}
 	if cfg.HasRole("api") {
 		relay := &outbox.Relay{Pool: pool, Producer: producer, Log: log, Published: func(n int) { metrics.OutboxPublished.Add(float64(n)) }}
-		go func() { errc <- relay.Run(ctx) }()
-		go purgeSessions(ctx, pool, log)
-		go webhook.NewDispatcher().StartWorker(ctx, pool, 2*time.Second)
+		go func() { errc <- relay.Run(runCtx) }()
+		go purgeSessions(runCtx, pool, log)
+		go webhook.NewDispatcher().StartWorker(runCtx, pool, 2*time.Second)
 	}
 
 	srv := &http.Server{
@@ -240,14 +243,34 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	select {
 	case <-ctx.Done():
+		log.Info("shutdown signal received; starting graceful shutdown")
 	case err = <-errc:
 		if err != nil {
 			log.Error("component failed", "err", err)
 		}
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+
+	// Phase 1: Gracefully drain gateway WebSocket clients before tearing down listeners
+	if gw != nil {
+		drainBudget := cfg.DrainPropagationWait + cfg.DrainDuration + 2*time.Second
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), drainBudget)
+		gw.Drain(drainCtx)
+		drainCancel()
+	}
+
+	// Phase 2: Cancel background loops (bus broadcast, outbox relay, session purge)
+	cancelRun()
+
+	// Phase 3: Stop HTTP server and in-flight requests
+	shutdownTimeout := cfg.ShutdownTimeout
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = 10 * time.Second
+	}
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
+
+	log.Info("graceful shutdown complete")
 	return err
 }
 

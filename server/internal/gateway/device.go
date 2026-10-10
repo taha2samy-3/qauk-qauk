@@ -24,6 +24,11 @@ func (g *Gateway) DeviceHandler() http.Handler {
 }
 
 func (g *Gateway) handleDevice(w http.ResponseWriter, r *http.Request) {
+	if g.draining.Load() {
+		metrics.WSRejected.WithLabelValues("device", "draining").Inc()
+		http.Error(w, "server draining", http.StatusServiceUnavailable)
+		return
+	}
 	token, ok := authn.BearerToken(r.Header.Get("Authorization"))
 	if !ok {
 		g.rejectDevice(w, "no_token", nil)

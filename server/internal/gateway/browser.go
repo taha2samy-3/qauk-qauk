@@ -30,6 +30,11 @@ func (g *Gateway) BrowserHandler() http.Handler {
 }
 
 func (g *Gateway) handleBrowser(w http.ResponseWriter, r *http.Request) {
+	if g.draining.Load() {
+		metrics.WSRejected.WithLabelValues("browser", "draining").Inc()
+		http.Error(w, "server draining", http.StatusServiceUnavailable)
+		return
+	}
 	if !g.origins.Allowed(r) {
 		metrics.WSRejected.WithLabelValues("browser", "origin").Inc()
 		http.Error(w, "origin not allowed", http.StatusForbidden)

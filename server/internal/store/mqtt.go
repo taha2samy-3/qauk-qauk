@@ -214,7 +214,7 @@ func UpsertMQTTGrant(ctx context.Context, db DBTX, connectionID string, deviceID
 		if err != nil {
 			return mapErr(err)
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 		if err := upsertMQTTGrantLocked(ctx, tx, connectionID, deviceID, externalID); err != nil {
 			return err
 		}

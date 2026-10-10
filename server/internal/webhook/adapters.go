@@ -221,10 +221,10 @@ func formatTeams(evt NotificationEvent) ([]byte, error) {
 							"facts": facts,
 						},
 						{
-							"type":    "TextBlock",
-							"size":    "Small",
+							"type":     "TextBlock",
+							"size":     "Small",
 							"isSubtle": true,
-							"text":    fmt.Sprintf("Quack Quack IoT • %s", evt.Timestamp.UTC().Format(time.RFC1123)),
+							"text":     fmt.Sprintf("Quack Quack IoT • %s", evt.Timestamp.UTC().Format(time.RFC1123)),
 						},
 					},
 				},
@@ -244,18 +244,18 @@ func formatTelegram(evt NotificationEvent) ([]byte, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s <b>[%s] %s</b>\n\n", icon, strings.ToUpper(string(evt.Severity)), evt.Title))
-	sb.WriteString(fmt.Sprintf("%s\n\n", evt.Message))
+	fmt.Fprintf(&sb, "%s <b>[%s] %s</b>\n\n", icon, strings.ToUpper(string(evt.Severity)), evt.Title)
+	fmt.Fprintf(&sb, "%s\n\n", evt.Message)
 	if evt.DeviceName != "" {
-		sb.WriteString(fmt.Sprintf("<b>Device:</b> %s\n", evt.DeviceName))
+		fmt.Fprintf(&sb, "<b>Device:</b> %s\n", evt.DeviceName)
 	}
 	if evt.ElementName != "" {
-		sb.WriteString(fmt.Sprintf("<b>Element:</b> %s\n", evt.ElementName))
+		fmt.Fprintf(&sb, "<b>Element:</b> %s\n", evt.ElementName)
 	}
 	if evt.Value != nil {
-		sb.WriteString(fmt.Sprintf("<b>Value:</b> <code>%v</code>\n", evt.Value))
+		fmt.Fprintf(&sb, "<b>Value:</b> <code>%v</code>\n", evt.Value)
 	}
-	sb.WriteString(fmt.Sprintf("<i>%s</i>", evt.Timestamp.UTC().Format(time.RFC1123)))
+	fmt.Fprintf(&sb, "<i>%s</i>", evt.Timestamp.UTC().Format(time.RFC1123))
 
 	payload := map[string]any{
 		"text":       sb.String(),

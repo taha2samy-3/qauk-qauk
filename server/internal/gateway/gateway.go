@@ -51,9 +51,10 @@ type Gateway struct {
 	mqtt     *mqtt.Transport
 	cmds     commandHooks
 
-	ctx    context.Context // lifetime of the gateway; parent of every socket
-	ctrlCh chan *events.Event
-	seq    atomic.Uint64
+	ctx      context.Context // lifetime of the gateway; parent of every socket
+	ctrlCh   chan *events.Event
+	seq      atomic.Uint64
+	draining atomic.Bool
 }
 
 // New builds a gateway; ctx bounds the lifetime of every socket it accepts.
@@ -84,9 +85,21 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 }
 
 // Ready reports whether the device registry has caught up with its topic
-// (and, with the mqtt role, the MQTT config and members are known).
+// (and, with the mqtt role, the MQTT config and members are known), and the
+// gateway is not in draining mode.
 func (g *Gateway) Ready() bool {
+	return !g.draining.Load() && g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+}
+
+// Initialized reports whether the gateway has completed initial synchronization,
+// regardless of whether it is currently draining.
+func (g *Gateway) Initialized() bool {
 	return g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+}
+
+// IsDraining reports whether the gateway has entered shutdown drain mode.
+func (g *Gateway) IsDraining() bool {
+	return g.draining.Load()
 }
 
 func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1)) }
@@ -211,4 +224,3 @@ func (g *Gateway) Device(id uuid.UUID) (*registry.Device, bool) { return g.regis
 func (g *Gateway) SendUserError(userID string, code, description string, elementID uuid.UUID) {
 	g.hub.SendUserError(userID, code, description, elementID)
 }
-

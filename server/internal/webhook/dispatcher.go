@@ -48,7 +48,7 @@ func (d *Dispatcher) ComputeBackoff(attempt int) time.Duration {
 }
 
 // Deliver sends a single delivery attempt to the endpoint.
-func (d *Dispatcher) Deliver(ctx context.Context, ep store.WebhookEndpoint, dlv store.WebhookDelivery) (int, error, int) {
+func (d *Dispatcher) Deliver(ctx context.Context, ep store.WebhookEndpoint, dlv store.WebhookDelivery) (int, int, error) {
 	var evt NotificationEvent
 	if err := json.Unmarshal(dlv.Payload, &evt); err != nil {
 		// Fallback if payload isn't strict NotificationEvent
@@ -69,12 +69,12 @@ func (d *Dispatcher) Deliver(ctx context.Context, ep store.WebhookEndpoint, dlv 
 
 	body, headers, err := FormatPayload(ep.Format, ep.Secret, evt, ep.CustomTemplate, customHeaders)
 	if err != nil {
-		return 0, fmt.Errorf("format payload: %w", err), 0
+		return 0, 0, fmt.Errorf("format payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err), 0
+		return 0, 0, fmt.Errorf("create request: %w", err)
 	}
 
 	for k, v := range headers {
@@ -86,22 +86,22 @@ func (d *Dispatcher) Deliver(ctx context.Context, ep store.WebhookEndpoint, dlv 
 	latencyMs := int(time.Since(start).Milliseconds())
 
 	if err != nil {
-		return 0, err, latencyMs
+		return 0, latencyMs, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp.StatusCode, nil, latencyMs
+		return resp.StatusCode, latencyMs, nil
 	}
 
 	// Read truncated error body for diagnostics
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	return resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody)), latencyMs
+	return resp.StatusCode, latencyMs, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 }
 
 // ProcessDelivery dispatches a delivery and updates its status in the store.
 func (d *Dispatcher) ProcessDelivery(ctx context.Context, db store.DBTX, ep store.WebhookEndpoint, dlv store.WebhookDelivery) error {
-	statusCode, err, latencyMs := d.Deliver(ctx, ep, dlv)
+	statusCode, latencyMs, err := d.Deliver(ctx, ep, dlv)
 	if err == nil {
 		return store.RecordDeliverySuccess(ctx, db, dlv.ID, statusCode, latencyMs)
 	}
@@ -166,7 +166,7 @@ func (d *Dispatcher) SendTest(ctx context.Context, ep store.WebhookEndpoint, sev
 	if err != nil {
 		return 0, "", latencyMs, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {

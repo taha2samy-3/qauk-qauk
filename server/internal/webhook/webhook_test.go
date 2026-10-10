@@ -256,7 +256,7 @@ func TestDeliverSuccessAndFailure(t *testing.T) {
 		Payload:   raw,
 	}
 
-	code, err, _ := d.Deliver(context.Background(), epOK, dlv)
+	code, _, err := d.Deliver(context.Background(), epOK, dlv)
 	if err != nil {
 		t.Fatalf("expected delivery success, got %v", err)
 	}
@@ -267,7 +267,7 @@ func TestDeliverSuccessAndFailure(t *testing.T) {
 	// 2. Failed delivery (400)
 	epFail := epOK
 	epFail.URL = server.URL + "/bad-request"
-	code, err, _ = d.Deliver(context.Background(), epFail, dlv)
+	code, _, err = d.Deliver(context.Background(), epFail, dlv)
 	if err == nil {
 		t.Fatalf("expected delivery error on 400")
 	}
@@ -275,4 +275,3 @@ func TestDeliverSuccessAndFailure(t *testing.T) {
 		t.Errorf("expected 400, got %d", code)
 	}
 }
-

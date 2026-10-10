@@ -539,9 +539,9 @@ func compileDropIf(s StepConfig) (compiledStep, error) {
 		return compiledStep{}, errors.New("value is required")
 	}
 	ops := map[string]func(float64, float64) bool{
-		"<": func(a, b float64) bool { return a < b },
+		"<":  func(a, b float64) bool { return a < b },
 		"<=": func(a, b float64) bool { return a <= b },
-		">": func(a, b float64) bool { return a > b },
+		">":  func(a, b float64) bool { return a > b },
 		">=": func(a, b float64) bool { return a >= b },
 		"==": func(a, b float64) bool { return a == b },
 		"!=": func(a, b float64) bool { return a != b },

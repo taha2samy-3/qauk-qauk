@@ -86,6 +86,11 @@ type Config struct {
 	// WebDir is the built frontend (web/dist) served at "/"; empty disables it.
 	WebDir   string `env:"QUACK_WEB_DIR"`
 	LogLevel string `env:"QUACK_LOG_LEVEL" envDefault:"info"`
+
+	// Graceful drain & shutdown (F1)
+	DrainDuration        time.Duration `env:"QUACK_DRAIN_DURATION" envDefault:"25s"`
+	DrainPropagationWait time.Duration `env:"QUACK_DRAIN_PROPAGATION_WAIT" envDefault:"3s"`
+	ShutdownTimeout      time.Duration `env:"QUACK_SHUTDOWN_TIMEOUT" envDefault:"10s"`
 }
 
 func Load() (*Config, error) {
