@@ -139,4 +139,17 @@ export const adminApi = {
   setPermission: (body: B['PermissionSetInBody']) => unwrap(api.PUT('/api/v1/admin/permissions', { body })),
   deletePermission: (id: number) =>
     unwrap(api.DELETE('/api/v1/admin/permissions/{id}', { params: { path: { id } } })),
+
+  getPipeline: (elementId: string) =>
+    unwrap(api.GET('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  savePipeline: ({ elementId, ...body }: B['PipelinePutInBody'] & { elementId: string }) =>
+    unwrap(api.PUT('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } }, body })),
+  rollbackPipeline: ({ elementId, ...body }: B['PipelineRollbackInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/rollback', { params: { path: { id: elementId } }, body })),
+  deletePipeline: (elementId: string) =>
+    unwrap(api.DELETE('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  previewPipeline: ({ elementId, ...body }: B['PipelinePreviewInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/preview', { params: { path: { id: elementId } }, body })),
+  testPipeline: ({ elementId, ...body }: B['PipelineTestInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/test', { params: { path: { id: elementId } }, body })),
 }
