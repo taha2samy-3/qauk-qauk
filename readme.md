@@ -187,9 +187,9 @@ Run `task --list` to see every task.
 | ![Sign in page](docs/imgs/screenshots/login-light.webp) | ![Permissions administration](docs/imgs/screenshots/admin-permissions-dark.webp) |
 | **Sign in** | **Administration**: users, groups, keys, devices, permissions, audit log |
 
-**One dashboard, every protocol**: WebSocket, REST, gRPC, Node-RED and MQTT devices side by side, each switch confirmed by its device.
+**One dashboard, every transport**: WebSocket, REST, gRPC and Node-RED devices side by side, each switch confirmed by its device.
 
-![One dashboard fed over WebSocket, REST, gRPC, Node-RED and MQTT](docs/imgs/screenshots/transports-dashboard-light.webp)
+![One dashboard fed over WebSocket, REST, gRPC and Node-RED](docs/imgs/screenshots/transports-dashboard-light.webp)
 
 | | |
 |---|---|

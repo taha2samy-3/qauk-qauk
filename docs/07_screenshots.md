@@ -33,11 +33,11 @@ Every widget has a configuration sheet: title, units, ranges, colored thresholds
 
 ## Device transports
 
-One dashboard fed by all three device transports plus Node-RED and MQTT: *Greenhouse A* over the WebSocket, *Boiler room* over
-REST, *Weather station* over gRPC, the *Packing line* flow in Node-RED, and the *Cold room* through an MQTT broker. Every switch was flipped in the browser,
+One dashboard fed by all three device transports plus Node-RED: *Greenhouse A* over the WebSocket, *Boiler room* over
+REST, *Weather station* over gRPC, and the *Packing line* flow in Node-RED. Every switch was flipped in the browser,
 reached its device over that device's transport, and was confirmed back. Captured by `web/e2e/protocols.spec.ts`.
 
-![Dashboard fed by WebSocket, REST, gRPC, Node-RED and MQTT devices, light theme](./imgs/screenshots/transports-dashboard-light.webp)
+![Dashboard fed by WebSocket, REST, gRPC and Node-RED devices, light theme](./imgs/screenshots/transports-dashboard-light.webp)
 
 ![The same dashboard, dark theme](./imgs/screenshots/transports-dashboard-dark.webp)
 
