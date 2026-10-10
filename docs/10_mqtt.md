@@ -320,6 +320,8 @@ The JavaScript decoder unpacks the binary buffer into structured JSON, and the f
 2. Navigate to **Admin → Elements** and add the elements you want to monitor (e.g., `Temperature`, `Pressure`, `Burner`).
 3. *(Optional)* Click **Pipeline** on any element to add transformation steps (such as `scale` $\times 0.1$, `clamp` $[0, 100]$, or `deadband` $0.5$ to eliminate noise).
 
+![Element Pipeline configuration sheet with live preview and history chart](./imgs/screenshots/admin-pipeline-light.webp)
+
 #### Step 2: Create the MQTT Connection
 1. Navigate to **Admin → MQTT** and click **New connection**.
 2. Fill in your broker details:
@@ -329,6 +331,8 @@ The JavaScript decoder unpacks the binary buffer into structured JSON, and the f
    - **Replicas:** Set to `1` (or more for shared subscription load-balancing).
 3. Click **Create Connection**. The dashboard shows your connection slots and active gateway owner.
 
+![MQTT connections list showing slot allocation, broker URLs, and gateway owners](./imgs/screenshots/mqtt-connections-light.webp)
+
 #### Step 3: Grant the Device
 1. Open the newly created connection and scroll to **Granted Devices**.
 2. Click **Grant device**:
@@ -336,7 +340,7 @@ The JavaScript decoder unpacks the binary buffer into structured JSON, and the f
    - Enter the **External ID** used by your broker/topic (e.g., `boiler-room-1`).
 3. Click **Grant**. The gateway will now accept messages that resolve to this external ID.
 
-#### Step 4: Add Uplink Rules
+#### Step 4: Add Uplink Rules & Field Map
 1. Under **Uplink Rules**, click **Add rule**.
 2. Enter the **Topic filter** (e.g., `quack/demo/+/up`).
 3. Set the **Device extraction**:
@@ -345,12 +349,16 @@ The JavaScript decoder unpacks the binary buffer into structured JSON, and the f
 5. Add your **Field Map** entries mapping JSON paths to your platform elements.
 6. Click **Save Rule**. Within 1 second, the gateway updates its subscriptions on the live topic bus without restarting.
 
+![Connection details page showing slots, granted devices, uplink rules with field map, and downlinks](./imgs/screenshots/mqtt-connection-light.webp)
+
 #### Step 5: Test & Validate Ingestion
 1. In the rule editor, expand the **Test & capture** drawer.
 2. Enter a simulated topic and sample JSON payload, then click **Run pipeline**.
 3. Verify that every element produces the expected numeric or boolean value.
 4. Click **Capture live messages** to inspect raw packets arriving from real hardware.
 5. If any message fails validation, open **Admin → MQTT → Rejected messages** to see the exact reason (e.g., ungranted device, schema mismatch, or rate limit quota exceeded).
+
+![Testing an uplink rule against a payload with live captured message inspection](./imgs/screenshots/mqtt-test-capture-light.webp)
 
 ---
 
@@ -371,6 +379,10 @@ To send commands from dashboard switches, sliders, or automations back to device
    - It runs through the element's **inverse pipeline** (Station 2).
    - Slot 0 publishes the encoded payload to the broker with MQTT 5 QoS 1.
    - The device receives the command, applies it, and publishes its new state on the uplink topic to confirm the switch position.
+
+| Light Theme Live Dashboard | Dark Theme Live Dashboard |
+|---|---|
+| ![A live dashboard fed by MQTT elements and downlinks, light theme](./imgs/screenshots/mqtt-dashboard-light.webp) | ![A live dashboard fed by MQTT elements and downlinks, dark theme](./imgs/screenshots/mqtt-dashboard-dark.webp) |
 
 ---
 
