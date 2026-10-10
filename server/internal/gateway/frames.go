@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 )
 
@@ -43,14 +44,25 @@ func actorUserID(source, id string) json.RawMessage {
 }
 
 // renderMessage serializes an element message once per audience.
-func renderMessage(m *events.ElementMessage, at events.Time) (device, browser []byte) {
+func renderMessage(m *events.ElementMessage, at events.Time, pipe *elementpipe.Pipeline) (device, browser []byte) {
 	auth := authJSON{UserID: actorUserID(m.Source, m.Actor.ID), Username: m.Actor.Name}
 	msg := m.Message
 	if len(msg) == 0 {
 		msg = json.RawMessage("null")
 	}
+	devMsg := msg
+	if m.Source == events.SourceUser && pipe != nil {
+		var parsed map[string]any
+		if err := json.Unmarshal(msg, &parsed); err == nil {
+			if inv, err := pipe.Inverse(parsed); err == nil {
+				if b, err := json.Marshal(inv); err == nil {
+					devMsg = b
+				}
+			}
+		}
+	}
 	ts := at.String()
-	device = mustJSON(deviceMsgFrame{ElementID: m.ElementID.String(), Message: msg, Auth: auth, LastEditAt: ts})
+	device = mustJSON(deviceMsgFrame{ElementID: m.ElementID.String(), Message: devMsg, Auth: auth, LastEditAt: ts})
 	browser = mustJSON(browserMsgFrame{Type: "message_element", ElementID: m.ElementID.String(), Message: msg, Auth: auth, LastEditAt: ts})
 	return device, browser
 }

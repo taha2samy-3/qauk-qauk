@@ -55,6 +55,30 @@ reached its device over that device's transport, and was confirmed back. Capture
 |---|---|
 | ![Elements with their rate limits](./imgs/screenshots/admin-element-limits-light.webp) | ![The rate-limit section of the element form](./imgs/screenshots/admin-element-limit-dialog-light.webp) |
 
+## Element pipelines
+
+In **Admin → Elements**, each element has an in-memory transformation pipeline (Station 2) with steps like `scale`, `round`, `clamp`, `deadband`, `map`, and `script`. The pipeline sheet includes an interactive step editor with invertible badges, a live before-and-after preview table and chart over the last 500 history points, a test console with command inversion verification, and version rollback.
+
+| Light | Dark |
+|---|---|
+| ![Element pipeline sheet with preview and chart, light theme](./imgs/screenshots/admin-pipeline-light.webp) | ![Element pipeline sheet with preview and chart, dark theme](./imgs/screenshots/admin-pipeline-dark.webp) |
+
+## Element alert rules
+
+In **Admin → Elements**, each element row provides a dedicated **Alerts** button. The Alert Rules sheet allows administrators to configure threshold conditions (`above`, `below`, `outside_range`, `equals`), severity levels (`info`, `warning`, `critical`), and anti-flapping hysteresis bands.
+
+| Light | Dark |
+|---|---|
+| ![Element alert rules sheet with configured rules and condition form, light theme](./imgs/screenshots/admin-alerts-light.webp) | ![Element alert rules sheet, dark theme](./imgs/screenshots/admin-alerts-dark.webp) |
+
+## Webhooks
+
+Manage outbound notification destinations across Slack, Discord, Microsoft Teams, Telegram, and standard HMAC-SHA256 webhooks in **Admin → Webhooks**. Deliveries track status, HTTP latency, retries with backoff and jitter, and manual test pings.
+
+| Webhook destinations | Endpoint configuration modal |
+|---|---|
+| ![Webhooks management page with active channels](./imgs/screenshots/admin-webhooks-light.webp) | ![New Webhook endpoint dialog](./imgs/screenshots/admin-webhook-dialog-light.webp) |
+
 ## Dashboards list and tablets
 
 | Your dashboards | Tablet layout |
@@ -99,6 +123,26 @@ Connections show which gateway owns each slot; a connection's page lists its gra
 | ![Decoders](./imgs/screenshots/mqtt-decoders-light.webp) | ![Rejected messages](./imgs/screenshots/mqtt-rejected-light.webp) |
 
 ![Editing a decoder](./imgs/screenshots/mqtt-decoder-edit-light.webp)
+
+### Industrial SCADA & LoRaWAN Live Case Studies
+
+Real-world end-to-end telemetry and bidirectional downlink actuator controls:
+
+| SCADA Water Treatment Dashboard | Smart Agriculture LoRaWAN Dashboard |
+|---|---|
+| ![Live SCADA Pumping Station Dashboard](./imgs/screenshots/scada-dashboard-light.webp) | ![Live LoRaWAN Smart Agriculture Dashboard](./imgs/screenshots/lorawan-dashboard-light.webp) |
+
+| SCADA Rule Test & Capture | LoRaWAN JavaScript Codec Editor |
+|---|---|
+| ![Testing a SCADA telemetry frame](./imgs/screenshots/scada-test-capture.webp) | ![Editing the LoRaWAN TTN JavaScript decoder](./imgs/screenshots/lorawan-decoder-editor.webp) |
+
+| Configured Downlinks Table | New Downlink Configuration Dialog |
+|---|---|
+| ![Active Downlink rules table showing target devices and encoders](./imgs/screenshots/mqtt-downlinks-table.webp) | ![New downlink dialog with JSON template encoder](./imgs/screenshots/mqtt-downlink-dialog.webp) |
+
+| Live Downlink Actuation Feedback |
+|---|
+| ![Live SCADA Dashboard showing Downlink actuation in progress](./imgs/screenshots/scada-downlink-actuated.webp) |
 
 ## Friendly empty and error states
 

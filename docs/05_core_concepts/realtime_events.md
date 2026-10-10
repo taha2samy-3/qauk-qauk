@@ -4,7 +4,7 @@ Everything that moves between server processes goes over Redpanda as a **CloudEv
 
 ## Topics
 
-There are nine topics, all created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
+There are ten topics, all created by `quack migrate`. Topic auto-creation is disabled in the bundled Redpanda config. No topic is ever created per device or per element.
 
 | Topic | Partitions | Retention | Key | Event type | Producers | Consumers |
 |---|---|---|---|---|---|---|
@@ -14,6 +14,7 @@ There are nine topics, all created by `quack migrate`. Topic auto-creation is di
 | `element-state.v1` | 12 | compacted | `element_id` | `io.quack.element.message.v1` (the newest stored device message) | `quack ingest`, after each batch | every gateway, read in full on start to warm the latest values |
 | `device-config.v1` | 3 | compacted (tombstones kept 1 day) | `device_id` | `io.quack.device.config.v1` (a full device snapshot); a deleted device gets a tombstone | outbox relay, in the transaction of every device, element or key change | every gateway, read in full on start and followed ([below](#device-config-v1)) |
 | `element-events.dlq.v1` | 3 | 30 days | `element_id` | the original record, unchanged, plus an `error` header with the reason and a `source` header (topic/partition/offset) | `quack ingest`, for events the history store rejected | operators, to inspect and replay |
+| `element-pipeline.dlq.v1` | 3 | 30 days | `element_id` | plain JSON: `{element, device, pipeline_version, step, reason, message, time, gateway}` | gateways | operators, for pipeline error inspection |
 | `mqtt-config.v1` | 3 | compacted (tombstones kept 1 day) | connection id | `io.quack.mqtt.config.v1` (a full [MQTT connection](../10_mqtt.md) snapshot: rules, decoders, grants, downlinks; secrets only as references); a deleted connection gets a tombstone | outbox relay, in the transaction of every MQTT change | gateways with the `mqtt` role, read in full on start and followed |
 | `mqtt.dlq.v1` | 3 | 30 days | connection id | plain JSON (not a CloudEvent): a rejected MQTT message with its topic, the first 4 KiB of the payload and the reasons | `mqtt` gateways | operators, through *Admin → MQTT → Rejected messages* |
 | `mqtt-capture.v1` | 3 | 1 hour | rule id | plain JSON: raw messages of a rule while capture is on | `mqtt` gateways | the admin's *Test & capture* panel |
@@ -47,6 +48,7 @@ Records use the CloudEvents **Kafka binding in structured mode**: the record val
 | `time` | Server clock, RFC 3339 UTC, millisecond precision. Ties are broken by `id`. |
 | `dataschema` | The `$id` of the JSON Schema in [`server/schemas/`](https://github.com/taha2samy-3/qauk-qauk/tree/main/server/schemas), embedded in the binary |
 | `quackvia` | Optional extension attribute: the connection a device message came through when the device didn't send it itself, e.g. `mqtt/<connection id>` for values from an MQTT broker. Absent for the device's own WebSocket, REST or gRPC messages. |
+| `quackpipeline` | Optional extension attribute: the integer version of the element pipeline that transformed this message (e.g. `1`). Absent if no pipeline was configured. |
 
 Versioning: an additive change (a new optional field) keeps the type. A breaking change gets a new `.v2` type **and** a new topic, and producers write to both during the migration. Background: [MESSAGE_FORMATS.md](../refactor/MESSAGE_FORMATS.md).
 

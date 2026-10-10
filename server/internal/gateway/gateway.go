@@ -18,6 +18,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/config"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/gateway/mqtt"
 	"github.com/taha2samy/quackquack/server/internal/history"
@@ -50,9 +51,10 @@ type Gateway struct {
 	mqtt     *mqtt.Transport
 	cmds     commandHooks
 
-	ctx    context.Context // lifetime of the gateway; parent of every socket
-	ctrlCh chan *events.Event
-	seq    atomic.Uint64
+	ctx      context.Context // lifetime of the gateway; parent of every socket
+	ctrlCh   chan *events.Event
+	seq      atomic.Uint64
+	draining atomic.Bool
 }
 
 // New builds a gateway; ctx bounds the lifetime of every socket it accepts.
@@ -83,9 +85,21 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 }
 
 // Ready reports whether the device registry has caught up with its topic
-// (and, with the mqtt role, the MQTT config and members are known).
+// (and, with the mqtt role, the MQTT config and members are known), and the
+// gateway is not in draining mode.
 func (g *Gateway) Ready() bool {
+	return !g.draining.Load() && g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+}
+
+// Initialized reports whether the gateway has completed initial synchronization,
+// regardless of whether it is currently draining.
+func (g *Gateway) Initialized() bool {
 	return g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+}
+
+// IsDraining reports whether the gateway has entered shutdown drain mode.
+func (g *Gateway) IsDraining() bool {
+	return g.draining.Load()
 }
 
 func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1)) }
@@ -139,7 +153,13 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 		if err != nil {
 			return
 		}
-		dev, br := renderMessage(&m, ev.Time)
+		var pipe *elementpipe.Pipeline
+		if dev, ok := g.registry.Lookup(m.DeviceID); ok {
+			if el, ok := dev.Element(m.ElementID); ok {
+				pipe = el.Pipeline
+			}
+		}
+		dev, br := renderMessage(&m, ev.Time, pipe)
 		g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
 		g.notifyCommand(&m, id, ev.Time.Time)
 	case events.TypeDevicePresence:
@@ -160,11 +180,11 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 // first (fast path), then publish to the bus for other gateways and the
 // ingester. It returns the event id.
 func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) string {
-	return g.publishElementDone(m, localOrigin, nil)
+	return g.publishElementDone(m, localOrigin, nil, 0)
 }
 
 // publishElementDone is publishElement with a durability callback (nil: none).
-func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error)) string {
+func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error), pipelineVersion int) string {
 	ev, err := events.New(events.TypeElementMessage, events.GatewaySource(g.cfg.GatewayID), m.ElementID.String(), m)
 	if err != nil {
 		g.log.Error("gateway: build event", "err", err)
@@ -176,7 +196,16 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 	if strings.HasPrefix(localOrigin, viaMQTT) {
 		ev.QuackVia = localOrigin
 	}
-	dev, br := renderMessage(m, ev.Time)
+	if pipelineVersion > 0 {
+		ev.QuackPipeline = &pipelineVersion
+	}
+	var pipe *elementpipe.Pipeline
+	if dev, ok := g.registry.Lookup(m.DeviceID); ok {
+		if el, ok := dev.Element(m.ElementID); ok {
+			pipe = el.Pipeline
+		}
+	}
+	dev, br := renderMessage(m, ev.Time, pipe)
 	id := uuid.MustParse(ev.ID)
 	g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
 	g.notifyCommand(m, id, ev.Time.Time)
@@ -190,3 +219,8 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 
 // Device returns a device's snapshot from the in-memory registry.
 func (g *Gateway) Device(id uuid.UUID) (*registry.Device, bool) { return g.registry.Lookup(id) }
+
+// SendUserError routes an error frame to a user's dashboard clients.
+func (g *Gateway) SendUserError(userID string, code, description string, elementID uuid.UUID) {
+	g.hub.SendUserError(userID, code, description, elementID)
+}

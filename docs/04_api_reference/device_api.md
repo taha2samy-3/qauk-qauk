@@ -110,7 +110,19 @@ Every numeric attribute of a message is stored as its own series, with 1-minute 
 - a `message` with a NUL character (`\u0000`) or an unpaired UTF-16 surrogate, which history stores can't keep (`quack_dropped_total{reason="unstorable"}`)
 - an element that does not belong to this device, or has been deleted
 - frames over the device's limit (`QUACK_DEVICE_MSG_RATE`, default 500/s for all of a device's sockets), or over the element's limit when the element is set to `drop` (default 50/s, set per element; see [Rate limits](../05_core_concepts/rate_limits.md)). An element set to `latest` keeps the newest held value and sends it when the limit allows.
+- messages filtered by an [element pipeline](../05_core_concepts/element_pipeline.md) (such as `deadband`, `drop_if`, or a script returning `null`). Filtered messages do not consume rate limit tokens.
 - binary frames
+
+**Pipeline errors:** if an element pipeline fails (e.g. script exception, timeout, invalid type), the socket stays open, the raw message is sent to `element-pipeline.dlq.v1`, and the server sends an error frame back to the device socket:
+
+```json
+{
+  "type": "error",
+  "error_code": "pipeline_failed",
+  "description": "script: TypeError: cannot read property 'x' of undefined",
+  "element_id": "98994c94-71b8-53b0-85f3-d1c6483978de"
+}
+```
 
 ## Commands: server to device
 
@@ -131,6 +143,8 @@ A device socket receives every message for its elements that it did **not** send
 | Another socket of the **same device** (telemetry) | the device UUID, a JSON **string** | the device name |
 
 `last_edit_at` is the server time in RFC 3339 UTC with milliseconds. The server never echoes a frame back to the socket that sent it.
+
+**Command inversion.** If an element has an [element pipeline](../05_core_concepts/element_pipeline.md) with invertible steps (e.g. `scale`, `round`, `clamp`, `map`), user commands sent to the device are automatically transformed using the pipeline's **inverse**. For example, if telemetry scales raw sensor rpm `0–3000` to percentage `0–100%`, a slider command of `50%` is inverted so the device receives `{"value": 1500}` (in rpm). Dashboards and history keep engineering units (`50%`).
 
 **Actuator pattern.** Apply the command, then send the new state back as telemetry (`{"element_id": ..., "message": {"value": 1}}`). Dashboards treat that echo as confirmation; the switch widget waits for it.
 

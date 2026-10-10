@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/taha2samy/quackquack/server/internal/cluster"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/gateway/mqtt"
 	"github.com/taha2samy/quackquack/server/internal/ratelimit"
@@ -42,12 +43,25 @@ func (g *Gateway) notifyCommand(m *events.ElementMessage, id uuid.UUID, at time.
 		return
 	}
 	name := ""
+	var pipe *elementpipe.Pipeline
 	if dev, ok := g.registry.Lookup(m.DeviceID); ok {
 		if el, ok := dev.Element(m.ElementID); ok {
 			name = el.Name
+			pipe = el.Pipeline
 		}
 	}
-	cmd := mqtt.Command{DeviceID: m.DeviceID, ElementID: m.ElementID, Element: name, Message: m.Message,
+	msg := m.Message
+	if pipe != nil {
+		var parsed map[string]any
+		if err := json.Unmarshal(m.Message, &parsed); err == nil {
+			if inv, err := pipe.Inverse(parsed); err == nil {
+				if b, err := json.Marshal(inv); err == nil {
+					msg = b
+				}
+			}
+		}
+	}
+	cmd := mqtt.Command{DeviceID: m.DeviceID, ElementID: m.ElementID, Element: name, Message: msg,
 		UserID: m.Actor.ID, UserName: m.Actor.Name, Time: at}
 	for _, h := range g.cmds.hooks {
 		h(cmd)
@@ -92,6 +106,10 @@ func (c mqttCore) OnCommand(fn func(mqtt.Command)) func() {
 		delete(h.hooks, id)
 		h.mu.Unlock()
 	}
+}
+
+func (c mqttCore) SendUserError(userID string, code, description string, elementID uuid.UUID) {
+	c.g.SendUserError(userID, code, description, elementID)
 }
 
 // mqttCluster reads live gateways with the mqtt role from gateway_members.

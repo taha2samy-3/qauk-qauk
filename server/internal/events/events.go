@@ -28,6 +28,9 @@ const (
 	// keyed by connection id; tombstone on delete). Gateways with the mqtt
 	// role follow it.
 	TopicMQTTConfig = "mqtt-config.v1"
+	// TopicElementPipelineDLQ receives element pipeline failures (truncated
+	// message plus step and reason).
+	TopicElementPipelineDLQ = "element-pipeline.dlq.v1"
 	// TopicMQTTDLQ receives MQTT messages the source pipeline or the core
 	// rejected (raw payload, truncated, plus the reason).
 	TopicMQTTDLQ = "mqtt.dlq.v1"
@@ -86,8 +89,10 @@ type Event struct {
 	PartitionKey    string `json:"partitionkey"`
 	// QuackVia is an extension attribute: the transport connection a device
 	// message came through when it isn't the device's own (e.g. mqtt/<id>).
-	QuackVia string          `json:"quackvia,omitempty"`
-	Data     json.RawMessage `json:"data"`
+	QuackVia string `json:"quackvia,omitempty"`
+	// QuackPipeline is an extension attribute: the pipeline version that transformed the message.
+	QuackPipeline *int            `json:"quackpipeline,omitempty"`
+	Data          json.RawMessage `json:"data"`
 }
 
 // New builds an event with a UUIDv7 id. The subject doubles as the partition key.
@@ -196,13 +201,31 @@ type DeviceKey struct {
 	Active    bool      `json:"active"`
 }
 
+type PipelineConfig struct {
+	Version int             `json:"version"`
+	Steps   json.RawMessage `json:"steps"`
+}
+
 type ElementConfig struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Points    int       `json:"points"`
-	Rate      *float64  `json:"rate"`
-	Burst     *int      `json:"burst"`
-	OverLimit string    `json:"over_limit"`
+	ID        uuid.UUID       `json:"id"`
+	Name      string          `json:"name"`
+	Points    int             `json:"points"`
+	Rate      *float64        `json:"rate"`
+	Burst     *int            `json:"burst"`
+	OverLimit string          `json:"over_limit"`
+	Pipeline  *PipelineConfig `json:"pipeline,omitempty"`
+}
+
+// ElementPipelineFailed is published to element-pipeline.dlq.v1 when a pipeline step fails.
+type ElementPipelineFailed struct {
+	ElementID       uuid.UUID       `json:"element_id"`
+	DeviceID        uuid.UUID       `json:"device_id"`
+	PipelineVersion int             `json:"pipeline_version"`
+	Step            string          `json:"step"`
+	Reason          string          `json:"reason"`
+	Message         json.RawMessage `json:"message"`
+	GatewayID       string          `json:"gateway_id"`
+	Time            time.Time       `json:"time"`
 }
 
 // Control is a convenience constructor for control-change events from the API.

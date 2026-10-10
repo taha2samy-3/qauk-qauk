@@ -14,6 +14,7 @@ export const adminKeys = {
   devices: qk.admin('devices'),
   elements: (deviceId?: string) => qk.admin('elements', deviceId ?? null),
   styles: (elementId: string) => qk.admin('styles', elementId),
+  pipeline: (elementId: string) => qk.admin('pipeline', elementId),
   permissions: (f?: { element_id?: string; user_id?: number; group_id?: number }) =>
     qk.admin('permissions', f ?? {}),
   connections: (f?: { device_id?: string; limit?: number }) => qk.admin('connections', f ?? {}),
@@ -46,6 +47,13 @@ export const useStyles = (elementId: string | undefined) =>
     queryKey: adminKeys.styles(elementId ?? ''),
     queryFn: () =>
       list(api.GET('/api/v1/admin/elements/{id}/styles', { params: { path: { id: elementId! } } })),
+    enabled: !!elementId,
+  })
+export const useElementPipeline = (elementId: string | undefined) =>
+  useQuery({
+    queryKey: adminKeys.pipeline(elementId ?? ''),
+    queryFn: () =>
+      unwrap(api.GET('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId! } } })),
     enabled: !!elementId,
   })
 export const usePermissions = (f: { element_id?: string; user_id?: number; group_id?: number }) =>
@@ -131,4 +139,17 @@ export const adminApi = {
   setPermission: (body: B['PermissionSetInBody']) => unwrap(api.PUT('/api/v1/admin/permissions', { body })),
   deletePermission: (id: number) =>
     unwrap(api.DELETE('/api/v1/admin/permissions/{id}', { params: { path: { id } } })),
+
+  getPipeline: (elementId: string) =>
+    unwrap(api.GET('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  savePipeline: ({ elementId, ...body }: B['PipelinePutInBody'] & { elementId: string }) =>
+    unwrap(api.PUT('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } }, body })),
+  rollbackPipeline: ({ elementId, ...body }: B['PipelineRollbackInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/rollback', { params: { path: { id: elementId } }, body })),
+  deletePipeline: (elementId: string) =>
+    unwrap(api.DELETE('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  previewPipeline: ({ elementId, ...body }: B['PipelinePreviewInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/preview', { params: { path: { id: elementId } }, body })),
+  testPipeline: ({ elementId, ...body }: B['PipelineTestInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/test', { params: { path: { id: elementId } }, body })),
 }

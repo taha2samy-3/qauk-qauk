@@ -353,6 +353,9 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_MQTT_WEIGHT` | `1` | serve (`mqtt`) | This gateway's weight in the MQTT slot assignment: a gateway with weight 2 owns about twice as many slots. |
 | `QUACK_MQTT_CONNECTION_MSG_RATE` | `5000` | serve (`mqtt`) | Messages per second one MQTT connection may turn into values on one gateway. The excess is rejected (dead-lettered). |
 | `QUACK_ALLOW_INSECURE_TLS` | `false` | serve | Lets MQTT connections use passwords without TLS and `insecure_skip_verify`. For development brokers only. |
+| `QUACK_DRAIN_DURATION` | `25s` | serve | Time over which open WebSockets are closed in batches with randomized jitter during graceful shutdown (F1). |
+| `QUACK_DRAIN_PROPAGATION_WAIT` | `3s` | serve | Pause after `/readyz` fails (503) before closing sockets to allow Ingress / load balancers time to remove this pod. |
+| `QUACK_SHUTDOWN_TIMEOUT` | `10s` | serve | Maximum time for `http.Server.Shutdown()` to complete in-flight HTTP requests after draining. |
 | `QUACK_WEB_DIR` | `../web` | serve | Directory of the built web app, served at `/` with SPA fallback. It is ignored if missing; set it to empty to disable. The tasks use `web/dist`, and the image uses `/web`. |
 | `QUACK_LOG_LEVEL` | `info` | all | `debug`, `info`, `warn`, `error`. Logs are JSON on stderr. |
 | `QUACK_KAFKA_DEBUG` | *(unset)* | ingest | Any value enables franz-go client logs for the consumer group. |

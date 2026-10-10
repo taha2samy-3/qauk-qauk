@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements,
-		element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
+		element_pipelines, element_pipeline_versions, element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
 		gateway_members RESTART IDENTITY CASCADE`); err != nil {
 		fmt.Println("truncate:", err)
 		os.Exit(1)
@@ -204,7 +204,7 @@ type client struct {
 
 func newClient(t *testing.T, base string) *client {
 	jar, _ := cookiejar.New(nil)
-	return &client{t: t, base: base, http: &http.Client{Jar: jar, Timeout: 10 * time.Second}}
+	return &client{t: t, base: base, http: &http.Client{Jar: jar, Timeout: 30 * time.Second}}
 }
 
 type resp struct {

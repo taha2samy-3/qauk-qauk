@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/json"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -12,9 +14,10 @@ import (
 )
 
 type ringEntry struct {
-	id    uuid.UUID
-	at    time.Time
-	frame []byte // browser message_element frame
+	id      uuid.UUID
+	at      time.Time
+	frame   []byte // browser message_element frame
+	message map[string]any
 }
 
 // elementState is the local audience and history window of one element.
@@ -97,6 +100,18 @@ func (h *Hub) Latest(elementID uuid.UUID) (ringEntry, bool) {
 	return e, ok
 }
 
+// LatestMessage returns the newest decoded device message map, timestamp, and true,
+// or nil, zero time, false if no message has been seen.
+func (h *Hub) LatestMessage(elementID uuid.UUID) (map[string]any, time.Time, bool) {
+	h.lmu.RLock()
+	defer h.lmu.RUnlock()
+	e, ok := h.latest[elementID]
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	return e.message, e.at, true
+}
+
 func (h *Hub) forget(elementID uuid.UUID) {
 	h.lmu.Lock()
 	delete(h.latest, elementID)
@@ -167,7 +182,9 @@ func (h *Hub) ensure(id, deviceID uuid.UUID, points int) *elementState {
 // except the origin socket, and appends device data to the history window.
 func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame, browserFrame []byte, localOrigin string) {
 	if m.Source == events.SourceDevice {
-		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame})
+		var parsed map[string]any
+		_ = json.Unmarshal(m.Message, &parsed)
+		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame, message: parsed})
 	} else {
 		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: deviceFrame})
 	}
@@ -296,6 +313,35 @@ func (h *Hub) AllBrowserClients() []*browserClient {
 		}
 	}
 	return out
+}
+
+// SendUserError routes an error frame to all connected browser clients of the given user.
+// If the user has disconnected or has no active sockets, it safely returns without panicking.
+func (h *Hub) SendUserError(userIDStr string, code, description string, elementID uuid.UUID) {
+	uid, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	m, ok := h.users[uid]
+	if !ok || len(m) == 0 {
+		h.mu.RUnlock()
+		return
+	}
+	clients := make([]*browserClient, 0, len(m))
+	for _, b := range m {
+		clients = append(clients, b)
+	}
+	h.mu.RUnlock()
+
+	var elStr string
+	if elementID != uuid.Nil {
+		elStr = elementID.String()
+	}
+	frame := errorFrame(code, description, elStr)
+	for _, b := range clients {
+		b.Send(frame)
+	}
 }
 
 // NeedsHistory reports whether stored history must be loaded before replay.

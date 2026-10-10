@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 370 64" width="370" height="64" role="img" aria-labelledby="t-alerts-wm">
+  <title id="t-alerts-wm">Quack Quack - Alerts &amp; Notification Channels Wordmark</title>
+  <style>
+    .qq-word { fill: #0F172A; }
+    .qq-tag { fill: #BE123C; }
+    @media (prefers-color-scheme: dark) {
+      .qq-word { fill: #F8FAFC; }
+      .qq-tag { fill: #FB7185; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="qq-alerts-bg-wm" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="0.45" stop-color="#4F46E5"/>
+      <stop offset="0.8" stop-color="#BE123C"/>
+      <stop offset="1" stop-color="#E11D48"/>
+    </linearGradient>
+  </defs>
+  <!-- Mark icon -->
+  <g transform="translate(0, 0)">
+    <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-alerts-bg-wm)"/>
+    <path d="M16.5 35.5C14.2 41.2 11 43.6 6.6 43.2C7.4 49.8 12.2 53.5 19 53.5H32.5C37.4 53.5 40.5 50.6 40.5 46.6C40.5 41.4 35.4 37.7 29 36.2Z" fill="#FFFFFF"/>
+    <circle cx="22.5" cy="27.5" r="11" fill="#FFFFFF"/>
+    <path d="M31.5 25.6C36.4 24.4 41.4 25 44.2 28.1C41.6 31.6 36.6 32.6 31.5 31.4Z" fill="#FBBF24"/>
+    <circle cx="25.4" cy="24.4" r="2.3" fill="#1E1B4B"/>
+    
+    <path d="M43.5 24.5 A5 5 0 0 1 43.5 31.5" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" opacity="0.85"/>
+    <path d="M46.5 22.5 A8.5 8.5 0 0 1 46.5 33.5" fill="none" stroke="#FDA4AF" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+    
+    <circle cx="51.5" cy="13.8" r="1.5" fill="none" stroke="#FFFFFF" stroke-width="1.2"/>
+    <path d="M51.5 15.5 C49.5 15.5 48.2 17 48 18.8 C47.7 21 46.8 23.2 44.8 24.5 C44.3 24.9 44.6 25.8 45.3 25.8 H57.7 C58.4 25.8 58.7 24.9 58.2 24.5 C56.2 23.2 55.3 21 55 18.8 C54.8 17 53.5 15.5 51.5 15.5 Z" fill="#FFFFFF"/>
+    <circle cx="51.5" cy="27.2" r="1.8" fill="#FBBF24"/>
+    
+    <line x1="51.5" y1="29" x2="55" y2="43" stroke="#FB7185" stroke-width="1.6" stroke-dasharray="2 1.5"/>
+    <circle cx="55" cy="43" r="3.2" fill="#E11D48"/>
+    <circle cx="55" cy="43" r="1.2" fill="#FFFFFF"/>
+    
+    <line x1="48" y1="27" x2="42" y2="38.5" stroke="#FBBF24" stroke-width="1.5"/>
+    <circle cx="42" cy="38.5" r="2.8" fill="#FBBF24"/>
+    <circle cx="42" cy="38.5" r="1.1" fill="#78350F"/>
+    
+    <line x1="55" y1="27" x2="59" y2="33.5" stroke="#38BDF8" stroke-width="1.4" opacity="0.8"/>
+    <circle cx="59" cy="33.5" r="2.2" fill="#38BDF8"/>
+    <circle cx="59" cy="33.5" r="0.9" fill="#FFFFFF"/>
+  </g>
+  <!-- Wordmark & Subtitle -->
+  <text x="78" y="36" class="qq-word" font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="27" font-weight="700" letter-spacing="-0.5">Quack Quack</text>
+  <circle cx="81" cy="50.5" r="3" fill="#E11D48"/>
+  <text x="89" y="54" class="qq-tag" font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="600" letter-spacing="1.4">ALERTS &amp; NOTIFICATION CHANNELS</text>
+</svg>

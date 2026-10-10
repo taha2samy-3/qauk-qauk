@@ -245,7 +245,12 @@ export function MqttConnectionsPage() {
   return (
     <Page wide>
       <PageHeader
-        title="MQTT"
+        title={
+          <span className="flex items-center gap-2.5">
+            <img src="/brand/logo-gateway.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>MQTT</span>
+          </span>
+        }
         description="Brokers the gateways subscribe to. Messages become element values through each rule's decoder and field map."
         actions={
           <Button onClick={() => setOpen(true)}>

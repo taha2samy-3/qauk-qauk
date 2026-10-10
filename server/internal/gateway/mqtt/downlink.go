@@ -13,22 +13,27 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/sourcepipe"
 )
 
+const (
+	defaultMaxRetries     = 3
+	defaultInitialBackoff = 50 * time.Millisecond
+	defaultMaxBackoff     = 500 * time.Millisecond
+	maxInFlightDownlinks  = 1000
+)
+
 // downlink publishes a user command for a device served over MQTT. Every
 // gateway sees every command; only the owner of slot 0 of the connection
 // publishes it, so a command goes out once (a rare duplicate during a
 // handover is harmless: commands set values).
 func (t *Transport) downlink(cmd Command) {
 	type job struct {
-		s      *slot
-		c      *connConfig
-		d      *downlink
+		connID string
 		devExt string
 	}
 	var jobs []job
 	t.mu.Lock()
 	for _, c := range t.devIdx[cmd.DeviceID] {
 		ext := c.byDevice[cmd.DeviceID]
-		d, ok := c.downlinks[ext+"\x00"+cmd.Element]
+		_, ok := c.downlinks[ext+"\x00"+cmd.Element]
 		if !ok {
 			continue
 		}
@@ -36,19 +41,84 @@ func (t *Transport) downlink(cmd Command) {
 		if s == nil {
 			continue // another gateway owns slot 0
 		}
-		jobs = append(jobs, job{s, c, d, ext})
+		jobs = append(jobs, job{connID: c.cfg.Connection.ID, devExt: ext})
 	}
 	t.mu.Unlock()
+
 	for _, j := range jobs {
-		go func() {
-			if err := j.s.publishCommand(j.c, j.d, j.devExt, cmd); err != nil {
-				metrics.MQTTDownlinks.WithLabelValues("error").Inc()
-				t.o.Log.Warn("mqtt: downlink failed", "connection", j.c.cfg.Connection.ID, "device", j.devExt,
-					"element", cmd.Element, "err", err)
-				return
+		if t.inFlight.Add(1) > maxInFlightDownlinks {
+			t.inFlight.Add(-1)
+			metrics.MQTTDownlinks.WithLabelValues("dropped_capacity").Inc()
+			t.o.Log.Warn("mqtt: downlink retry buffer capacity exceeded", "connection", j.connID,
+				"device", j.devExt, "element", cmd.Element)
+			if cmd.UserID != "" {
+				t.o.Core.SendUserError(cmd.UserID, "delivery_failed", "MQTT downlink buffer full", cmd.ElementID)
 			}
-			metrics.MQTTDownlinks.WithLabelValues("ok").Inc()
-		}()
+			continue
+		}
+
+		go func(j job) {
+			defer t.inFlight.Add(-1)
+
+			maxRetries := t.o.MaxRetries
+			if maxRetries <= 0 {
+				maxRetries = defaultMaxRetries
+			}
+			initBackoff := t.o.RetryInitialBackoff
+			if initBackoff <= 0 {
+				initBackoff = defaultInitialBackoff
+			}
+			maxBackoff := t.o.RetryMaxBackoff
+			if maxBackoff <= 0 {
+				maxBackoff = defaultMaxBackoff
+			}
+
+			var lastErr error
+			for attempt := 0; attempt <= maxRetries; attempt++ {
+				t.mu.Lock()
+				c := t.conns[j.connID]
+				var s *slot
+				var d *downlink
+				if c != nil {
+					s = t.slots[slotKey{j.connID, 0}]
+					d = c.downlinks[j.devExt+"\x00"+cmd.Element]
+				}
+				t.mu.Unlock()
+
+				if c == nil || d == nil {
+					metrics.MQTTDownlinks.WithLabelValues("error").Inc()
+					if cmd.UserID != "" {
+						t.o.Core.SendUserError(cmd.UserID, "delivery_failed", "MQTT downlink configuration removed", cmd.ElementID)
+					}
+					return
+				}
+
+				if s != nil {
+					lastErr = s.publishCommand(c, d, j.devExt, cmd)
+					if lastErr == nil {
+						metrics.MQTTDownlinks.WithLabelValues("ok").Inc()
+						return
+					}
+				} else {
+					lastErr = errors.New("not connected: slot 0 unavailable")
+				}
+
+				if attempt < maxRetries {
+					delay := initBackoff * (1 << attempt)
+					if delay > maxBackoff {
+						delay = maxBackoff
+					}
+					time.Sleep(delay)
+				}
+			}
+
+			metrics.MQTTDownlinks.WithLabelValues("error").Inc()
+			t.o.Log.Warn("mqtt: downlink failed after retries", "connection", j.connID,
+				"device", j.devExt, "element", cmd.Element, "err", lastErr)
+			if cmd.UserID != "" {
+				t.o.Core.SendUserError(cmd.UserID, "delivery_failed", "MQTT broker unreachable after retries", cmd.ElementID)
+			}
+		}(j)
 	}
 }
 

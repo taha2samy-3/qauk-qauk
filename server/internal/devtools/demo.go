@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -55,9 +56,9 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mq
 	if err != nil {
 		return err
 	}
-	existing := map[string]bool{}
+	existing := map[string]uuid.UUID{}
 	for _, d := range devices {
-		existing[d.Name] = true
+		existing[d.Name] = d.ID
 	}
 	// Keep keys of devices seeded earlier: only missing devices are created.
 	var file DemoFile
@@ -92,6 +93,7 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mq
 		name, kind, details string
 		min, max, period    float64
 		points              int
+		pipeline            string
 	}
 	plan := []struct {
 		name, alg string
@@ -99,36 +101,55 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mq
 		mqtt      string // external id when the device talks MQTT
 	}{
 		{"Greenhouse A", "ES256", []el{
-			{"Temperature", "sensor", `{"title":"Temperature","unit":"°C","minValue":-10,"maxValue":50}`, 15, 32, 60, 100},
-			{"Humidity", "sensor", `{"title":"Humidity","unit":"%","minValue":0,"maxValue":100}`, 40, 85, 90, 100},
-			{"Soil moisture", "chart", `{"title":"Soil moisture","unit":"%"}`, 20, 60, 120, 300},
-			{"Irrigation pump", "switch", `{"title":"Irrigation pump"}`, 0, 1, 0, 20},
-			{"Fan speed", "slider", `{"title":"Fan speed","unit":"%","min":0,"max":100,"step":5}`, 0, 100, 0, 20},
+			{"Temperature", "sensor", `{"title":"Temperature","unit":"°C","minValue":-10,"maxValue":50}`, 15, 32, 60, 100, ""},
+			{"Humidity", "sensor", `{"title":"Humidity","unit":"%","minValue":0,"maxValue":100}`, 40, 85, 90, 100, ""},
+			{"Soil moisture", "chart", `{"title":"Soil moisture","unit":"%"}`, 200, 650, 120, 300,
+				`[{"kind":"scale","field":"value","mul":0.09775},{"kind":"round","field":"value","decimals":1},{"kind":"clamp","field":"value","min":0,"max":100}]`},
+			{"Irrigation pump", "switch", `{"title":"Irrigation pump"}`, 0, 1, 0, 20, ""},
+			{"Fan speed", "slider", `{"title":"Fan speed","unit":"%","min":0,"max":100,"step":5}`, 0, 100, 0, 20,
+				`[{"kind":"scale","field":"value","mul":0.03333333333333333}]`},
 		}, ""},
 		{"Boiler room", "RS256", []el{
-			{"Water temperature", "sensor", `{"title":"Water temperature","unit":"°C","minValue":0,"maxValue":120}`, 55, 85, 45, 100},
-			{"Pressure", "chart", `{"title":"Pressure","unit":"bar"}`, 1.2, 2.4, 30, 300},
-			{"Burner", "switch", `{"title":"Burner"}`, 0, 1, 0, 20},
+			{"Water temperature", "sensor", `{"title":"Water temperature","unit":"°C","minValue":0,"maxValue":120}`, 55, 85, 45, 100, ""},
+			{"Pressure", "chart", `{"title":"Pressure","unit":"bar"}`, 1.2, 2.4, 30, 300, ""},
+			{"Burner", "switch", `{"title":"Burner"}`, 0, 1, 0, 20, ""},
 		}, ""},
 		// A device that does not speak {"value": N}: one message carries many
 		// attributes (nested GPS, its own epoch-ms timestamp), and the relay
 		// reports and accepts "ON"/"OFF" strings. Bind widgets to attributes.
 		{"Weather station", "ES256", []el{
-			{"Climate", "multi", `{"title":"Climate"}`, 0, 0, 120, 200},
-			{"Gate relay", "relay", `{"title":"Gate relay"}`, 0, 0, 0, 20},
+			{"Climate", "multi", `{"title":"Climate"}`, 0, 0, 120, 200,
+				`[{"kind":"script","source":"function transform(msg, ctx) {\n  if (typeof msg.temperature === 'number' && typeof msg.humidity === 'number') {\n    var a = 17.27, b = 237.7;\n    var alpha = ((a * msg.temperature) / (b + msg.temperature)) + Math.log(msg.humidity / 100.0);\n    msg.dew_point = Math.round(((b * alpha) / (a - alpha)) * 10) / 10;\n  }\n  return msg;\n}"}]`},
+			{"Gate relay", "relay", `{"title":"Gate relay"}`, 0, 0, 0, 20,
+				`[{"kind":"map","field":"value","table":{"OPEN":"ON","CLOSED":"OFF"}}]`},
 		}, ""},
 		// Talks MQTT to a broker (task start MQTT=1): JSON readings, a binary
 		// battery frame decoded by a JavaScript decoder, and a compressor
 		// switch commanded over a downlink topic.
 		{"Cold room", "ES256", []el{
-			{"Cold room temperature", "sensor", `{"title":"Cold room","unit":"°C","minValue":-30,"maxValue":0}`, -23, -16, 80, 100},
-			{"Cold room humidity", "sensor", `{"title":"Humidity","unit":"%","minValue":0,"maxValue":100}`, 72, 90, 110, 100},
-			{"Battery", "sensor", `{"title":"Battery","unit":"V","minValue":3,"maxValue":4.2}`, 3.6, 3.9, 900, 50},
-			{"Compressor", "switch", `{"title":"Compressor"}`, 0, 1, 0, 20},
+			{"Cold room temperature", "sensor", `{"title":"Cold room","unit":"°C","minValue":-30,"maxValue":0}`, -23, -16, 80, 100,
+				`[{"kind":"deadband","field":"value","abs":0.2,"max_silence":"5m"}]`},
+			{"Cold room humidity", "sensor", `{"title":"Humidity","unit":"%","minValue":0,"maxValue":100}`, 72, 90, 110, 100, ""},
+			{"Battery", "sensor", `{"title":"Battery","unit":"V","minValue":3,"maxValue":4.2}`, 3.6, 3.9, 900, 50, ""},
+			{"Compressor", "switch", `{"title":"Compressor"}`, 0, 1, 0, 20, ""},
 		}, "cold-room-1"},
 	}
 	for _, p := range plan {
-		if existing[p.name] {
+		if devID, ok := existing[p.name]; ok {
+			elems, err := store.ListElements(ctx, pool, &devID)
+			if err == nil {
+				elemByName := map[string]store.Element{}
+				for _, el := range elems {
+					elemByName[el.Name] = el
+				}
+				for _, e := range p.elems {
+					if e.pipeline != "" {
+						if target, found := elemByName[e.name]; found {
+							_, _ = svc.SaveElementPipeline(ctx, a, target.ID, json.RawMessage(e.pipeline))
+						}
+					}
+				}
+			}
 			continue
 		}
 		priv, pub, err := genKey(p.alg)
@@ -165,6 +186,11 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mq
 			}{{&admin.ID, nil, "RC"}, {nil, &grp.ID, "R"}} {
 				if _, err := svc.SetPermission(ctx, a, service.PermissionInput{ElementID: created.ID, UserID: sub.user, GroupID: sub.grp, Permission: sub.perm}); err != nil {
 					return err
+				}
+			}
+			if e.pipeline != "" {
+				if _, err := svc.SaveElementPipeline(ctx, a, created.ID, json.RawMessage(e.pipeline)); err != nil {
+					return fmt.Errorf("pipeline %s: %w", e.name, err)
 				}
 			}
 			dd.Elements = append(dd.Elements, DemoElement{ID: created.ID.String(), Name: e.name, Kind: e.kind, Min: e.min, Max: e.max, Period: e.period})
@@ -262,9 +288,9 @@ func simulateDevice(ctx context.Context, d DemoDevice, base, transport string, l
 		case "switch":
 			_ = send(e.ID, map[string]any{"value": 0})
 		case "slider":
-			_ = send(e.ID, map[string]any{"value": 30})
+			_ = send(e.ID, map[string]any{"value": 900})
 		case "relay":
-			_ = send(e.ID, map[string]any{"relay": "OFF"})
+			_ = send(e.ID, map[string]any{"value": "CLOSED"})
 		}
 	}
 	go func() {
@@ -315,7 +341,7 @@ func simulateDevice(ctx context.Context, d DemoDevice, base, transport string, l
 				v = math.Round(v*100) / 100
 				var msg any = map[string]any{"value": v}
 				if e.Kind == "chart" {
-					msg = map[string]any{"x": now.UTC().Format(time.RFC3339Nano), "y": v}
+					msg = map[string]any{"x": now.UTC().Format(time.RFC3339Nano), "y": v, "value": v}
 				}
 				if err := send(e.ID, msg); err != nil {
 					return err

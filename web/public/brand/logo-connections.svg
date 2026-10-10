@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-conns">
+  <title id="t-conns">Quack Quack - Device Sessions &amp; Cable Transports</title>
+  <defs>
+    <linearGradient id="qq-conns-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.4" stop-color="#1E293B"/>
+      <stop offset="0.75" stop-color="#0284C7"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="qq-conns-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-conns-bg)"/>
+
+  <!-- High-Speed Cable / Fiber Bus Line -->
+  <path d="M12 44 C 20 44, 24 20, 36 20 C 44 20, 48 36, 52 36" fill="none" stroke="#BAE6FD" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Male Connector Cable Plug (Left Bottom) -->
+  <g filter="url(#qq-conns-shadow)">
+    <rect x="14" y="36" width="14" height="16" rx="3.5" fill="#FFFFFF"/>
+    <!-- Gold Pin Terminals -->
+    <rect x="28" y="39" width="4" height="2.5" rx="1" fill="#FBBF24"/>
+    <rect x="28" y="44" width="4" height="2.5" rx="1" fill="#FBBF24"/>
+    <!-- Rubber Boot -->
+    <rect x="10" y="40" width="5" height="8" rx="2" fill="#38BDF8"/>
+  </g>
+
+  <!-- Female Receptacle Jack / Socket (Right Top) -->
+  <g filter="url(#qq-conns-shadow)">
+    <rect x="36" y="12" width="16" height="16" rx="4" fill="#FFFFFF"/>
+    <rect x="39" y="15" width="10" height="10" rx="2" fill="#1E293B"/>
+    <!-- Connection Status LED -->
+    <circle cx="44" cy="20" r="1.8" fill="#10B981"/>
+  </g>
+
+  <!-- Transmission Spark / Packet Transfer -->
+  <circle cx="32" cy="26" r="3.2" fill="#FBBF24" filter="url(#qq-conns-shadow)"/>
+  <circle cx="32" cy="26" r="1.3" fill="#FFFFFF"/>
+  <path d="M30 20 L34 32" stroke="#FBBF24" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

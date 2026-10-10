@@ -9,3 +9,4 @@
 | [Realtime events](./realtime_events.md) | The Redpanda topics, the CloudEvents envelope, the transactional outbox, control-event kinds, presence events, and `device-config.v1` (the device registry) |
 | [Rate limits](./rate_limits.md) | Per-element limits (drop or keep latest), the per-device guard, several gateway instances, and why there is no shared limiter (yet) |
 | [Dashboards](./dashboards.md) | The layout JSON, breakpoints, sharing rules, the widget types and how to add one |
+| [Alerts and Webhooks](./webhooks_and_alerts.md) | Element alert conditions (above, below, range, equals), hysteresis band, recovery events, and universal webhook dispatcher (Slack, Discord, Teams, Telegram, CloudEvents) |

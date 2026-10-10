@@ -204,7 +204,35 @@ func ListMQTTGrantedDevices(ctx context.Context, db DBTX, connectionID string) (
 	return out, mapErr(rows.Err())
 }
 
+type txStarter interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 func UpsertMQTTGrant(ctx context.Context, db DBTX, connectionID string, deviceID uuid.UUID, externalID string) error {
+	if starter, ok := db.(txStarter); ok {
+		tx, err := starter.Begin(ctx)
+		if err != nil {
+			return mapErr(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := upsertMQTTGrantLocked(ctx, tx, connectionID, deviceID, externalID); err != nil {
+			return err
+		}
+		return mapErr(tx.Commit(ctx))
+	}
+	return upsertMQTTGrantLocked(ctx, db, connectionID, deviceID, externalID)
+}
+
+func upsertMQTTGrantLocked(ctx context.Context, db DBTX, connectionID string, deviceID uuid.UUID, externalID string) error {
+	var dummy string
+	if err := db.QueryRow(ctx, `SELECT id FROM mqtt_connections WHERE id = $1 FOR UPDATE`, connectionID).Scan(&dummy); err != nil {
+		return mapErr(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM mqtt_connection_devices
+		WHERE connection_id = $1 AND (device_id = $2 OR external_id = $3)`,
+		connectionID, deviceID, externalID); err != nil {
+		return mapErr(err)
+	}
 	_, err := db.Exec(ctx, `INSERT INTO mqtt_connection_devices (connection_id, device_id, external_id) VALUES ($1, $2, $3)
 		ON CONFLICT (connection_id, device_id) DO UPDATE SET external_id = EXCLUDED.external_id`, connectionID, deviceID, externalID)
 	return mapErr(err)

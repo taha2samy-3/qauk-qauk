@@ -1,5 +1,9 @@
 # Permissions
 
+<p align="center">
+  <img src="/brand/logo-shield.svg" alt="Quack Quack Security and Permissions" width="80" height="80" />
+</p>
+
 Access to data is granted **per element**. A dashboard, a device or admin status never grants it implicitly.
 
 ## Levels

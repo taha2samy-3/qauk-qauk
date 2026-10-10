@@ -26,6 +26,7 @@ const rewrites: Record<string, string> = {
   'refactor/PLATFORM_REVIEW.md': 'design/platform-review.md',
   'refactor/DEVICE_ADAPTERS_PLAN.md': 'design/device-adapters-plan.md',
   'refactor/MQTT_ADAPTER_PLAN.md': 'design/mqtt-adapter-plan.md',
+  'refactor/ELEMENT_PIPELINE_PLAN.md': 'design/element-pipeline-plan.md',
 }
 
 /** Site URL (without base) for a source file path relative to docs/. */
@@ -119,6 +120,8 @@ export default withMermaid(
             { text: 'Concepts', link: '/concepts/' },
             { text: 'Authentication', link: '/concepts/authentication' },
             { text: 'Permissions', link: '/concepts/permissions' },
+            { text: 'Element pipeline', link: '/concepts/element_pipeline' },
+            { text: 'Alerts & Webhooks', link: '/concepts/webhooks_and_alerts' },
             { text: 'Realtime events', link: '/concepts/realtime_events' },
             { text: 'History storage', link: '/concepts/history' },
             { text: 'Dashboards', link: '/concepts/dashboards' },
@@ -147,6 +150,7 @@ export default withMermaid(
             { text: 'Platform review & roadmap', link: '/design/platform-review' },
             { text: 'Device adapters plan', link: '/design/device-adapters-plan' },
             { text: 'MQTT adapter plan', link: '/design/mqtt-adapter-plan' },
+            { text: 'Element pipeline plan', link: '/design/element-pipeline-plan' },
           ],
         },
       ],

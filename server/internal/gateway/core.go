@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
+	"github.com/taha2samy/quackquack/server/internal/bus"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
@@ -22,6 +24,9 @@ import (
 
 // Device core: the transport-agnostic rules every device transport
 // (WebSocket, REST, gRPC) goes through. See docs/refactor/DEVICE_ADAPTERS_PLAN.md.
+
+// ErrPipeline is the error returned when an element pipeline step fails.
+type ErrPipeline = elementpipe.ErrPipeline
 
 var (
 	// ErrInvalidMessage: the message is missing or not JSON.
@@ -57,6 +62,7 @@ const (
 	StatusAccepted  = "accepted"  // published
 	StatusDuplicate = "duplicate" // same client id seen recently; not published again
 	StatusCoalesced = "coalesced" // over the limit with over_limit=latest: held, newest wins
+	StatusFiltered  = "filtered"  // dropped by deadband, drop_if or script returning null
 )
 
 // DeviceMessage is one message a device sends, on any transport.
@@ -183,13 +189,92 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 			return res, nil
 		}
 	}
+
+	pipelineVersion := 0
+	msgBytes := in.Message
+	if el.Pipeline != nil && el.Pipeline.HasSteps() {
+		pipelineVersion = el.Pipeline.Version
+		var parsed map[string]any
+		if err := json.Unmarshal(in.Message, &parsed); err != nil {
+			g.dedupe.release(dedupeKey)
+			return PublishResult{}, ErrInvalidMessage
+		}
+		latestMsg, latestAt, hasLatest := g.hub.LatestMessage(el.ID)
+		if hasLatest {
+			silence := el.Pipeline.MaxSilence()
+			if silence > 0 && time.Since(latestAt) >= silence {
+				latestMsg = nil
+			}
+		} else {
+			latestMsg = nil
+		}
+
+		start := time.Now()
+		out, runRes, fr, err := el.Pipeline.ApplyWithContext(parsed, elementpipe.Context{
+			Element: el.Name,
+			Device:  dev.Name,
+			Time:    start.UTC(),
+			Last:    latestMsg,
+		})
+		kind := "builtin"
+		if el.Pipeline.HasScript() {
+			kind = "script"
+		}
+		metrics.PipelineSeconds.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+
+		if err != nil {
+			var ep *elementpipe.ErrPipeline
+			step := "pipeline"
+			reason := err.Error()
+			if errors.As(err, &ep) {
+				step = ep.Step
+				reason = ep.Reason
+			}
+			metrics.PipelineFailed.WithLabelValues(step).Inc()
+			g.dedupe.release(dedupeKey)
+
+			truncLen := min(len(in.Message), 4096)
+			dlqEvent := events.ElementPipelineFailed{
+				ElementID:       el.ID,
+				DeviceID:        dev.ID,
+				PipelineVersion: pipelineVersion,
+				Step:            step,
+				Reason:          reason,
+				Message:         in.Message[:truncLen],
+				GatewayID:       g.cfg.GatewayID,
+				Time:            time.Now().UTC(),
+			}
+			if dlqBytes, errM := json.Marshal(dlqEvent); errM == nil && g.producer != nil {
+				g.producer.PublishRecord(g.ctx, bus.RawRecord(events.TopicElementPipelineDLQ, el.ID.String(), dlqBytes))
+			}
+
+			callDone(in.Done, err)
+			return res, err
+		}
+
+		if runRes == elementpipe.RunFiltered {
+			metrics.PipelineFiltered.WithLabelValues(string(fr)).Inc()
+			res.Status = StatusFiltered
+			g.dedupe.put(dedupeKey, "")
+			callDone(in.Done, nil)
+			return res, nil
+		}
+
+		b, err := json.Marshal(out)
+		if err != nil {
+			g.dedupe.release(dedupeKey)
+			return PublishResult{}, err
+		}
+		msgBytes = b
+	}
+
 	m := &events.ElementMessage{
 		ElementID: el.ID,
 		DeviceID:  dev.ID,
 		Source:    events.SourceDevice,
 		Actor:     events.Actor{ID: dev.ID.String(), Name: dev.Name},
 		Origin:    events.Origin{GatewayID: g.cfg.GatewayID, ConnID: origin},
-		Message:   in.Message,
+		Message:   msgBytes,
 	}
 	if in.ClientTS != nil {
 		m.ClientTS = &events.Time{Time: in.ClientTS.UTC()}
@@ -206,7 +291,7 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 	ok, wait := g.limits.Allow("e:"+el.ID.String(), g.elementLimit(el), 1)
 	if !ok {
 		if latest {
-			g.coalesce.hold(el, m, origin, wait)
+			g.coalesce.hold(el, m, origin, wait, pipelineVersion)
 			metrics.Dropped.WithLabelValues("element_rate_coalesced").Inc()
 			res.Status = StatusCoalesced
 			g.dedupe.put(dedupeKey, "")
@@ -217,7 +302,7 @@ func (g *Gateway) publishDeviceMessage(dev *registry.Device, origin string, in D
 		g.dedupe.release(dedupeKey) // not published: a retry must go through
 		return res, &RateLimitedError{Scope: "element", RetryAfter: wait}
 	}
-	res.EventID = g.publishElementDone(m, origin, in.Done)
+	res.EventID = g.publishElementDone(m, origin, in.Done, pipelineVersion)
 	g.dedupe.put(dedupeKey, res.EventID)
 	return res, nil
 }
@@ -239,10 +324,11 @@ type coalescer struct {
 }
 
 type heldMessage struct {
-	el     registry.Element
-	m      *events.ElementMessage
-	origin string
-	timer  *time.Timer
+	el              registry.Element
+	m               *events.ElementMessage
+	origin          string
+	timer           *time.Timer
+	pipelineVersion int
 }
 
 func newCoalescer(g *Gateway) *coalescer { return &coalescer{g: g, p: map[uuid.UUID]*heldMessage{}} }
@@ -258,14 +344,15 @@ func (c *coalescer) replace(id uuid.UUID, m *events.ElementMessage, origin strin
 	return ok
 }
 
-func (c *coalescer) hold(el registry.Element, m *events.ElementMessage, origin string, wait time.Duration) {
+func (c *coalescer) hold(el registry.Element, m *events.ElementMessage, origin string, wait time.Duration, pipelineVersion int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if h, ok := c.p[el.ID]; ok {
 		h.m, h.origin = m, origin
+		h.pipelineVersion = pipelineVersion
 		return
 	}
-	h := &heldMessage{el: el, m: m, origin: origin}
+	h := &heldMessage{el: el, m: m, origin: origin, pipelineVersion: pipelineVersion}
 	c.p[el.ID] = h
 	h.timer = time.AfterFunc(max(wait, time.Millisecond), func() { c.flush(el.ID) })
 }
@@ -296,7 +383,7 @@ func (c *coalescer) flush(id uuid.UUID) {
 	}
 	delete(c.p, id)
 	c.mu.Unlock()
-	c.g.publishElement(h.m, h.origin)
+	c.g.publishElementDone(h.m, h.origin, nil, h.pipelineVersion)
 }
 
 // pending reports whether an element has a held message (tests).

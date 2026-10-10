@@ -20,8 +20,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/taha2samy/quackquack/server/internal/bus"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/keys"
+	"github.com/taha2samy/quackquack/server/internal/metrics"
 )
 
 // ErrNotFound means the device doesn't exist.
@@ -58,6 +60,7 @@ type Element struct {
 	Rate      float64
 	Burst     int
 	OverLimit string
+	Pipeline  *elementpipe.Pipeline
 }
 
 // Element finds one of the device's elements by id.
@@ -80,6 +83,13 @@ func (d *Device) ElementByName(name string) (Element, bool) {
 
 // FromConfig builds a snapshot from a device-config payload.
 func FromConfig(c events.DeviceConfig) *Device {
+	return FromConfigWithPrev(c, nil)
+}
+
+// FromConfigWithPrev builds a snapshot from a device-config payload. If a pipeline
+// fails to compile, it keeps the previous compiled version (if any) and increments
+// quack_pipeline_compile_errors_total.
+func FromConfigWithPrev(c events.DeviceConfig, prev *Device) *Device {
 	d := &Device{ID: c.Device.ID, Name: c.Device.Name, Version: c.Version,
 		Elements: make([]Element, len(c.Elements)),
 		byID:     make(map[uuid.UUID]int, len(c.Elements)), byName: make(map[string]int, len(c.Elements))}
@@ -97,6 +107,20 @@ func FromConfig(c events.DeviceConfig) *Device {
 		}
 		if e.Burst != nil {
 			el.Burst = *e.Burst
+		}
+		if e.Pipeline != nil && len(e.Pipeline.Steps) > 0 {
+			p, err := elementpipe.CompileJSON(e.Pipeline.Version, e.Pipeline.Steps)
+			if err != nil {
+				metrics.PipelineCompileErrors.Inc()
+				slog.Warn("registry: compile element pipeline failed", "element_id", e.ID, "err", err)
+				if prev != nil {
+					if pe, ok := prev.Element(e.ID); ok {
+						el.Pipeline = pe.Pipeline
+					}
+				}
+			} else {
+				el.Pipeline = p
+			}
 		}
 		d.Elements[i] = el
 		d.byID[e.ID] = i
@@ -177,7 +201,10 @@ func (r *Registry) ApplyRecord(key, value []byte) {
 		r.log.Warn("registry: undecodable device config", "device", id)
 		return
 	}
-	if d := r.put(FromConfig(cfg)); d != nil && r.OnChange != nil {
+	r.mu.RLock()
+	prev := r.devices[id]
+	r.mu.RUnlock()
+	if d := r.put(FromConfigWithPrev(cfg, prev)); d != nil && r.OnChange != nil {
 		r.OnChange(d)
 	}
 }
@@ -227,7 +254,10 @@ func (r *Registry) Get(ctx context.Context, id uuid.UUID) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	if d := r.put(FromConfig(cfg)); d != nil {
+	r.mu.RLock()
+	prev := r.devices[id]
+	r.mu.RUnlock()
+	if d := r.put(FromConfigWithPrev(cfg, prev)); d != nil {
 		return d, nil
 	}
 	d, _ = r.Lookup(id)

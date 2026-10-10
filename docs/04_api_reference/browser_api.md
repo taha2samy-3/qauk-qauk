@@ -134,6 +134,7 @@ The element's device connected (its first socket on any gateway) or disconnected
 | `invalid_format` | The frame is not valid JSON (`description`: `invalid JSON message`), `element_id` is missing (`'element_id'`), `message` is missing in `message_element` (`'message'`), or `message` contains a NUL character or an unpaired surrogate (`'message' message contains …`) | for `message` problems |
 | `unknown_type` | `type` is missing or unknown (`Unknown message type: <type>`, or `None` when missing) | no |
 | `rate_limited` | More than `QUACK_BROWSER_MSG_RATE` frames per second (default 100, burst 100). The frame was discarded. | no |
+| `delivery_failed` | Downlink command failed to reach the device transport (e.g. MQTT broker unreachable after retries, or downlink retry buffer full) | yes |
 
 Errors never close the socket, and they never contain server internals.
 

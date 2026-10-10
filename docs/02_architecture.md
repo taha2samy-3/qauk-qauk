@@ -49,7 +49,7 @@ Everything server-side is one Go binary, `quack`:
 | `quack import-django` | One-off import from the legacy Django database. |
 | `quack dev ...` | Development helpers: `demo`, `simulate [--transport websocket\|rest\|grpc\|mixed]`, `token` (a JWT for a demo device), plus `seed` and `hook` for the contract suite. |
 
-Every `serve` instance exposes `/healthz` (process alive), `/readyz` (database reachable and, on gateways, the device registry loaded) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total`, `quack_ingest_lag_seconds` and `quack_ingest_dead_letters_total`.
+Every `serve` instance exposes `/livez` and `/healthz` (liveness probe), `/startupz` (startup probe: database pingable and gateway initialized), `/readyz` (readiness probe: database pingable, registry loaded, and returns 503 while draining) and `/metrics` (Prometheus: `quack_ws_connections`, `quack_ws_rejected_total`, `quack_messages_in_total`, `quack_frames_out_total`, `quack_dropped_total`, `quack_bus_produce_errors_total`, `quack_outbox_published_total`). The ingester adds `quack_ingest_rows_total`, `quack_ingest_lag_seconds` and `quack_ingest_dead_letters_total`.
 
 **Infrastructure:**
 
@@ -69,12 +69,12 @@ flowchart LR
   WS["WebSocket<br/>/device/node_red/"] --> C
   R["REST<br/>/device/v1/*"] --> C
   G["gRPC<br/>DeviceService"] --> C
-  C["device core<br/>auth · validate · element by id/name<br/>· client-id dedupe · rate limits"] --> P["publish<br/>(local fan-out + element-events.v1)"]
+  C["device core<br/>auth · validate · element by id/name<br/>· client-id dedupe · element pipeline<br/>· rate limits"] --> P["publish<br/>(local fan-out + element-events.v1)"]
   REG[("device registry<br/>in memory, from device-config.v1")] -.-> C
   RL[("rate-limit buckets<br/>ratelimit.Limiter")] -.-> C
 ```
 
-Every transport authenticates with the same device JWT and calls the same core, so rules can't drift between them: validation (JSON, 64 KiB, storable text), the element (by id, or by name on REST and gRPC), retries with a client id, the per-device guard and the per-element [rate limit](./05_core_concepts/rate_limits.md), then the same publish path as below. The core reads devices, keys and limits from the **device registry**, a copy of the compacted `device-config.v1` topic that every gateway keeps in memory ([details](./05_core_concepts/realtime_events.md#device-config-v1)). The message path therefore never reads Postgres.
+Every transport authenticates with the same device JWT and calls the same core, so rules can't drift between them: validation (JSON, 64 KiB, storable text), the element (by id, or by name on REST and gRPC), retries with a client id, the [element pipeline](./05_core_concepts/element_pipeline.md) (in-memory Go closures / Goja script before the bus), the per-device guard and the per-element [rate limit](./05_core_concepts/rate_limits.md), then the same publish path as below. The core reads devices, keys, pipelines and limits from the **device registry**, a copy of the compacted `device-config.v1` topic that every gateway keeps in memory ([details](./05_core_concepts/realtime_events.md#device-config-v1)). The message path therefore never reads Postgres.
 
 Only delivery differs. WebSocket and gRPC streams are connections in the hub, and get messages pushed. REST devices long-poll `GET /device/v1/sync`, which answers from the newest command per element that every gateway keeps in memory.
 
@@ -272,7 +272,98 @@ Presence answers one question: "is this device connected to any gateway?" It mus
 | Produce buffer | 200,000 records / 64 MiB | Over 75 %, publishing waits up to 2 s for Redpanda to catch up (back-pressure on the device's socket or request) instead of dropping. Only a longer outage fills it and drops (`quack_bus_produce_errors_total`). |
 | Browser frames | `QUACK_BROWSER_MSG_RATE` (100/s, burst 100) | Excess frames get an `error` frame with `rate_limited`. |
 | Keep-alive | WebSocket ping every 30 s | No pong within 15 s closes the socket with **1001**. |
-| Shutdown | SIGINT / SIGTERM | All sockets are closed with **1001** "server shutting down", and HTTP is drained for up to 10 s. |
+| Shutdown | SIGINT / SIGTERM | Phased Graceful Drain (F1): `/readyz` immediately signals 503, pauses `QUACK_DRAIN_PROPAGATION_WAIT` (3s) for Ingress/Endpoints propagation, closes WebSockets over `QUACK_DRAIN_DURATION` (25s) with randomized jitter (1012 Service Restart), and drains in-flight HTTP for up to `QUACK_SHUTDOWN_TIMEOUT` (10s). |
+
+### Kubernetes Health Probes and Graceful Drain (F1)
+
+High-density WebSocket gateways (managing tens of thousands of persistent client and browser connections) require an orchestrated lifecycle in Kubernetes to prevent connection drops and thundering herd / reconnect storms during rolling deployments or KEDA autoscaling.
+
+#### 1. Probe Endpoints (`quack serve`)
+
+| Probe | Endpoint | Purpose | Checks | Behavior |
+|---|---|---|---|---|
+| **Liveness** | `/livez`, `/healthz` | Checks if process is deadlocked or corrupted. | Internal heartbeat / scheduler viability. | Returns `200 OK` (independent of database latency to avoid cascade restarts). Remains 200 during drain. |
+| **Startup** | `/startupz` | Delays liveness/readiness evaluation during bootstrap. | Database pingable, device registry replay complete, and MQTT slots assigned. | Returns `200 OK` once ready; `503` while replaying compacted Kafka topics. |
+| **Readiness** | `/readyz` | Controls whether Kubernetes sends traffic to this pod. | Database pingable, gateway ready, producer healthy, and **not draining**. | Returns `200 OK` when ready. **Immediately returns `503` upon SIGTERM / Drain**, removing the pod from endpoints before sockets disconnect. |
+
+#### 2. Phased Graceful Drain Lifecycle
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant K8s as Kubernetes / Ingress
+  participant HTTP as HTTP Server (/readyz)
+  participant GW as Gateway (WebSockets)
+  participant Peers as Peer Gateway Pods
+
+  Note over K8s,Peers: Normal Operation (Traffic Balanced)
+  K8s->>HTTP: GET /readyz -> 200 OK
+  
+  Note over K8s,Peers: SIGTERM Received (Deployment or KEDA Scale-Down)
+  K8s->>GW: SIGTERM / SIGINT
+  GW->>GW: Enter Draining Mode (draining = true)
+  
+  Note over K8s,HTTP: Phase 1: Ingress Cut-off
+  K8s->>HTTP: GET /readyz -> 503 Service Unavailable ("server draining")
+  K8s->>K8s: Remove pod from Service Endpoints & Ingress routing
+  
+  Note over GW,HTTP: Phase 2: Ingress Propagation Wait
+  GW->>GW: Wait QUACK_DRAIN_PROPAGATION_WAIT (default 3s)
+  
+  Note over GW,Peers: Phase 3: Staggered Socket Drain (Jittered Disconnects)
+  loop Evenly distributed over QUACK_DRAIN_DURATION (default 25s)
+    GW->>GW: Close WebSocket with code 1012 (StatusServiceRestart)
+    GW->>Peers: Clients reconnect smoothly across remaining pods
+  end
+  
+  Note over HTTP,GW: Phase 4 & 5: In-flight HTTP Drain & Teardown
+  HTTP->>HTTP: Drain in-flight HTTP requests (QUACK_SHUTDOWN_TIMEOUT default 10s)
+  GW->>GW: Flush bus producer & close DB pool
+  GW-->>K8s: Process exits cleanly (0)
+```
+
+#### 3. Kubernetes Deployment Recommendations
+
+The container termination grace period must be greater than the sum of all drain phases (`QUACK_DRAIN_PROPAGATION_WAIT` + `QUACK_DRAIN_DURATION` + `QUACK_SHUTDOWN_TIMEOUT` = 3s + 25s + 10s = 38s):
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quack-serve
+spec:
+  template:
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: quack
+          image: quack:latest
+          env:
+            - name: QUACK_DRAIN_PROPAGATION_WAIT
+              value: "3s"
+            - name: QUACK_DRAIN_DURATION
+              value: "25s"
+            - name: QUACK_SHUTDOWN_TIMEOUT
+              value: "10s"
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 3
+            timeoutSeconds: 2
+```
 
 ### Deploying behind a proxy
 

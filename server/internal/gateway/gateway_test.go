@@ -38,7 +38,7 @@ func msg(el, dev uuid.UUID, source string, v int) *events.ElementMessage {
 func itoa(v int) string { b, _ := json.Marshal(v); return string(b) }
 
 func deliver(h *Hub, m *events.ElementMessage, origin string, at time.Time) {
-	dev, br := renderMessage(m, events.Time{Time: at})
+	dev, br := renderMessage(m, events.Time{Time: at}, nil)
 	h.Deliver(m, uuid.New(), at, dev, br, origin)
 }
 
@@ -181,7 +181,7 @@ func TestWireFramesAreLegacyCompatible(t *testing.T) {
 	el := uuid.MustParse("98994c94-71b8-53b0-85f3-d1c6483978de")
 	at, _ := time.Parse(time.RFC3339, "2026-10-07T10:00:00.123Z")
 	m := msg(el, uuid.New(), events.SourceUser, 5)
-	dev, br := renderMessage(m, events.Time{Time: at})
+	dev, br := renderMessage(m, events.Time{Time: at}, nil)
 	wantDev := `{"element_id":"98994c94-71b8-53b0-85f3-d1c6483978de","message":{"value":5},"auth":{"user_id":7,"username":"alice"},"last_edit_at":"2026-10-07T10:00:00.123Z"}`
 	if string(dev) != wantDev {
 		t.Errorf("device frame:\n got %s\nwant %s", dev, wantDev)
@@ -191,7 +191,7 @@ func TestWireFramesAreLegacyCompatible(t *testing.T) {
 		t.Errorf("browser frame:\n got %s\nwant %s", br, wantBr)
 	}
 	m.Source, m.Actor.ID = events.SourceDevice, el.String()
-	_, br = renderMessage(m, events.Time{Time: at})
+	_, br = renderMessage(m, events.Time{Time: at}, nil)
 	if !contains(br, `"user_id":"98994c94-71b8-53b0-85f3-d1c6483978de"`) {
 		t.Errorf("device actor id must be a string: %s", br)
 	}
@@ -201,6 +201,55 @@ func TestWireFramesAreLegacyCompatible(t *testing.T) {
 	if got := string(errorFrame("unknown_type", "Unknown message type: x", "")); got != `{"type":"error","error_code":"unknown_type","description":"Unknown message type: x"}` {
 		t.Errorf("error frame: %s", got)
 	}
+}
+
+func TestHubSendUserErrorDeliveryAndDisconnected(t *testing.T) {
+	h := NewHub()
+	elID := uuid.New()
+
+	// 1. User has no connected sessions -> safely drops without panic
+	h.SendUserError("999", "delivery_failed", "MQTT broker unreachable after retries", elID)
+	h.SendUserError("invalid-uid", "delivery_failed", "MQTT broker unreachable after retries", elID)
+
+	// 2. Connect a browser client for user 100
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := &browserClient{
+		client:   newClient(ctx, nil, "b-1", "browser"),
+		userID:   100,
+		username: "operator",
+		subs:     map[uuid.UUID]string{},
+	}
+	h.AddBrowser(b)
+
+	// 3. Send error frame to user 100
+	h.SendUserError("100", "delivery_failed", "MQTT broker unreachable after retries", elID)
+
+	b.mu.Lock()
+	if len(b.queue) != 1 {
+		t.Fatalf("expected 1 frame in client queue, got %d", len(b.queue))
+	}
+	frameJSON := string(b.queue[0])
+	b.mu.Unlock()
+
+	expected := `{"type":"error","error_code":"delivery_failed","description":"MQTT broker unreachable after retries","element_id":"` + elID.String() + `"}`
+	if frameJSON != expected {
+		t.Errorf("frame got %s, want %s", frameJSON, expected)
+	}
+
+	// 4. Disconnect user 100
+	h.RemoveBrowser(b)
+	b.mu.Lock()
+	b.queue = nil
+	b.mu.Unlock()
+
+	// 5. User is now disconnected -> safely drops without panic
+	h.SendUserError("100", "delivery_failed", "MQTT broker unreachable after retries", elID)
+	b.mu.Lock()
+	if len(b.queue) != 0 {
+		t.Errorf("disconnected user should not receive frames, got %d", len(b.queue))
+	}
+	b.mu.Unlock()
 }
 
 func TestOriginPolicy(t *testing.T) {

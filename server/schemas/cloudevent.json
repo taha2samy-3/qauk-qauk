@@ -15,6 +15,7 @@
     "dataschema": {"type": "string", "pattern": "^urn:quack:schema:"},
     "partitionkey": {"type": "string", "minLength": 1},
     "quackvia": {"type": "string", "pattern": "^mqtt/.+$"},
+    "quackpipeline": {"type": "integer", "minimum": 1},
     "data": {"type": "object"}
   }
 }

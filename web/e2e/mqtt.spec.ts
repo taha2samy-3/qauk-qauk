@@ -135,6 +135,44 @@ test('a dashboard command reaches the MQTT device and comes back', async ({ page
   }
 })
 
+test('failed downlink reverts optimistic UI and shows delivery_failed toast', async ({ page }) => {
+  await useTheme(page, 'light')
+  await login(page, ADMIN)
+  await page.goto(`/dashboards/${dashboardId}`)
+  const compWidget = widget(page, 'Compressor')
+  const sw = compWidget.getByTestId('switch-widget')
+  const toggle = compWidget.getByRole('switch')
+  await expect(sw).toBeVisible()
+
+  const elements = (await (await page.request.get('/api/v1/me/elements')).json()) as { id: string; name: string }[]
+  const compEl = elements.find((x) => x.name === 'Compressor')!
+
+  // Click switch to initiate optimistic state
+  await toggle.click()
+
+  // Inject delivery_failed WebSocket frame
+  await page.evaluate((elId) => {
+    const frame = JSON.stringify({
+      type: 'error',
+      error_code: 'delivery_failed',
+      description: 'MQTT broker unreachable after retries',
+      element_id: elId,
+    })
+    const ws = (window as unknown as { __quack_ws__?: WebSocket }).__quack_ws__
+    if (ws && ws.onmessage) {
+      ws.onmessage(new MessageEvent('message', { data: frame }))
+    }
+  }, compEl.id)
+
+  // Verify optimistic UI immediately reverts pending state
+  await expect(sw).toHaveAttribute('data-pending', 'false')
+
+  // Verify the error toast appears
+  const toastEl = page.locator('[data-sonner-toast]').filter({ hasText: 'MQTT broker unreachable after retries' })
+  await expect(toastEl).toBeVisible({ timeout: 5000 })
+  await snap(page, 'mqtt-downlink-delivery-failed-toast')
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Cold room dashboard (${theme})`, async ({ page }) => {
     await useTheme(page, theme)

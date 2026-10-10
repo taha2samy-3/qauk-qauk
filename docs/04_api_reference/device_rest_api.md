@@ -59,8 +59,10 @@ Every message gets a result, in order:
 | `status` | Meaning |
 |---|---|
 | `accepted` | Published. `event_id` is its id in the history store. |
+| `filtered` | Dropped by the element's [pipeline](../05_core_concepts/element_pipeline.md) (`deadband`, `drop_if`, or script returning `null`). Does not consume rate limit tokens, and is not stored or published. |
 | `duplicate` | Same `id` seen recently; the earlier `event_id` is returned. Nothing is published. |
 | `coalesced` | Over the element's limit, and the element keeps the latest value ([`over_limit: latest`](../05_core_concepts/rate_limits.md#over-the-limit-drop-or-keep-latest)). It replaces any waiting value and is published when the limit allows. |
+| `pipeline_failed` | An [element pipeline](../05_core_concepts/element_pipeline.md) step failed (e.g. script exception, timeout). `code` is `pipeline_failed` and `error` contains the reason. Copied to `element-pipeline.dlq.v1`. |
 | `rejected` | Not published. `code` is `invalid_message`, `too_large` (over 64 KiB), `unstorable` (NUL or a lone surrogate), `unknown_element` or `rate_limited`. |
 
 | HTTP status | When |
@@ -124,6 +126,7 @@ curl "http://127.0.0.1:8080/device/v1/sync?wait=30s&cursor=$CURSOR" -H "Authoriz
 | `wait` | How long to hold the request if there is nothing new: seconds (`30`) or a duration (`30s`). Default `0` (answer at once), max `QUACK_SYNC_MAX_WAIT` (60 s). |
 
 - **What comes back:** for each of the device's elements, the **newest** message written by someone else (a user) that is newer than the cursor. This is "desired state", not a queue: if a user toggles a switch three times while the device sleeps, the device gets the last value. The device's own telemetry never comes back.
+- **Command inversion:** commands for elements with invertible [pipeline](../05_core_concepts/element_pipeline.md) steps (`scale`, `round`, `clamp`, `map`) are transformed with the pipeline's inverse so the device receives physical actuator units.
 - **When it returns:** at once if something is waiting, otherwise as soon as a command arrives, or when `wait` runs out (with an empty list and the same cursor).
 - **Loop:** call it again with the new cursor. Apply each command and send the new state back as telemetry; dashboards wait for that echo, as with the [actuator pattern](./device_api.md#commands-server-to-device).
 - **Cold start:** a first call without a cursor returns the latest commands the gateway has seen since it started. To ignore those, make the first call with `wait=0` and only keep its cursor.

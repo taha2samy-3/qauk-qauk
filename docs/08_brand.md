@@ -27,6 +27,52 @@ The mark is a duck whose *quack* is a wireless signal: a device talking.
 | `logo-mark.svg`, `icon-512.png` | App icon, favicon, avatars |
 | `logo-mark-mono-*.svg` | One-color print, stamps, embossing |
 
+## Extended marks & specialized icons
+
+Contextual extensions of the original mark for specialized subsystems and documentation pages:
+
+<div class="brand-grid icons">
+  <figure class="brand-tile light">
+    <img src="/brand/logo-pipeline.svg" alt="Element Pipeline mark"/>
+    <figcaption><strong>Pipeline</strong><br/>Stream processing<br/><a :href="$withBase('/brand/logo-pipeline.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-gateway.svg" alt="Gateway Hub mark"/>
+    <figcaption><strong>Gateway</strong><br/>Multi-transport hub<br/><a :href="$withBase('/brand/logo-gateway.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-analytics.svg" alt="Telemetry & Analytics mark"/>
+    <figcaption><strong>Analytics</strong><br/>Timeseries telemetry<br/><a :href="$withBase('/brand/logo-analytics.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile dark">
+    <img src="/brand/logo-cyber.svg" alt="Cyber Dark mark"/>
+    <figcaption><strong>Cyber Dark</strong><br/>Neon developer edition<br/><a :href="$withBase('/brand/logo-cyber.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-shield.svg" alt="Security Shield mark"/>
+    <figcaption><strong>Security</strong><br/>Keys & RBAC<br/><a :href="$withBase('/brand/logo-shield.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-badge.svg" alt="Circular Badge mark"/>
+    <figcaption><strong>Badge</strong><br/>Circular avatar & token<br/><a :href="$withBase('/brand/logo-badge.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-alerts.svg" alt="Alerts &amp; Webhooks mark"/>
+    <figcaption><strong>Alerts &amp; Channels</strong><br/>Multi-channel notifications<br/><a :href="$withBase('/brand/logo-alerts.svg')" download>SVG</a></figcaption>
+  </figure>
+</div>
+
+<div class="brand-grid">
+  <figure class="brand-tile light">
+    <img src="/brand/logo-pipeline-wordmark.svg" alt="Element Pipeline wordmark"/>
+    <figcaption>Pipeline engine wordmark · <a :href="$withBase('/brand/logo-pipeline-wordmark.svg')" download>SVG</a></figcaption>
+  </figure>
+  <figure class="brand-tile light">
+    <img src="/brand/logo-alerts-wordmark.svg" alt="Alerts &amp; Webhooks wordmark"/>
+    <figcaption>Alerts &amp; channels wordmark · <a :href="$withBase('/brand/logo-alerts-wordmark.svg')" download>SVG</a></figcaption>
+  </figure>
+</div>
+
 ## Social card
 
 Used as the GitHub social preview and the `og:image` of this site.

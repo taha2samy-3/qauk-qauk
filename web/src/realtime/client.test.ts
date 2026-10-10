@@ -252,6 +252,23 @@ describe('RealtimeClient', () => {
     expect(rt.getSnapshot(EL).error?.code).toBe('unauthorized')
   })
 
+  it('surfaces delivery_failed error code while keeping subscription alive', () => {
+    const rt = make()
+    rt.retain(EL)
+    const ws = FakeWebSocket.last
+    ws.serverOpen()
+    confirm(ws)
+    ws.serverSend({
+      type: 'error',
+      error_code: 'delivery_failed',
+      description: 'MQTT broker unreachable after retries',
+      element_id: EL,
+    })
+    expect(rt.getSnapshot(EL).status).toBe('subscribed')
+    expect(rt.getSnapshot(EL).error?.code).toBe('delivery_failed')
+    expect(rt.getSnapshot(EL).error?.description).toBe('MQTT broker unreachable after retries')
+  })
+
   it('ignores frames for elements nobody subscribed to and malformed frames', () => {
     const rt = make()
     rt.retain(EL)

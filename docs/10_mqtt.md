@@ -1,5 +1,9 @@
 # 10. MQTT connections
 
+<p align="center">
+  <img src="/brand/logo-gateway.svg" alt="Quack Quack Gateway Hub" width="80" height="80" />
+</p>
+
 Devices that already talk to an MQTT broker (Mosquitto, EMQX, HiveMQ, AWS IoT, The Things Stack, ChirpStack…) can feed dashboards without changing their firmware. Quack Quack connects to the broker as an **MQTT 5 client**: it subscribes to your topics, turns messages into element values, and publishes dashboard commands back.
 
 **We are a subscriber, not a broker.** Quack Quack doesn't run or embed a broker, and devices never connect to it over MQTT. The broker and its security (who may publish on which topic) stay yours.
@@ -12,15 +16,18 @@ Devices that already talk to an MQTT broker (Mosquitto, EMQX, HiveMQ, AWS IoT, T
 flowchart LR
   DEV["Devices"] -- "publish" --> BR[("Your broker")]
   BR -- "MQTT 5 subscribe<br/>(QoS 1, persistent session)" --> S["Slot owned by a gateway<br/>(role mqtt)"]
-  S --> P["Source pipeline<br/>decoder → field map"]
-  P --> CORE["Device core<br/>grants, limits"]
+  S --> P["Station 1: Source mapping<br/>decoder → field map"]
+  P --> EP["Station 2: Element pipeline<br/>scale, deadband, script"]
+  EP --> CORE["Device core<br/>grants, limits"]
   CORE --> RP[("Redpanda<br/>element-events.v1")]
   RP --> UI["Dashboards, history,<br/>Node-RED, alerts"]
   UI -- "command" --> CORE
-  CORE -- "downlink (slot 0 owner)" --> BR
+  CORE -- "inverse pipeline" --> S
+  S -- "downlink (slot 0 owner)" --> BR
 ```
 
 - MQTT runs **inside the gateway**, as the `mqtt` role (`QUACK_ROLES=api,gateway,mqtt`). There is no separate service to deploy.
+- Every value produced by an uplink rule passes through the element's **[element pipeline](./05_core_concepts/element_pipeline.md)** (Station 2) inside the gateway before rate limiting and publishing to Redpanda. Downlink commands pass through the pipeline's **inverse** before encoder formatting and transmission to the broker.
 - Every value goes through the same **device core** as the WebSocket, REST and gRPC transports, so element limits, the device rate limit, history and CloudEvents work the same. Each CloudEvent from MQTT carries the extension `quackvia=mqtt/<connection id>`.
 - A connection may only write to devices it was **granted**, by an *external id*: the name the device has in your topics or payloads.
 - A device counts as **online** while its messages keep arriving (within `QUACK_PRESENCE_TTL`), like a REST device.
@@ -160,6 +167,418 @@ A downlink sends dashboard commands for one element of one granted device to the
 | `qos`, `retain`, `content_type`, `message_expiry`, `response_topic`, `user_properties` | MQTT 5 publish options. The user property `quack-user` is always set. |
 
 The device should confirm by publishing its new state, which an uplink rule maps back to the same element: the dashboard switch then shows the confirmed state, as with the other transports.
+
+| Configured Downlinks Table | New Downlink Configuration Dialog |
+|---|---|
+| ![Active Downlink rules table showing target devices, topics, and encoders](./imgs/screenshots/mqtt-downlinks-table.webp) | ![New downlink dialog with JSON template encoder](./imgs/screenshots/mqtt-downlink-dialog.webp) |
+
+**Command inversion:** If an element has an [element pipeline](./05_core_concepts/element_pipeline.md) with invertible steps (such as `scale`, `round`, `clamp`, or `map`), dashboard commands pass through the pipeline's **inverse** before reaching the downlink encoder. The device on the broker receives actuator units, while dashboards and history maintain engineering units.
+
+---
+
+## Complete Guide: Listening to Every Element from an MQTT Broker
+
+This section explains how to configure an MQTT broker so that incoming messages automatically update every element defined in your devices, power real-time dashboards, and trigger threshold alert webhooks.
+
+### 1. Conceptual Architecture: How MQTT Telemetry Reaches Elements
+
+```mermaid
+flowchart TD
+    subgraph Broker ["External MQTT Broker (Mosquitto / EMQX / HiveMQ / AWS IoT)"]
+        PUB["IoT Sensors / PLCs / Microcontrollers"] -- "Publish telemetry" --> TOPIC[("Topics (e.g. factory/line-1/telemetry)")]
+    end
+
+    subgraph Gateway ["Quack Quack Gateway Core (QUACK_ROLES=api,gateway,mqtt)"]
+        TOPIC -- "MQTT 5 Subscribe (QoS 1)" --> SLOT["Connection Slot"]
+        
+        subgraph Station1 ["Station 1: Source Mapping"]
+            SLOT --> DEC{"Format & Decoder"}
+            DEC -- "Binary bytes" --> JS["decodeUplink() JS Sandbox"]
+            DEC -- "JSON / Text / Number" --> PARSED["Normalized Data Object"]
+            JS --> PARSED
+            PARSED --> EXT["Device Extractor (Topic segment / Payload field)"]
+            EXT --> FM["Field Map (Maps JSON paths to Element Names)"]
+        end
+
+        subgraph Station2 ["Station 2: Element Pipeline"]
+            FM -- "Element Value A" --> EP1["Pipeline (Scale, Deadband, Clamp, Script)"]
+            FM -- "Element Value B" --> EP2["Pipeline (Scale, Deadband, Clamp, Script)"]
+            FM -- "Element Value C" --> EP3["Pipeline (Scale, Deadband, Clamp, Script)"]
+        end
+
+        EP1 & EP2 & EP3 --> CORE["Device Core (Quotas, Rate Limits, Grants)"]
+    end
+
+    subgraph Platform ["Real-Time Platform"]
+        CORE --> RP[("Redpanda element-events.v1")]
+        RP --> WS["Live WebSocket Stream &rarr; Browser Dashboards"]
+        RP --> TS[("TimescaleDB / ClickHouse History")]
+        RP --> ALERTS["Alert Evaluator &rarr; Webhooks (Slack/Discord/Teams)"]
+    end
+```
+
+Incoming telemetry passes through two stations before reaching your elements:
+1. **Station 1 (Source Mapping)**: Dissects the raw MQTT message, identifies which granted device sent it, and evaluates a **Field Map** to route fields into specific element names.
+2. **Station 2 (Element Pipeline)**: Runs transformations, calibration scales, anti-jitter deadbands, and unit conversions on each element individually before persisting to TimescaleDB/ClickHouse and streaming to dashboards.
+
+---
+
+### 2. Common Ingestion Patterns
+
+#### Pattern A: Multi-Metric JSON Payload (One Message Updates Multiple Elements)
+
+In typical industrial IoT and smart building systems, a single device broadcasts multiple sensor readings inside a single JSON packet to minimize network overhead and broker connections.
+
+**Incoming MQTT Packet:**
+- **Topic:** `factory/cell-01/telemetry`
+- **Payload:**
+  ```json
+  {
+    "temperature": 24.8,
+    "humidity": 58.2,
+    "pressure": 101.4,
+    "motor_speed": 1420,
+    "compressor_active": true
+  }
+  ```
+
+**Uplink Rule Configuration:**
+- **Topic Filter:** `factory/+/telemetry`
+- **Device Extractor:** Topic Segment `1` (which extracts `cell-01`).
+- **Format:** `json`
+- **Field Map:**
+
+| Element Name in Quack | Field Value Path | Wrap Mode | When | Purpose |
+|---|---|---|---|---|
+| `Temperature` | `temperature` | `value` | `exists` | Updates element with `{"value": 24.8}` |
+| `Humidity` | `humidity` | `value` | `exists` | Updates element with `{"value": 58.2}` |
+| `Pressure` | `pressure` | `value` | `exists` | Updates element with `{"value": 101.4}` |
+| `Motor Speed` | `motor_speed` | `value` | `exists` | Updates element with `{"value": 1420}` |
+| `Compressor` | `compressor_active` | `value` | `exists` | Updates switch with `{"value": true}` |
+
+> **Tip:** Setting `when: "exists"` guarantees that if the device sends a partial message (e.g. only battery and temperature), the missing fields are cleanly skipped rather than causing the message to be dead-lettered.
+
+---
+
+#### Pattern B: Topic-Per-Metric Hierarchy (Wildcards `+` and `#`)
+
+Some systems use a topic tree where each sensor reading is published to its own unique topic.
+
+**Incoming MQTT Packets:**
+- `devices/boiler-42/temperature/state` &rarr; Payload: `88.5`
+- `devices/boiler-42/pressure/state` &rarr; Payload: `14.2`
+- `devices/boiler-42/burner/state` &rarr; Payload: `true`
+
+**Uplink Rule Configuration:**
+- **Topic Filter:** `devices/+/temperature/state`
+- **Device Extractor:** Topic Segment `1` (extracts `boiler-42`).
+- **Format:** `number`
+- **Field Map:**
+  - `element`: `"Temperature"`, `value`: `""` (empty value path uses the entire payload), `wrap`: `"value"`.
+
+Create parallel rules for `devices/+/pressure/state` and `devices/+/burner/state` to route each topic directly to the corresponding element.
+
+---
+
+#### Pattern C: Binary / Hex Frames with JavaScript Decoders
+
+For constrained devices (LoRaWAN, Zigbee, BLE gateways, or Modbus RTU over MQTT), payloads are transmitted as compact binary byte buffers.
+
+**Incoming MQTT Packet:**
+- **Topic:** `lora/node-08/up`
+- **Payload:** `0x19 0x3E 0x01` (3 raw bytes)
+
+**Decoder Script (`decodeUplink`):**
+```javascript
+function decodeUplink(input) {
+  // input.bytes is an array of raw uint8 integers
+  var temp = input.bytes[0];          // 0x19 = 25 °C
+  var humidity = input.bytes[1];      // 0x3E = 62 %
+  var status = (input.bytes[2] & 1);  // 0x01 = Active
+
+  return {
+    data: {
+      temperature: temp,
+      humidity: humidity,
+      active: status === 1
+    },
+    warnings: [],
+    errors: []
+  };
+}
+```
+
+**Field Map:**
+- `{"element": "Temperature", "value": "temperature"}`
+- `{"element": "Humidity", "value": "humidity"}`
+- `{"element": "Status", "value": "active"}`
+
+The JavaScript decoder unpacks the binary buffer into structured JSON, and the field map distributes each property to its respective element.
+
+---
+
+### 3. Step-by-Step Walkthrough in the Admin Console
+
+#### Step 1: Define Device and Elements
+1. Navigate to **Admin → Devices** and create your device (e.g., `Boiler room`).
+2. Navigate to **Admin → Elements** and add the elements you want to monitor (e.g., `Temperature`, `Pressure`, `Burner`).
+3. *(Optional)* Click **Pipeline** on any element to add transformation steps (such as `scale` $\times 0.1$, `clamp` $[0, 100]$, or `deadband` $0.5$ to eliminate noise).
+
+![Element Pipeline configuration sheet with live preview and history chart](./imgs/screenshots/admin-pipeline-light.webp)
+
+#### Step 2: Create the MQTT Connection
+1. Navigate to **Admin → MQTT** and click **New connection**.
+2. Fill in your broker details:
+   - **Broker URL:** `mqtt://127.0.0.1:1883` (or `mqtts://your-cluster.emqx.io:8883` for cloud brokers).
+   - **Client ID Prefix:** `quack-gw` (unique per gateway cluster).
+   - **Authentication:** Choose `none`, `password` (using `env:MQTT_PASSWORD`), or `mtls`.
+   - **Replicas:** Set to `1` (or more for shared subscription load-balancing).
+3. Click **Create Connection**. The dashboard shows your connection slots and active gateway owner.
+
+![MQTT connections list showing slot allocation, broker URLs, and gateway owners](./imgs/screenshots/mqtt-connections-light.webp)
+
+#### Step 3: Grant the Device
+1. Open the newly created connection and scroll to **Granted Devices**.
+2. Click **Grant device**:
+   - Select your platform device (`Boiler room`).
+   - Enter the **External ID** used by your broker/topic (e.g., `boiler-room-1`).
+3. Click **Grant**. The gateway will now accept messages that resolve to this external ID.
+
+#### Step 4: Add Uplink Rules & Field Map
+1. Under **Uplink Rules**, click **Add rule**.
+2. Enter the **Topic filter** (e.g., `quack/demo/+/up`).
+3. Set the **Device extraction**:
+   - Choose `Topic segment` and enter the 0-indexed segment number (e.g., segment `2` in `quack/demo/{device}/up`).
+4. Select the **Payload format** (`json`, `text`, `number`, or `bytes`).
+5. Add your **Field Map** entries mapping JSON paths to your platform elements.
+6. Click **Save Rule**. Within 1 second, the gateway updates its subscriptions on the live topic bus without restarting.
+
+![Connection details page showing slots, granted devices, uplink rules with field map, and downlinks](./imgs/screenshots/mqtt-connection-light.webp)
+
+#### Step 5: Test & Validate Ingestion
+1. In the rule editor, expand the **Test & capture** drawer.
+2. Enter a simulated topic and sample JSON payload, then click **Run pipeline**.
+3. Verify that every element produces the expected numeric or boolean value.
+4. Click **Capture live messages** to inspect raw packets arriving from real hardware.
+5. If any message fails validation, open **Admin → MQTT → Rejected messages** to see the exact reason (e.g., ungranted device, schema mismatch, or rate limit quota exceeded).
+
+![Testing an uplink rule against a payload with live captured message inspection](./imgs/screenshots/mqtt-test-capture-light.webp)
+
+---
+
+### 4. Closing the Loop: Controlling Actuators via Downlinks
+
+To send commands from dashboard switches, sliders, or automations back to devices on the MQTT broker:
+
+1. Open the connection and scroll to **Downlinks**.
+2. Click **Add downlink**:
+   - Select the target device external ID (`boiler-room-1`) and the actuator element (`Burner`).
+   - Define the **Topic template**: `quack/demo/{device}/cmd/{element}`.
+   - Choose the encoder:
+     ```json
+     {"template": {"state": "{{value}}"}}
+     ```
+3. When an operator flips the switch on a dashboard:
+   - The command is validated by permissions.
+   - It runs through the element's **inverse pipeline** (Station 2).
+   - Slot 0 publishes the encoded payload to the broker with MQTT 5 QoS 1.
+   - The device receives the command, applies it, and publishes its new state on the uplink topic to confirm the switch position.
+
+| Light Theme Live Dashboard | Dark Theme Live Dashboard |
+|---|---|
+| ![A live dashboard fed by MQTT elements and downlinks, light theme](./imgs/screenshots/mqtt-dashboard-light.webp) | ![A live dashboard fed by MQTT elements and downlinks, dark theme](./imgs/screenshots/mqtt-dashboard-dark.webp) |
+
+---
+
+## Real-World Case Studies: SCADA & LoRaWAN
+
+To see how Quack Quack handles real-world deployments beyond basic telemetry, consider these two end-to-end architectures: an **Industrial Water Treatment SCADA Pumping Station** and an **Agricultural LoRaWAN IoT Node**.
+
+---
+
+### Case Study 1: Industrial SCADA Pumping Station (JSON Telemetry & Actuator Downlink)
+
+Industrial automation systems, PLCs (Siemens S7, Schneider Modicon, Allen-Bradley), and RTUs often connect to edge gateways (such as Ignition Edge, Node-RED, or Kepware) that publish aggregated PLC register blocks over MQTT.
+
+#### 1. Network & Payload Architecture
+The pumping station publishes multi-tag telemetry every 2 seconds to topic:
+`scada/plc/scada-pump-station/telemetry`
+
+```json
+{
+  "flow_m3h": 367.0,
+  "tank_pct": 87.0,
+  "pressure_bar": 5.95,
+  "vfd_hz": 49.5,
+  "valve_open": true
+}
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Operator
+    participant Dashboard as Quack Dashboard
+    participant Gateway as Quack Gateway (role mqtt)
+    participant Broker as MQTT Broker (Mosquitto/EMQX)
+    participant PLC as Pumping Station PLC / Gateway
+
+    Note over PLC,Broker: Uplink Telemetry Flow
+    PLC->>Broker: PUBLISH scada/plc/scada-pump-station/telemetry (QoS 1)
+    Broker->>Gateway: DELIVER to Slot 0 Subscription (scada/plc/+/telemetry)
+    Gateway->>Gateway: Extract external_id: "scada-pump-station" (Topic segment 2)
+    Gateway->>Gateway: Field Map to Elements (Flow, Level, Pressure, VFD, Valve)
+    Gateway->>Gateway: Apply Element Pipelines (Station 2)
+    Gateway->>Dashboard: Push via WebSocket element-events.v1
+    Note over Dashboard: Gauges & Trend Charts Update in Real Time
+
+    Note over Operator,PLC: Downlink Control Flow
+    Operator->>Dashboard: Toggle "Main Isolation Valve" Switch (OFF)
+    Dashboard->>Gateway: POST /api/v1/elements/{id}/command (value: false)
+    Gateway->>Gateway: Check User Permissions & Run Inverse Pipeline
+    Gateway->>Gateway: Template Encoder: {"command":"VALVE_CONTROL","state":false}
+    Gateway->>Broker: PUBLISH scada/plc/scada-pump-station/cmd/Main Isolation Valve (QoS 1)
+    Broker->>PLC: DELIVER Actuator Command
+    PLC->>PLC: Modbus write to coil 0001 (Close valve)
+    PLC->>Broker: PUBLISH scada/plc/scada-pump-station/telemetry (valve_open: false)
+    Broker->>Gateway: Uplink Confirmation
+    Gateway->>Dashboard: Confirmed Switch State updated to OFF
+```
+
+#### 2. Uplink Rule & Device Grant
+1. **Grant Device:**
+   - Platform Device: `Water Treatment SCADA`
+   - External ID: `scada-pump-station`
+2. **Uplink Rule:**
+   - **Topic Filter:** `scada/plc/+/telemetry`
+   - **Format:** `json`
+   - **Device Extractor:** Topic Segment `2` (`scada-pump-station`).
+   - **Field Map:**
+     - `flow_m3h` &rarr; `Discharge Flow Rate`
+     - `tank_pct` &rarr; `Reservoir Level`
+     - `pressure_bar` &rarr; `Suction Pressure`
+     - `vfd_hz` &rarr; `Pump VFD Frequency`
+     - `valve_open` &rarr; `Main Isolation Valve`
+
+#### 3. Interactive Pipeline Validation
+Before deploying to production, the rule is tested in the **Test & capture** panel using a simulated SCADA frame:
+
+![SCADA pipeline validation in the Test & Capture drawer](./imgs/screenshots/scada-test-capture.webp)
+
+Notice how the pipeline immediately parses the JSON keys and maps them directly to each monitored element with zero runtime errors.
+
+#### 4. Downlink Actuator Configuration
+To allow operators to remotely open or isolate the main discharge valve:
+- **Device External ID:** `scada-pump-station`
+- **Element:** `Main Isolation Valve`
+- **Topic Template:** `scada/plc/{device}/cmd/{element}`
+- **Payload Encoder:**
+  ```json
+  {
+    "template": {
+      "command": "VALVE_CONTROL",
+      "state": "{{value}}"
+    }
+  }
+  ```
+- **QoS:** `1` (guarantees delivery to the PLC gateway)
+
+#### 5. Live SCADA Monitoring Dashboard & Downlink Control
+Telemetry streams into real-time gauge widgets, trend line charts, and active downlink toggles:
+
+| Confirmed State (Valve Open) | Live Downlink Actuation in Progress (`Turning off...`) |
+|---|---|
+| ![Live SCADA Water Treatment Dashboard with Valve ON](./imgs/screenshots/scada-dashboard-light.webp) | ![Live SCADA Dashboard showing Downlink command execution](./imgs/screenshots/scada-downlink-actuated.webp) |
+
+Notice how clicking the switch immediately enters the pending feedback state (`Turning off...`) while slot 0 dispatches the downlink command over MQTT, transitioning to confirmed state once the PLC reports back.
+
+---
+
+### Case Study 2: Smart Agriculture LoRaWAN Node (Binary Payloads & TTN/ChirpStack Codec)
+
+Battery-powered IoT devices operating over LoRaWAN (via The Things Network, ChirpStack, or AWS IoT Core for LoRaWAN) transmit compact binary frames to minimize radio airtime and maximize battery longevity.
+
+#### 1. Binary Frame Structure
+A long-range soil probe broadcasts a 5-byte unencoded binary frame every 15 minutes to topic:
+`v3/agriculture-app/devices/eui-70b3d57ed0054321/up`
+
+Sample hex payload: `hex:2cbe028023`
+
+| Byte Offset | Field | Raw Value | Conversion Formula | Engineering Value |
+|---|---|---|---|---|
+| Byte 0 | Soil Moisture | `0x2C` (44) | $M = \text{byte}$ | `44 %` |
+| Byte 1 | Soil Temperature | `0xBE` (190) | $T = (\text{byte} - 100) / 10$ | `9.0 °C` |
+| Bytes 2–3 | Electrical Conductivity (EC) | `0x02 0x80` | $\text{EC} = (\text{b}_2 \ll 8) \mid \text{b}_3$ | `640 µS/cm` |
+| Byte 4 (bits 7..1) | Battery Voltage | `0x11` (17) | $V = 3.0 + (\text{bits} \times 0.1)$ | `4.7 V` |
+| Byte 4 (bit 0) | Solenoid Valve State | `0x01` | $\text{bit } 0 == 1$ | `true` (Active) |
+
+#### 2. JavaScript Codec (`decodeUplink` & `encodeDownlink`)
+Quack Quack adheres directly to the open **The Things Network (TTN) Device Repository** codec specification. Decoders execute inside an isolated JavaScript sandbox (Goja runtime, 20 ms strict execution ceiling, no network, no disk access):
+
+```javascript
+// The Things Network / ChirpStack Standard Codec
+function decodeUplink(input) {
+  var bytes = input.bytes;
+  if (!bytes || bytes.length < 5) {
+    return { errors: ["Frame too short for agriculture sensor"] };
+  }
+
+  var moisture = bytes[0];
+  var temp = (bytes[1] - 100) / 10.0;
+  var ec = (bytes[2] << 8) | bytes[3];
+  var batt = 3.0 + ((bytes[4] >> 1) * 0.1);
+  var valve = (bytes[4] & 1) === 1;
+
+  return {
+    data: {
+      moisture: moisture,
+      temperature: temp,
+      ec: ec,
+      battery: Number(batt.toFixed(2)),
+      valve: valve
+    },
+    warnings: [],
+    errors: []
+  };
+}
+
+// Downlink encoder: converts dashboard boolean toggle to LoRaWAN push command
+function encodeDownlink(input) {
+  var open = Boolean(input.data.value);
+  // Returns raw byte array: command byte 0x01, value 0xFF (open) or 0x00 (close)
+  return { bytes: [0x01, open ? 0xFF : 0x00] };
+}
+```
+
+![LoRaWAN JavaScript decoder editor dialog in the admin console](./imgs/screenshots/lorawan-decoder-editor.webp)
+
+#### 3. Uplink Rule & Downlink Configuration
+1. **Grant Device:**
+   - Platform Device: `LoRaWAN Soil Node`
+   - External ID: `eui-70b3d57ed0054321` (LoRaWAN DevEUI)
+2. **Uplink Rule:**
+   - **Topic Filter:** `v3/agriculture-app/devices/+/up`
+   - **Format:** `bytes`
+   - **Decoder:** `LoRaWAN Smart Agriculture Decoder`
+   - **Device Extractor:** Topic Segment `3` (`eui-70b3d57ed0054321`)
+   - **Field Map:**
+     - `moisture` &rarr; `Soil Moisture`
+     - `temperature` &rarr; `Soil Temperature`
+     - `ec` &rarr; `Electrical Conductivity`
+     - `battery` &rarr; `Sensor Battery`
+     - `valve` &rarr; `Irrigation Solenoid`
+3. **Downlink Actuator (Drip Irrigation Valve):**
+   - **Topic Template:** `v3/agriculture-app/devices/{device}/down/push`
+   - **Encoder:** Decoder ID of `LoRaWAN Smart Agriculture Decoder` (calls `encodeDownlink`)
+
+#### 4. Real-Time Soil & Irrigation Dashboard
+The binary payload is automatically converted into live metric cards, sparklines, soil saturation gauges, and remote solenoid valve controls:
+
+![Live LoRaWAN Smart Agriculture Dashboard](./imgs/screenshots/lorawan-dashboard-light.webp)
+
+---
+
+---
 
 ## Try it
 
