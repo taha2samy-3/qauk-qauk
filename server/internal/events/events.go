@@ -42,6 +42,10 @@ const (
 	TypeDevicePresence = "io.quack.device.presence.v1"
 	TypeDeviceConfig   = "io.quack.device.config.v1"
 	TypeMQTTConfig     = "io.quack.mqtt.config.v1"
+	// TypeCommandFailed (on control-events.v1) tells every gateway that a
+	// user's command could not be delivered, so the user's dashboards hear
+	// about it whichever gateway they are connected to.
+	TypeCommandFailed = "io.quack.command.failed.v1"
 
 	SourceAPI         = "/quack/api"
 	ContentTypeHeader = "application/cloudevents+json"
@@ -216,16 +220,30 @@ type ElementConfig struct {
 	Pipeline  *PipelineConfig `json:"pipeline,omitempty"`
 }
 
-// ElementPipelineFailed is published to element-pipeline.dlq.v1 when a pipeline step fails.
+// ElementPipelineFailed is published to element-pipeline.dlq.v1 (plain JSON,
+// not a CloudEvent) when a pipeline step fails. Message is the device's
+// message as text, cut to its first 4 KiB; MessageSize is its full size.
 type ElementPipelineFailed struct {
-	ElementID       uuid.UUID       `json:"element_id"`
-	DeviceID        uuid.UUID       `json:"device_id"`
-	PipelineVersion int             `json:"pipeline_version"`
-	Step            string          `json:"step"`
-	Reason          string          `json:"reason"`
-	Message         json.RawMessage `json:"message"`
-	GatewayID       string          `json:"gateway_id"`
-	Time            time.Time       `json:"time"`
+	ElementID       uuid.UUID `json:"element_id"`
+	DeviceID        uuid.UUID `json:"device_id"`
+	PipelineVersion int       `json:"pipeline_version"`
+	Step            string    `json:"step"`
+	Reason          string    `json:"reason"`
+	Message         string    `json:"message"`
+	MessageSize     int       `json:"message_size"`
+	GatewayID       string    `json:"gateway_id"`
+	Time            time.Time `json:"time"`
+}
+
+// CommandFailed is the data of TypeCommandFailed: a user's command to an
+// element that was not delivered, and why.
+type CommandFailed struct {
+	ElementID uuid.UUID `json:"element_id"`
+	DeviceID  uuid.UUID `json:"device_id"`
+	UserID    string    `json:"user_id"`
+	Code      string    `json:"code"`
+	Reason    string    `json:"reason"`
+	GatewayID string    `json:"gateway_id"`
 }
 
 // Control is a convenience constructor for control-change events from the API.

@@ -93,7 +93,7 @@ func TestMain(m *testing.M) {
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE users, groups, sessions, dashboards, jwt_public_keys, devices, elements,
 		element_pipelines, element_pipeline_versions, element_permissions, device_presence, device_connections, outbox, audit_log, mqtt_connections, decoders,
-		gateway_members RESTART IDENTITY CASCADE`); err != nil {
+		gateway_members, webhook_endpoints, webhook_deliveries, element_alert_rules RESTART IDENTITY CASCADE`); err != nil {
 		fmt.Println("truncate:", err)
 		os.Exit(1)
 	}
@@ -161,7 +161,7 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...fun
 		skipBacklog(t, group)
 		run((&ingest.Ingester{Group: group, Store: hist, Brokers: brokers, Publisher: producer, Log: logger}).Run)
 	}
-	srv := httptest.NewUnstartedServer(httpserver.New(cfg, pool, hist, gw, logger))
+	srv := httptest.NewUnstartedServer(httpserver.New(cfg, pool, hist, gw, &httpserver.Lifecycle{}, logger))
 	srv.Config.Protocols = new(http.Protocols) // like `quack serve`: HTTP/1.1 + h2c (gRPC)
 	srv.Config.Protocols.SetHTTP1(true)
 	srv.Config.Protocols.SetUnencryptedHTTP2(true)

@@ -61,6 +61,7 @@ type MQTTGrantIn struct {
 	Body struct {
 		DeviceID   uuid.UUID `json:"device_id"`
 		ExternalID string    `json:"external_id" doc:"How the device appears in MQTT topics or payloads"`
+		Replace    bool      `json:"replace,omitempty" doc:"Move the external id from the device that has it (that device loses its grant)"`
 	}
 }
 type MQTTRevokeIn struct {
@@ -221,7 +222,7 @@ func (a *API) registerAdminMQTT(api huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			return nil, a.wrap(a.svc.GrantMQTTDevice(ctx, act, in.ID, in.Body.DeviceID, in.Body.ExternalID))
+			return nil, a.wrap(a.svc.GrantMQTTDevice(ctx, act, in.ID, in.Body.DeviceID, in.Body.ExternalID, in.Body.Replace))
 		})
 	huma.Register(api, huma.Operation{OperationID: "revoke-mqtt-device", Method: http.MethodDelete, Path: "/api/v1/admin/mqtt/connections/{id}/devices/{device_id}", Tags: tags, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *MQTTRevokeIn) (*struct{}, error) {

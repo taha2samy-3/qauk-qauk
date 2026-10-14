@@ -259,6 +259,7 @@ func TestPipelinePreviewAndDLQ(t *testing.T) {
 	// 2. Call preview on the stored messages
 	scaleSteps := `[{"kind":"scale","field":"value","mul":2.5}]`
 	var prevRes struct {
+		Basis   string `json:"basis"`
 		Summary struct {
 			Total  int `json:"total"`
 			Passed int `json:"passed"`
@@ -275,8 +276,8 @@ func TestPipelinePreviewAndDLQ(t *testing.T) {
 	if prevRes.Summary.Total != 5 || prevRes.Summary.Passed != 5 {
 		t.Fatalf("expected 5 total/passed in preview summary, got %+v", prevRes.Summary)
 	}
-	if len(prevRes.Rows) != 5 {
-		t.Fatalf("expected 5 preview rows, got %d", len(prevRes.Rows))
+	if len(prevRes.Rows) != 5 || prevRes.Basis != "raw" {
+		t.Fatalf("expected 5 raw preview rows, got %d (%s)", len(prevRes.Rows), prevRes.Basis)
 	}
 
 	// 3. Configure pipeline and test DLQ on failure
@@ -316,6 +317,34 @@ func TestPipelinePreviewAndDLQ(t *testing.T) {
 	if dlqHit["step"] != "scale" {
 		t.Fatalf("expected DLQ step=scale, got %v", dlqHit["step"])
 	}
-	_ = uuid.Nil
-	_ = store.Element{}
+
+	// a message stored after the PUT is pipeline output (10 × 2.5): the preview
+	// turns it back into what the device sent, the older ones stay raw
+	later := time.Now().UTC().Add(time.Second)
+	if _, err := hist.Append(context.Background(), []history.Event{{Time: later, ID: uuid.Must(uuid.NewV7()),
+		ElementID: fix.elem.ID, DeviceID: fix.device.ID, Source: "device", Payload: json.RawMessage(`{"value":25}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	var mixed struct {
+		Basis string `json:"basis"`
+		Rows  []struct {
+			Basis  string         `json:"basis"`
+			Before map[string]any `json:"before"`
+		} `json:"rows"`
+	}
+	c.must(http.StatusOK, http.MethodPost, fmt.Sprintf("/api/v1/admin/elements/%s/pipeline/preview", fix.elem.ID),
+		map[string]any{"steps": json.RawMessage(`[{"kind":"round","decimals":0}]`)}, &mixed)
+	newest := mixed.Rows[len(mixed.Rows)-1]
+	if mixed.Basis != "mixed" || newest.Basis != "reconstructed" || newest.Before["value"] != 10.0 {
+		t.Fatalf("preview of pipeline output: basis %s, newest %+v", mixed.Basis, newest)
+	}
+
+	// clearing a pipeline keeps its history: saving again works and continues the versions
+	c.must(http.StatusNoContent, http.MethodDelete, fmt.Sprintf("/api/v1/admin/elements/%s/pipeline", fix.elem.ID), nil, nil)
+	var saved store.ElementPipeline
+	c.must(http.StatusOK, http.MethodPut, fmt.Sprintf("/api/v1/admin/elements/%s/pipeline", fix.elem.ID),
+		map[string]any{"steps": json.RawMessage(scaleSteps)}, &saved)
+	if saved.Version != 3 {
+		t.Fatalf("PUT after DELETE: want version 3 (1 save, 2 the clear), got %d", saved.Version)
+	}
 }

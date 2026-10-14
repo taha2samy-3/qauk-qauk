@@ -5,6 +5,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/url"
@@ -156,7 +157,7 @@ func setupMQTT(t *testing.T, prefix string, conn events.MQTTConnection, elements
 	}
 	f.conn = c
 	t.Cleanup(func() { _ = svc().DeleteMQTTConnection(context.Background(), service.SystemActor, c.ID) })
-	if err := s.GrantMQTTDevice(ctx, service.SystemActor, c.ID, f.device.ID, f.ext); err != nil {
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, c.ID, f.device.ID, f.ext, false); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -651,9 +652,10 @@ func TestMQTTAdminAPI(t *testing.T) {
 	}
 }
 
-// TestUpsertMQTTGrantCollisionAndConcurrency verifies Task 1 P0 fix:
-// reassigning external_id or updating device grants concurrently never throws
-// unique_violation or 500 errors in Postgres.
+// TestUpsertMQTTGrantCollisionAndConcurrency: re-granting a device under a new
+// external id works; taking another device's external id is a conflict unless
+// replace moves it (audited); concurrent grants never fail with a database
+// error.
 func TestUpsertMQTTGrantCollisionAndConcurrency(t *testing.T) {
 	ctx := context.Background()
 	s := svc()
@@ -677,23 +679,20 @@ func TestUpsertMQTTGrantCollisionAndConcurrency(t *testing.T) {
 		t.Fatalf("create devB: %v", err)
 	}
 
-	// 1. Grant devA -> ext-1
-	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-1"); err != nil {
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-1", false); err != nil {
 		t.Fatalf("initial grant devA -> ext-1: %v", err)
 	}
-
-	// 2. Update devA -> ext-2
-	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-2"); err != nil {
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-2", false); err != nil {
 		t.Fatalf("update grant devA -> ext-2: %v", err)
 	}
-
-	// 3. Grant devB -> ext-2 (stealing/reassigning ext-2 to devB)
-	// Previously, this caused unique_violation on (connection_id, external_id).
-	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devB.ID, "ext-2"); err != nil {
-		t.Fatalf("reassign ext-2 to devB: %v", err)
+	// devB can't silently take devA's external id
+	var ce *service.ConflictError
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devB.ID, "ext-2", false); !errors.As(err, &ce) {
+		t.Fatalf("taking ext-2 without replace must be a conflict, got %v", err)
 	}
-
-	// Verify devB owns ext-2
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devB.ID, "ext-2", true); err != nil {
+		t.Fatalf("replace ext-2 to devB: %v", err)
+	}
 	grants, err := store.ListMQTTGrantedDevices(ctx, pool, conn.ID)
 	if err != nil {
 		t.Fatalf("list grants: %v", err)
@@ -703,12 +702,17 @@ func TestUpsertMQTTGrantCollisionAndConcurrency(t *testing.T) {
 		if g.DeviceID == devB.ID && g.ExternalID == "ext-2" {
 			foundB = true
 		}
-		if g.DeviceID == devA.ID && g.ExternalID == "ext-2" {
-			t.Fatalf("devA should no longer have ext-2: %+v", grants)
+		if g.DeviceID == devA.ID {
+			t.Fatalf("devA lost its grant when ext-2 moved: %+v", grants)
 		}
 	}
 	if !foundB {
 		t.Fatalf("devB should have ext-2: %+v", grants)
+	}
+	var revokes int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = 'revoke' AND entity_id = $1
+		AND data->>'device_id' = $2`, conn.ID, devA.ID.String()).Scan(&revokes); err != nil || revokes != 1 {
+		t.Fatalf("the implicit revoke of devA must be audited: %d %v", revokes, err)
 	}
 
 	// 4. Concurrently grant the same external IDs to devA and devB
@@ -727,7 +731,7 @@ func TestUpsertMQTTGrantCollisionAndConcurrency(t *testing.T) {
 			if idx%3 == 0 {
 				extID = "ext-shared-race"
 			}
-			if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, targetDev, extID); err != nil {
+			if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, targetDev, extID, true); err != nil {
 				errCh <- err
 			}
 		}(i)

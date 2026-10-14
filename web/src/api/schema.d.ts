@@ -102,6 +102,41 @@ export interface paths {
         patch: operations["update-element"];
         trace?: never;
     };
+    "/api/v1/admin/elements/{id}/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List an element's alert rules, with whether each is firing */
+        get: operations["list-element-alerts"];
+        put?: never;
+        /** Create or update an alert rule of an element */
+        post: operations["save-element-alert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/elements/{id}/alerts/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an alert rule of an element */
+        delete: operations["delete-element-alert"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/elements/{id}/pipeline": {
         parameters: {
             query?: never;
@@ -110,8 +145,10 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get-element-pipeline"];
+        /** @description Saves the steps as the element's next pipeline version and applies it on every gateway. */
         put: operations["save-element-pipeline"];
         post?: never;
+        /** @description Clears the pipeline by saving an empty version; the history (and rollback) stays. */
         delete: operations["delete-element-pipeline"];
         options?: never;
         head?: never;
@@ -127,6 +164,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Runs steps over the element's last stored device messages, in time order, without saving. */
         post: operations["preview-element-pipeline"];
         delete?: never;
         options?: never;
@@ -143,6 +181,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Saves an earlier version's steps as a new version. */
         post: operations["rollback-element-pipeline"];
         delete?: never;
         options?: never;
@@ -159,6 +198,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Runs steps on one message, and sends the result back through the command path. */
         post: operations["test-element-pipeline"];
         delete?: never;
         options?: never;
@@ -559,6 +599,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/pipelines/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The units the unit step converts between (within one dimension). */
+        get: operations["list-pipeline-units"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pipelines/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Checks steps as a save would, and tells which apply to commands. */
+        post: operations["validate-pipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/presence": {
         parameters: {
             query?: never;
@@ -623,6 +697,77 @@ export interface paths {
         head?: never;
         /** @description Deactivating a user or changing the password ends all of their sessions and closes their sockets. */
         patch: operations["update-user"];
+        trace?: never;
+    };
+    "/api/v1/admin/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List webhook endpoints */
+        get: operations["list-webhooks"];
+        put?: never;
+        /** Create a webhook endpoint */
+        post: operations["create-webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a webhook endpoint */
+        get: operations["get-webhook"];
+        /** Update a webhook endpoint */
+        put: operations["update-webhook"];
+        post?: never;
+        /** Delete a webhook endpoint */
+        delete: operations["delete-webhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List an endpoint's newest deliveries */
+        get: operations["list-webhook-deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/webhooks/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a test notification to an endpoint */
+        post: operations["test-webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/auth/login": {
@@ -765,6 +910,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AlertRuleView: {
+            condition: string;
+            /** Format: date-time */
+            created_at: string;
+            element_id: string;
+            enabled: boolean;
+            firing: boolean;
+            /** Format: double */
+            hysteresis: number;
+            id: string;
+            message: string;
+            name: string;
+            severity: string;
+            /** Format: double */
+            threshold: number;
+            /** Format: double */
+            threshold_max?: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
         AuditEntry: {
             action: string;
             actor_name: string;
@@ -929,6 +1094,71 @@ export interface components {
             pipeline_version?: number;
             /** Format: int64 */
             points: number;
+        };
+        ElementAlertRule: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/ElementAlertRule.json
+             */
+            readonly $schema?: string;
+            condition: string;
+            /** Format: date-time */
+            created_at: string;
+            element_id: string;
+            enabled: boolean;
+            /** Format: double */
+            hysteresis: number;
+            id: string;
+            message: string;
+            name: string;
+            severity: string;
+            /** Format: double */
+            threshold: number;
+            /** Format: double */
+            threshold_max?: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ElementAlertSaveInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/ElementAlertSaveInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Condition type
+             * @enum {string}
+             */
+            condition: "above" | "below" | "outside_range" | "equals";
+            enabled?: boolean;
+            /**
+             * Format: double
+             * @description How far back past the threshold the value must go before the alert resolves
+             */
+            hysteresis: number;
+            /** @description A rule of this element to change; omit to create one */
+            id?: string;
+            /** @description Custom notification message */
+            message?: string;
+            /** @description Alert rule name */
+            name: string;
+            /**
+             * @description Severity (default warning)
+             * @enum {string}
+             */
+            severity?: "info" | "warning" | "critical";
+            /**
+             * Format: double
+             * @description Threshold (the low end for outside_range)
+             */
+            threshold: number;
+            /**
+             * Format: double
+             * @description High end for outside_range (required there, greater than threshold)
+             */
+            threshold_max?: number;
         };
         ElementCreateInBody: {
             /**
@@ -1326,6 +1556,8 @@ export interface components {
             device_id: string;
             /** @description How the device appears in MQTT topics or payloads */
             external_id: string;
+            /** @description Move the external id from the device that has it (that device loses its grant) */
+            replace?: boolean;
         };
         MQTTGrantedDevice: {
             device_id: string;
@@ -1447,6 +1679,10 @@ export interface components {
             last_login_at: string | null;
             username: string;
         };
+        Options: {
+            /** @description Telegram: the chat the bot posts to */
+            chat_id?: string;
+        };
         PasswordInputBody: {
             /**
              * Format: uri
@@ -1502,16 +1738,8 @@ export interface components {
              */
             readonly $schema?: string;
             current: components["schemas"]["ElementPipeline"];
+            element_name: string;
             versions: components["schemas"]["ElementPipelineVersion"][] | null;
-        };
-        PipelinePreviewInBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/schemas/PipelinePreviewInBody.json
-             */
-            readonly $schema?: string;
-            steps: unknown;
         };
         PipelinePreviewOutBody: {
             /**
@@ -1520,18 +1748,14 @@ export interface components {
              * @example https://example.com/api/schemas/PipelinePreviewOutBody.json
              */
             readonly $schema?: string;
+            /**
+             * @description raw: no pipeline was active when these values were stored, they are what the device sent; reconstructed: the inverse of the pipeline version active then turned them back into device values; stored: that version can't be inverted, the steps ran on its output; mixed: rows differ (see each row's basis)
+             * @enum {string}
+             */
+            basis: "raw" | "reconstructed" | "stored" | "mixed";
+            note: string;
             rows: components["schemas"]["PreviewRow"][] | null;
             summary: components["schemas"]["PreviewSummary"];
-        };
-        PipelinePutInBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/schemas/PipelinePutInBody.json
-             */
-            readonly $schema?: string;
-            /** @description Array of pipeline step configs */
-            steps: unknown;
         };
         PipelineRollbackInBody: {
             /**
@@ -1543,6 +1767,16 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        PipelineStepsBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineStepsBody.json
+             */
+            readonly $schema?: string;
+            /** @description Array of pipeline step configs ([] for none) */
+            steps: unknown;
+        };
         PipelineTestInBody: {
             /**
              * Format: uri
@@ -1550,7 +1784,9 @@ export interface components {
              * @example https://example.com/api/schemas/PipelineTestInBody.json
              */
             readonly $schema?: string;
+            /** @description The last published message, for deadband and scripts */
             last?: unknown;
+            /** @description A device message */
             message: unknown;
             steps: unknown;
         };
@@ -1564,8 +1800,28 @@ export interface components {
             after?: unknown;
             error?: string;
             filtered: boolean;
+            /** @description after sent back as a command, in device units */
             inverse?: unknown;
+            inverse_error?: string;
+            /** @description Commands are transformed by at least one step */
+            invertible: boolean;
             reason?: string;
+            steps_invertible: boolean[] | null;
+        };
+        PipelineValidateOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/PipelineValidateOutBody.json
+             */
+            readonly $schema?: string;
+            error?: string;
+            /** @description Commands are transformed by at least one step */
+            invertible: boolean;
+            /** @description Every step that changes values also applies to commands */
+            round_trips: boolean;
+            steps_invertible: boolean[] | null;
+            valid: boolean;
         };
         PresenceRow: {
             conn_id: string;
@@ -1578,10 +1834,18 @@ export interface components {
         };
         PreviewRow: {
             after?: unknown;
-            before: unknown;
+            /**
+             * @description How before was obtained (see the response's basis)
+             * @enum {string}
+             */
+            basis: "raw" | "reconstructed" | "stored";
+            /** @description The input the steps ran on (see basis) */
+            before?: unknown;
             error?: string;
             filtered: boolean;
             reason?: string;
+            /** @description The message as stored (the output of the pipeline version active then) */
+            stored: unknown;
             time: string;
         };
         PreviewSummary: {
@@ -1626,6 +1890,11 @@ export interface components {
             readonly $schema?: string;
             details?: unknown;
             name?: string;
+        };
+        UnitInfo: {
+            aliases?: string[] | null;
+            dimension: string;
+            name: string;
         };
         User: {
             /**
@@ -1708,6 +1977,141 @@ export interface components {
             is_admin?: boolean;
             password?: string;
             username?: string;
+        };
+        WebhookBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/WebhookBody.json
+             */
+            readonly $schema?: string;
+            /** @description Go template for the custom format; use {{json .Field}} for values */
+            custom_template?: string;
+            enabled?: boolean;
+            /**
+             * @description Payload format
+             * @enum {string}
+             */
+            format?: "standard" | "slack" | "discord" | "teams" | "telegram" | "custom";
+            /** @description Extra HTTP headers; values may be references. On update the map replaces the headers, and an empty value keeps that header's stored value. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Endpoint display name */
+            name?: string;
+            /** @description Generate a new signing secret */
+            new_secret?: boolean;
+            options?: components["schemas"]["Options"];
+            /** @description Signing secret whsec_<base64>, or a reference. Empty on create generates one; on update empty keeps it. */
+            secret?: string;
+            /** @description Severities to deliver: info, warning, critical */
+            severities?: string[] | null;
+            /** @description Destination https URL, or an env:/file: reference to one. On update, empty keeps the stored URL. */
+            url?: string;
+        };
+        WebhookCreatedOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/WebhookCreatedOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            custom_template?: string;
+            enabled: boolean;
+            format: string;
+            header_names: string[] | null;
+            id: string;
+            name: string;
+            options: components["schemas"]["Options"];
+            /** @description The generated signing secret, shown once */
+            secret?: string;
+            /** @description The secret's env:/file: reference, when it is one */
+            secret_ref?: string;
+            secret_set: boolean;
+            severities: string[] | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description The reference, or the URL redacted to scheme://host/…last 4 characters */
+            url: string;
+        };
+        WebhookDelivery: {
+            /** Format: int64 */
+            attempts: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            delivered_at?: string;
+            endpoint_id: string;
+            event_id: string;
+            event_type: string;
+            id: string;
+            last_error?: string;
+            /** Format: int64 */
+            last_status_code?: number;
+            /** Format: int64 */
+            latency_ms?: number;
+            /** Format: date-time */
+            locked_until?: string;
+            /** Format: int64 */
+            max_attempts: number;
+            /** Format: date-time */
+            next_retry_at: string;
+            payload: unknown;
+            severity: string;
+            status: string;
+        };
+        WebhookTestInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/WebhookTestInBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            severity?: "info" | "warning" | "critical";
+        };
+        WebhookTestOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/WebhookTestOutBody.json
+             */
+            readonly $schema?: string;
+            error?: string;
+            /** Format: int64 */
+            latency_ms: number;
+            /** @description The start of the response body (2 KiB) */
+            response: string;
+            /** Format: int64 */
+            status_code: number;
+            success: boolean;
+        };
+        WebhookView: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/WebhookView.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            custom_template?: string;
+            enabled: boolean;
+            format: string;
+            header_names: string[] | null;
+            id: string;
+            name: string;
+            options: components["schemas"]["Options"];
+            /** @description The secret's env:/file: reference, when it is one */
+            secret_ref?: string;
+            secret_set: boolean;
+            severities: string[] | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description The reference, or the URL redacted to scheme://host/…last 4 characters */
+            url: string;
         };
     };
     responses: never;
@@ -2098,6 +2502,102 @@ export interface operations {
             };
         };
     };
+    "list-element-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleView"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-element-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ElementAlertSaveInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementAlertRule"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-element-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-element-pipeline": {
         parameters: {
             query?: never;
@@ -2140,7 +2640,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PipelinePutInBody"];
+                "application/json": components["schemas"]["PipelineStepsBody"];
             };
         };
         responses: {
@@ -2204,7 +2704,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PipelinePreviewInBody"];
+                "application/json": components["schemas"]["PipelineStepsBody"];
             };
         };
         responses: {
@@ -3435,6 +3935,68 @@ export interface operations {
             };
         };
     };
+    "list-pipeline-units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitInfo"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "validate-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PipelineStepsBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineValidateOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-presence": {
         parameters: {
             query?: never;
@@ -3672,6 +4234,231 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookView"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookCreatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookCreatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-webhook-deliveries": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "test-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookTestInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookTestOutBody"];
                 };
             };
             /** @description Error */

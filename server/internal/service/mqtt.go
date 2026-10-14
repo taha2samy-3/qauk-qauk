@@ -356,7 +356,10 @@ func (s *Service) DeleteMQTTDownlink(ctx context.Context, a Actor, id string) er
 
 // --- granted devices ---
 
-func (s *Service) GrantMQTTDevice(ctx context.Context, a Actor, connectionID string, deviceID uuid.UUID, externalID string) error {
+// GrantMQTTDevice lets a connection write a device, addressed as externalID.
+// An external id another device has is a conflict, unless replace moves it
+// (the other device loses its grant, and that is audited too).
+func (s *Service) GrantMQTTDevice(ctx context.Context, a Actor, connectionID string, deviceID uuid.UUID, externalID string, replace bool) error {
 	if !externalIDRe.MatchString(externalID) {
 		return invalid("external_id", "1-64 characters: letters, digits and _ . : @ - (no MQTT wildcards or /)")
 	}
@@ -367,11 +370,25 @@ func (s *Service) GrantMQTTDevice(ctx context.Context, a Actor, connectionID str
 		if _, err := store.GetDevice(ctx, tx, deviceID); err != nil {
 			return err
 		}
+		holder, err := store.MQTTGrantHolder(ctx, tx, connectionID, externalID)
+		if err != nil {
+			return err
+		}
+		taken := holder != uuid.Nil && holder != deviceID
+		if taken && !replace {
+			return &ConflictError{Msg: fmt.Sprintf("external id %q is granted to another device (%s) on this connection; revoke it first, or set replace to move it", externalID, holder)}
+		}
 		if err := store.UpsertMQTTGrant(ctx, tx, connectionID, deviceID, externalID); err != nil {
 			return err
 		}
 		if err := publishMQTTConnections(ctx, tx, connectionID); err != nil {
 			return err
+		}
+		if taken {
+			if err := record(ctx, tx, a, "revoke", "mqtt_connection", connectionID,
+				map[string]any{"device_id": holder, "external_id": externalID, "reason": "external id moved to " + deviceID.String()}); err != nil {
+				return err
+			}
 		}
 		return record(ctx, tx, a, "grant", "mqtt_connection", connectionID, map[string]any{"device_id": deviceID, "external_id": externalID})
 	})

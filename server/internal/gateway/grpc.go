@@ -160,8 +160,9 @@ func (s *grpcDevice) Session(ctx context.Context, stream *connect.BidiStream[dev
 				res = rs[0]
 			}
 			// Like the WebSocket, a stream is fire-and-forget: results come
-			// back only for rejected messages and for messages with an id.
-			if res.Status == "rejected" || item.ID != "" {
+			// back only for failures (rejected, pipeline_failed) and for
+			// messages with an id.
+			if res.Status == "rejected" || res.Status == StatusPipelineFailed || item.ID != "" {
 				b, _ := json.Marshal(res)
 				d.Send(append([]byte{resultMarker}, b...))
 			}
@@ -177,6 +178,10 @@ func (s *grpcDevice) Session(ctx context.Context, stream *connect.BidiStream[dev
 // once the stream is registered: clients wait for them before reading.
 func (g *Gateway) runStream(ctx context.Context, dev *registry.Device, dk *authn.DeviceKey, info map[string]any,
 	write func([]byte) error, open func() error, recv func(*deviceClient) error) error {
+	if g.draining.Load() { // the client reconnects (to another instance)
+		metrics.WSRejected.WithLabelValues("grpc", "draining").Inc()
+		return connect.NewError(connect.CodeUnavailable, errors.New("server draining"))
+	}
 	d := &deviceClient{
 		client: newStreamClient(g.ctx, g.nextConnID(), "device", func(_ context.Context, frame []byte) error {
 			return write(frame)

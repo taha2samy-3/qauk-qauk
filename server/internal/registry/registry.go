@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -60,7 +61,22 @@ type Element struct {
 	Rate      float64
 	Burst     int
 	OverLimit string
-	Pipeline  *elementpipe.Pipeline
+	// Pipeline is the compiled element pipeline (nil: none) and
+	// PipelineVersion its version. PipelineErr is set when the configured
+	// pipeline doesn't compile on this gateway and no earlier version is
+	// known: the element then fails its messages instead of publishing them
+	// untransformed.
+	Pipeline        *elementpipe.Pipeline
+	PipelineVersion int
+	PipelineErr     error
+}
+
+// elementOrZero is Element on a possibly nil device.
+func (d *Device) elementOrZero(id uuid.UUID) (Element, bool) {
+	if d == nil {
+		return Element{}, false
+	}
+	return d.Element(id)
 }
 
 // Element finds one of the device's elements by id.
@@ -108,18 +124,20 @@ func FromConfigWithPrev(c events.DeviceConfig, prev *Device) *Device {
 		if e.Burst != nil {
 			el.Burst = *e.Burst
 		}
-		if e.Pipeline != nil && len(e.Pipeline.Steps) > 0 {
+		if e.Pipeline != nil {
 			p, err := elementpipe.CompileJSON(e.Pipeline.Version, e.Pipeline.Steps)
-			if err != nil {
-				metrics.PipelineCompileErrors.Inc()
-				slog.Warn("registry: compile element pipeline failed", "element_id", e.ID, "err", err)
-				if prev != nil {
-					if pe, ok := prev.Element(e.ID); ok {
-						el.Pipeline = pe.Pipeline
-					}
+			if err == nil {
+				if p.HasSteps() {
+					el.Pipeline, el.PipelineVersion = p, e.Pipeline.Version
 				}
 			} else {
-				el.Pipeline = p
+				metrics.PipelineCompileErrors.Inc()
+				slog.Warn("registry: element pipeline doesn't compile", "element_id", e.ID, "version", e.Pipeline.Version, "err", err)
+				if pe, ok := prev.elementOrZero(e.ID); ok && (pe.Pipeline != nil || pe.PipelineErr != nil) {
+					el.Pipeline, el.PipelineVersion, el.PipelineErr = pe.Pipeline, pe.PipelineVersion, pe.PipelineErr // keep the last working version
+				} else {
+					el.PipelineVersion, el.PipelineErr = e.Pipeline.Version, fmt.Errorf("version %d doesn't compile: %w", e.Pipeline.Version, err)
+				}
 			}
 		}
 		d.Elements[i] = el

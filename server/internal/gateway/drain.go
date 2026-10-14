@@ -8,84 +8,77 @@ import (
 	"github.com/coder/websocket"
 )
 
-// Drain smoothly closes all active WebSocket connections over the configured
-// duration with randomized jitter, preventing a reconnect storm on peer instances.
-// It also pauses for DrainPropagationWait so that upstream load balancers remove
-// this instance from active endpoints before sockets begin disconnecting.
-func (g *Gateway) Drain(ctx context.Context) {
-	if g.draining.Swap(true) {
-		return // already draining
-	}
-
-	g.log.Info("gateway: beginning graceful drain",
-		"propagation_wait", g.cfg.DrainPropagationWait,
-		"drain_duration", g.cfg.DrainDuration)
-
-	// Step 1: Wait for load balancers / Ingress to observe /readyz failure and update routing.
-	if g.cfg.DrainPropagationWait > 0 {
-		select {
-		case <-time.After(g.cfg.DrainPropagationWait):
-		case <-ctx.Done():
-			g.log.Warn("gateway: drain interrupted during propagation wait")
-			g.shutdown()
-			return
+// StartDrain makes the gateway refuse new device and browser connections,
+// gRPC streams and REST long-polls (readiness turns 503); Drain then closes
+// the open ones. The caller waits between the two so that load balancers
+// stop routing here first (QUACK_DRAIN_PROPAGATION_WAIT).
+func (g *Gateway) StartDrain() {
+	g.draining.Store(true)
+	g.drainMu.Do(func() {
+		if g.drainCh != nil {
+			close(g.drainCh)
 		}
-	}
+	})
+}
 
-	// Step 2: Gather all active sockets.
-	devs := g.hub.AllDeviceClients()
-	brows := g.hub.AllBrowserClients()
-	total := len(devs) + len(brows)
-	if total == 0 {
-		g.log.Info("gateway: drain complete (no active clients)")
-		return
-	}
-
-	g.log.Info("gateway: draining active clients", "devices", len(devs), "browsers", len(brows), "total", total)
-
-	if g.cfg.DrainDuration <= 0 {
-		g.shutdown()
-		return
-	}
-
+// Drain closes the open sockets and streams spread over QUACK_DRAIN_DURATION
+// (random order and times, close code 1012 "service restart") so that clients
+// reconnect to other instances gradually instead of all at once. It returns
+// as soon as none is left. If ctx ends first, or time runs out, the rest are
+// closed at once.
+func (g *Gateway) Drain(ctx context.Context) {
+	g.StartDrain()
+	devs, brows := g.hub.AllDeviceClients(), g.hub.AllBrowserClients()
 	type killable interface {
 		kill(code websocket.StatusCode, reason string)
 	}
-
-	clients := make([]killable, 0, total)
+	clients := make([]killable, 0, len(devs)+len(brows))
 	for _, d := range devs {
 		clients = append(clients, d)
 	}
 	for _, b := range brows {
 		clients = append(clients, b)
 	}
-
-	// Shuffle clients to avoid closing sockets in a deterministic or biased order.
-	rand.Shuffle(len(clients), func(i, j int) {
-		clients[i], clients[j] = clients[j], clients[i]
-	})
-
-	// WebSocket code 1012 (StatusServiceRestart): standard code indicating service restart.
-	const closeCode = websocket.StatusCode(1012)
-	const closeReason = "server restarting"
-
-	drainTimer := time.NewTimer(g.cfg.DrainDuration)
-	defer drainTimer.Stop()
-
-	// Launch staggered disconnections with randomized jitter
-	for _, c := range clients {
-		delay := time.Duration(rand.Int64N(int64(g.cfg.DrainDuration)))
-		target := c
-		time.AfterFunc(delay, func() {
-			target.kill(closeCode, closeReason)
-		})
+	if len(clients) == 0 {
+		g.log.Info("gateway: drain complete (no active clients)")
+		return
 	}
-
-	select {
-	case <-drainTimer.C:
-		g.log.Info("gateway: graceful drain duration elapsed")
-	case <-ctx.Done():
-		g.log.Warn("gateway: drain context deadline exceeded; killing remaining clients")
+	if g.cfg.DrainDuration <= 0 {
 		g.shutdown()
+		return
+	}
+	g.log.Info("gateway: draining active clients", "devices", len(devs), "browsers", len(brows), "duration", g.cfg.DrainDuration)
+	rand.Shuffle(len(clients), func(i, j int) { clients[i], clients[j] = clients[j], clients[i] })
+	timers := make([]*time.Timer, 0, len(clients))
+	for _, c := range clients {
+		timers = append(timers, time.AfterFunc(time.Duration(rand.Int64N(int64(g.cfg.DrainDuration))), func() {
+			c.kill(websocket.StatusCode(1012), "server restarting")
+		}))
+	}
+	defer func() {
+		for _, t := range timers {
+			t.Stop()
+		}
+	}()
+	end := time.NewTimer(g.cfg.DrainDuration)
+	defer end.Stop()
+	poll := time.NewTicker(50 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-poll.C:
+			if len(g.hub.AllDeviceClients())+len(g.hub.AllBrowserClients()) == 0 {
+				g.log.Info("gateway: drain complete")
+				return
+			}
+		case <-end.C:
+			g.log.Info("gateway: drain duration elapsed; closing the rest")
+			g.shutdown()
+			return
+		case <-ctx.Done():
+			g.log.Warn("gateway: drain cut short; closing the rest")
+			g.shutdown()
+			return
+		}
 	}
 }

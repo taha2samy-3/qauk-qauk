@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
@@ -187,6 +188,15 @@ func (g *Gateway) browserPublish(b *browserClient, raw string, message json.RawM
 	st := g.hub.get(id)
 	if st == nil {
 		return
+	}
+	// a command the element's pipeline can't convert to device units would
+	// never reach the device: refuse it here, where the user is
+	if pc := g.pipelineOf(st.deviceID, id); pc.pipe.Invertible() {
+		if _, err := inverseMessage(message, pc.pipe, elementpipe.Context{Element: pc.element, Device: pc.device, Time: time.Now().UTC()}); err != nil {
+			metrics.PipelineFailed.WithLabelValues("inverse").Inc()
+			b.Send(errorFrame("pipeline_failed", "the command can't be converted for the device: "+pipelineReason(err), raw))
+			return
+		}
 	}
 	g.publishElement(&events.ElementMessage{
 		ElementID: id,

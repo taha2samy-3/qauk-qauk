@@ -206,7 +206,7 @@ func (g *Gateway) onDeviceFrame(d *deviceClient, data []byte) {
 	if _, err := g.publishDeviceMessage(dev, d.id, in); err != nil {
 		var ep *elementpipe.ErrPipeline
 		if errors.As(err, &ep) {
-			d.Send(errorFrame("pipeline_failed", ep.Reason, f.ElementID))
+			d.Send(errorFrame(StatusPipelineFailed, pipelineReason(err), f.ElementID))
 		}
 		g.log.Debug("gateway: device message dropped", "device", d.deviceID, "element_id", f.ElementID, "err", err)
 	}
@@ -264,7 +264,7 @@ func (g *Gateway) emitPresence(deviceID uuid.UUID, connected bool) {
 	ev, err := events.New(events.TypeDevicePresence, events.GatewaySource(g.cfg.GatewayID), deviceID.String(),
 		events.DevicePresence{DeviceID: deviceID, Connected: connected, GatewayID: g.cfg.GatewayID})
 	if err == nil {
-		g.producer.Publish(g.ctx, events.TopicPresence, ev)
+		g.producer.Publish(g.produceCtx(), events.TopicPresence, ev)
 	}
 }
 

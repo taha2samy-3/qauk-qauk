@@ -12,7 +12,7 @@ import (
 func TestImportBoundary(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").Output()
 	if err != nil {
-		t.Skipf("go list unavailable: %v", err)
+		t.Fatalf("go list: %v", err)
 	}
 	forbidden := []string{"/internal/store", "/internal/db", "/internal/service", "/internal/history",
 		"/internal/api", "github.com/jackc/pgx"}

@@ -3,298 +3,354 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/gateway/mqtt"
 	devicev1 "github.com/taha2samy/quackquack/server/internal/gen/quack/device/v1"
+	"github.com/taha2samy/quackquack/server/internal/store"
 )
+
+func steps(s string) *events.PipelineConfig {
+	return &events.PipelineConfig{Version: 1, Steps: json.RawMessage(s)}
+}
+
+func lastValue(v string) ringEntry {
+	return ringEntry{id: uuid.New(), at: time.Now(), msg: newLazyMessage(json.RawMessage(v))}
+}
+
+func publishedValue(t *testing.T, ev *events.Event) map[string]any {
+	t.Helper()
+	var m events.ElementMessage
+	if err := ev.DecodeData(&m); err != nil {
+		t.Fatal(err)
+	}
+	var v map[string]any
+	if err := json.Unmarshal(m.Message, &v); err != nil {
+		t.Fatalf("published %s: %v", m.Message, err)
+	}
+	return v
+}
 
 func TestGatewayPipelineCoreOrder(t *testing.T) {
 	g, pub := testGateway(t)
-	rateVal := 1.0
-	burstVal := 1
-	deadbandSteps := json.RawMessage(`[{"kind":"deadband","field":"value","abs":1.0}]`)
+	deadband := steps(`[{"kind":"deadband","field":"value","abs":1.0}]`)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Rate: rate(1), Burst: burst(1), Pipeline: deadband})
 
-	td := addDevice(t, g, events.ElementConfig{
-		Name:      "temp",
-		Rate:      &rateVal,
-		Burst:     &burstVal,
-		Pipeline:  &events.PipelineConfig{Version: 1, Steps: deadbandSteps},
-		OverLimit: "drop",
-	})
-
-	// 1. First message: filtered should not consume tokens if we test filtering before token
-	// Let's seed hub.Latest so deadband has a previous value
-	firstVal := json.RawMessage(`{"value":10.0}`)
-	res1, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{
-		Element:  "temp",
-		ByName:   true,
-		Message:  firstVal,
-		ClientID: "c-1",
-	})
+	res1, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{Element: "temp", ByName: true, Message: val(10), ClientID: "c-1"})
 	if err != nil || res1.Status != StatusAccepted {
-		t.Fatalf("first message expected accepted, got status=%s err=%v", res1.Status, err)
+		t.Fatalf("first message: %s %v", res1.Status, err)
 	}
-	evs := pub.events()
-	if len(evs) != 1 {
-		t.Fatalf("expected 1 published event, got %d", len(evs))
+	if evs := pub.events(); len(evs) != 1 || evs[0].QuackPipeline == nil || *evs[0].QuackPipeline != 1 {
+		t.Fatalf("expected one event with quackpipeline=1, got %v", evs)
 	}
-	ev := evs[0]
-	if ev.QuackPipeline == nil || *ev.QuackPipeline != 1 {
-		t.Fatalf("expected quackpipeline=1, got %v", ev.QuackPipeline)
+	// the hub remembers the published value: 10.2 is within the deadband
+	res2, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{Element: "temp", ByName: true,
+		Message: json.RawMessage(`{"value":10.2}`), ClientID: "c-2"})
+	if err != nil || res2.Status != StatusFiltered || pub.count() != 1 {
+		t.Fatalf("expected filtered and nothing published, got %s %v (%d events)", res2.Status, err, pub.count())
 	}
-
-	// 2. Second message: delta is 0.2 < 1.0 -> filtered by deadband!
-	filteredVal := json.RawMessage(`{"value":10.2}`)
-	res2, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{
-		Element:  "temp",
-		ByName:   true,
-		Message:  filteredVal,
-		ClientID: "c-2",
-	})
-	if err != nil {
-		t.Fatalf("filtered message should not return error, got %v", err)
-	}
-	if res2.Status != StatusFiltered {
-		t.Fatalf("expected status=filtered, got %s", res2.Status)
-	}
-	// No new event published to bus
-	if len(pub.events()) != 1 {
-		t.Fatalf("filtered message must not be published to bus")
+	retry, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{Element: "temp", ByName: true,
+		Message: json.RawMessage(`{"value":10.2}`), ClientID: "c-2"})
+	if err != nil || retry.Status != StatusDuplicate {
+		t.Fatalf("a retry of a filtered message is a duplicate, got %s %v", retry.Status, err)
 	}
 
-	// 3. Retry of filtered message with same client ID is duplicate
-	res2Retry, err := g.publishDeviceMessage(td.dev, "origin1", DeviceMessage{
-		Element:  "temp",
-		ByName:   true,
-		Message:  filteredVal,
-		ClientID: "c-2",
-	})
-	if err != nil || res2Retry.Status != StatusDuplicate {
-		t.Fatalf("expected retry of filtered message to be duplicate, got status=%s err=%v", res2Retry.Status, err)
+	// filtered values don't use rate-limit tokens (burst 1)
+	td2 := addDevice(t, g, events.ElementConfig{Name: "temp2", Rate: rate(1), Burst: burst(1), Pipeline: deadband})
+	g.hub.Remember(td2.elem["temp2"], lastValue(`{"value":10.0}`))
+	if r, err := g.publishDeviceMessage(td2.dev, "o", DeviceMessage{Element: "temp2", ByName: true, Message: json.RawMessage(`{"value":10.1}`)}); err != nil || r.Status != StatusFiltered {
+		t.Fatalf("expected filtered, got %s %v", r.Status, err)
 	}
-
-	// 4. Rate-limit test: A fresh element with burst=1, send filtered message first
-	td2 := addDevice(t, g, events.ElementConfig{
-		Name:      "temp2",
-		Rate:      &rateVal,
-		Burst:     &burstVal,
-		Pipeline:  &events.PipelineConfig{Version: 1, Steps: deadbandSteps},
-		OverLimit: "drop",
-	})
-	// Set hub latest for temp2
-	g.hub.Remember(td2.elem["temp2"], ringEntry{
-		id:      uuid.New(),
-		at:      time.Now(),
-		message: map[string]any{"value": 10.0},
-	})
-	// Send filtered value: delta 0.1 < 1.0
-	resFiltered, err := g.publishDeviceMessage(td2.dev, "origin1", DeviceMessage{
-		Element: "temp2",
-		ByName:  true,
-		Message: json.RawMessage(`{"value":10.1}`),
-	})
-	if err != nil || resFiltered.Status != StatusFiltered {
-		t.Fatalf("expected filtered, got status=%s err=%v", resFiltered.Status, err)
-	}
-	// Bucket should still have its token! Send passing value: delta 5.0 >= 1.0
-	resPassing, err := g.publishDeviceMessage(td2.dev, "origin1", DeviceMessage{
-		Element: "temp2",
-		ByName:  true,
-		Message: json.RawMessage(`{"value":15.0}`),
-	})
-	if err != nil || resPassing.Status != StatusAccepted {
-		t.Fatalf("expected passing message to be accepted without rate limit, got status=%s err=%v", resPassing.Status, err)
+	if r, err := g.publishDeviceMessage(td2.dev, "o", DeviceMessage{Element: "temp2", ByName: true, Message: val(15)}); err != nil || r.Status != StatusAccepted {
+		t.Fatalf("the token must still be there, got %s %v", r.Status, err)
 	}
 }
 
 func TestGatewayPipelineTransformAndDLQ(t *testing.T) {
 	g, pub := testGateway(t)
-	scaleSteps := json.RawMessage(`[{"kind":"scale","field":"value","mul":2.0,"add":5.0}]`)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp",
+		Pipeline: &events.PipelineConfig{Version: 3, Steps: json.RawMessage(`[{"kind":"scale","mul":2.0,"add":5.0}]`)}})
 
-	td := addDevice(t, g, events.ElementConfig{
-		Name:     "temp",
-		Pipeline: &events.PipelineConfig{Version: 3, Steps: scaleSteps},
-	})
-
-	// Send valid number: 10 -> 10 * 2 + 5 = 25
-	res, err := g.publishDeviceMessage(td.dev, "origin", DeviceMessage{
-		Element: "temp",
-		ByName:  true,
-		Message: json.RawMessage(`{"value":10}`),
-	})
-	if err != nil || res.Status != StatusAccepted {
-		t.Fatalf("expected accepted, got %s err=%v", res.Status, err)
+	if r, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: val(10)}); err != nil || r.Status != StatusAccepted {
+		t.Fatalf("%s %v", r.Status, err)
 	}
 	evs := pub.events()
-	if len(evs) == 0 {
-		t.Fatal("expected published event")
-	}
-	lastEv := evs[len(evs)-1]
-	if lastEv.QuackPipeline == nil || *lastEv.QuackPipeline != 3 {
-		t.Fatalf("expected quackpipeline=3, got %v", lastEv.QuackPipeline)
-	}
-	var data events.ElementMessage
-	if err := lastEv.DecodeData(&data); err != nil {
-		t.Fatal(err)
-	}
-	var transformed map[string]any
-	_ = json.Unmarshal(data.Message, &transformed)
-	if v, ok := transformed["value"].(float64); !ok || v != 25.0 {
-		t.Fatalf("expected transformed value 25, got %v", transformed["value"])
+	if ev := evs[len(evs)-1]; *ev.QuackPipeline != 3 || publishedValue(t, ev)["value"] != 25.0 {
+		t.Fatalf("expected 25 with quackpipeline=3, got %v", publishedValue(t, ev))
 	}
 
-	// Step failure: non-numeric value for numeric step scale
-	resFail, errFail := g.publishDeviceMessage(td.dev, "origin", DeviceMessage{
-		Element: "temp",
-		ByName:  true,
-		Message: json.RawMessage(`{"value":"not-a-number"}`),
-	})
-	if errFail == nil {
-		t.Fatal("expected ErrPipeline on non-numeric value")
+	// a failing step: an ErrPipeline, nothing published, a DLQ record that
+	// is valid JSON even when the message is over 4 KiB
+	long := `{"value":"not-a-number","pad":"` + strings.Repeat("x", 5000) + `"}`
+	_, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: json.RawMessage(long)})
+	var ep *elementpipe.ErrPipeline
+	if !errors.As(err, &ep) || ep.Step != "scale" {
+		t.Fatalf("want an ErrPipeline from scale, got %v", err)
 	}
-	var ep *ErrPipeline
-	if errFail == nil || errFail.Error() == "" {
-		t.Fatalf("expected pipeline failure, got %v", resFail)
+	if pub.count() != len(evs) {
+		t.Fatal("a failed message must not be published")
 	}
-	_ = ep
+	recs := pub.records()
+	if len(recs) != 1 || recs[0].Topic != events.TopicElementPipelineDLQ {
+		t.Fatalf("want one DLQ record, got %d", len(recs))
+	}
+	var dlq events.ElementPipelineFailed
+	if err := json.Unmarshal(recs[0].Value, &dlq); err != nil {
+		t.Fatalf("DLQ record isn't valid JSON: %v", err)
+	}
+	if dlq.Step != "scale" || dlq.MessageSize != len(long) || len(dlq.Message) != 4096 || dlq.PipelineVersion != 3 {
+		t.Fatalf("DLQ record: step=%s size=%d len=%d version=%d", dlq.Step, dlq.MessageSize, len(dlq.Message), dlq.PipelineVersion)
+	}
+}
+
+// MQTT counts Done calls to acknowledge a message once: a failure is returned,
+// not also reported through Done.
+func TestPipelineFailureDoesNotCallDone(t *testing.T) {
+	g, _ := testGateway(t)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Pipeline: steps(`[{"kind":"scale","mul":2}]`)})
+	calls := 0
+	_, err := g.publishDeviceMessage(td.dev, "mqtt/c", DeviceMessage{Element: "temp", ByName: true,
+		Message: json.RawMessage(`{"value":"x"}`), Done: func(error) { calls++ }})
+	if err == nil || calls != 0 {
+		t.Fatalf("err=%v done calls=%d (want an error and no Done call)", err, calls)
+	}
+	// filtered messages are acknowledged through Done
+	td2 := addDevice(t, g, events.ElementConfig{Name: "t2", Pipeline: steps(`[{"kind":"drop_if","op":"<","value":0}]`)})
+	_, err = g.publishDeviceMessage(td2.dev, "mqtt/c", DeviceMessage{Element: "t2", ByName: true,
+		Message: val(-1), Done: func(error) { calls++ }})
+	if err != nil || calls != 1 {
+		t.Fatalf("filtered: err=%v done calls=%d", err, calls)
+	}
+}
+
+func TestPipelineWrapsBareValuesAndChecksOutput(t *testing.T) {
+	g, pub := testGateway(t)
+	td := addDevice(t, g,
+		events.ElementConfig{Name: "temp", Pipeline: steps(`[{"kind":"scale","mul":2}]`)},
+		events.ElementConfig{Name: "nul", Pipeline: steps(`[{"kind":"script","source":"function transform(m){ m.s = 'a' + String.fromCharCode(0) + 'b'; return m }"}]`)},
+		events.ElementConfig{Name: "html", Pipeline: steps(`[{"kind":"scale","field":"n","mul":1}]`)},
+	)
+	if r, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: json.RawMessage(`21.5`)}); err != nil || r.Status != StatusAccepted {
+		t.Fatalf("a bare number must run as {\"value\": x}: %s %v", r.Status, err)
+	}
+	evs := pub.events()
+	if got := publishedValue(t, evs[len(evs)-1]); got["value"] != 43.0 {
+		t.Fatalf("got %v", got)
+	}
+	_, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "nul", ByName: true, Message: val(1)})
+	var ep *elementpipe.ErrPipeline
+	if !errors.As(err, &ep) || ep.Step != "output" {
+		t.Fatalf("an unstorable result must fail at output, got %v", err)
+	}
+	// untouched fields keep their values (a big integer stays exact)
+	if _, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "html", ByName: true,
+		Message: json.RawMessage(`{"n":1,"serial":9007199254740993,"html":"<b>&"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	evs = pub.events()
+	var m events.ElementMessage
+	_ = evs[len(evs)-1].DecodeData(&m)
+	v, _ := decodeMessage(m.Message)
+	if o := v.(map[string]any); o["serial"] != json.Number("9007199254740993") || o["html"] != "<b>&" {
+		t.Fatalf("fields changed on the way: %s", m.Message)
+	}
+}
+
+func TestPipelineThatDoesNotCompileFailsClosed(t *testing.T) {
+	g, pub := testGateway(t)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Pipeline: steps(`[{"kind":"scale","mul":0}]`)})
+	_, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: val(650)})
+	var ep *elementpipe.ErrPipeline
+	if !errors.As(err, &ep) || ep.Step != "compile" || pub.count() != 0 {
+		t.Fatalf("a broken pipeline must not publish raw values: %v (%d events)", err, pub.count())
+	}
+	// with a working version known, a broken update keeps it
+	td.cfg.Version = 2
+	td.cfg.Elements[0].Pipeline = &events.PipelineConfig{Version: 2, Steps: json.RawMessage(`[{"kind":"scale","mul":2}]`)}
+	td.apply(t, g)
+	td.cfg.Version = 3
+	td.cfg.Elements[0].Pipeline = &events.PipelineConfig{Version: 3, Steps: json.RawMessage(`[{"kind":"bogus"}]`)}
+	td.apply(t, g)
+	if r, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: val(10)}); err != nil || r.Status != StatusAccepted {
+		t.Fatalf("%s %v", r.Status, err)
+	}
+	evs := pub.events()
+	if *evs[len(evs)-1].QuackPipeline != 2 || publishedValue(t, evs[len(evs)-1])["value"] != 20.0 {
+		t.Fatal("the last working version (2) must keep running")
+	}
 }
 
 func TestGatewayPipelineRestAndGRPC(t *testing.T) {
 	g, _ := testGateway(t)
-	deadbandSteps := json.RawMessage(`[{"kind":"deadband","field":"value","abs":2.0}]`)
-	td := addDevice(t, g, events.ElementConfig{
-		Name:     "temp",
-		Pipeline: &events.PipelineConfig{Version: 1, Steps: deadbandSteps},
-	})
-	// Warm hub latest with 50.0
-	g.hub.Remember(td.elem["temp"], ringEntry{
-		id:      uuid.New(),
-		at:      time.Now(),
-		message: map[string]any{"value": 50.0},
-	})
-
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Pipeline: steps(`[{"kind":"deadband","abs":2.0}]`)})
+	g.hub.Remember(td.elem["temp"], lastValue(`{"value":50.0}`))
 	srv := restServer(t, g, td)
 	tok := td.token(t)
-
-	// REST publish with value 50.5 (delta 0.5 < 2.0) -> status "filtered"
-	resp := doREST(t, http.MethodPost, srv.URL+"/device/v1/messages", tok, "application/json",
-		`[{"element":"temp","message":{"value":50.5}}]`)
-	if resp.status != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.status)
-	}
-	rs := results(t, resp)
-	if len(rs) != 1 || rs[0].Status != "filtered" {
-		t.Fatalf("expected status=filtered on REST, got %+v", rs)
+	resp := doREST(t, http.MethodPost, srv.URL+"/device/v1/messages", tok, "application/json", `[{"element":"temp","message":{"value":50.5}}]`)
+	if rs := results(t, resp); resp.status != http.StatusOK || len(rs) != 1 || rs[0].Status != StatusFiltered {
+		t.Fatalf("REST filtered: %d %+v", resp.status, rs)
 	}
 
-	// REST publish with invalid string value for deadband (non-numbers pass through deadband, so let's test a step that fails)
-	// Add element with scale step
-	scaleSteps := json.RawMessage(`[{"kind":"scale","field":"value","mul":2.0}]`)
-	td2 := addDevice(t, g, events.ElementConfig{
-		Name:     "scaled",
-		Pipeline: &events.PipelineConfig{Version: 1, Steps: scaleSteps},
-	})
+	td2 := addDevice(t, g, events.ElementConfig{Name: "scaled", Pipeline: steps(`[{"kind":"scale","mul":2.0}]`)})
 	tok2 := td2.token(t)
 	srv2 := restServer(t, g, td2)
-	resp2 := doREST(t, http.MethodPost, srv2.URL+"/device/v1/messages", tok2, "application/json",
-		`[{"element":"scaled","message":{"value":"not-a-number"}}]`)
-	if resp2.status != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp2.status)
-	}
+	resp2 := doREST(t, http.MethodPost, srv2.URL+"/device/v1/messages", tok2, "application/json", `[{"element":"scaled","message":{"value":"not-a-number"}}]`)
 	rs2 := results(t, resp2)
-	if len(rs2) != 1 || rs2[0].Status != "pipeline_failed" || rs2[0].Code != "pipeline_failed" {
-		t.Fatalf("expected status=pipeline_failed code=pipeline_failed on REST, got %+v", rs2)
+	if resp2.status != http.StatusOK || len(rs2) != 1 || rs2[0].Status != StatusPipelineFailed || !strings.Contains(rs2[0].Error, "scale") {
+		t.Fatalf("REST pipeline_failed: %+v", rs2)
 	}
 
-	// gRPC tests
 	client := grpcClient(t, g)
-	// Filtered on gRPC
 	resG, err := client.Publish(context.Background(), authed(&devicev1.PublishRequest{
-		Messages: []*devicev1.DeviceMessage{{
-			Element: "temp",
-			Message: value(t, map[string]any{"value": 50.5}),
-		}},
-	}, tok))
-	if err != nil {
-		t.Fatal(err)
+		Messages: []*devicev1.DeviceMessage{{Element: "temp", Message: value(t, map[string]any{"value": 50.5})}}}, tok))
+	if err != nil || len(resG.Msg.Results) != 1 || resG.Msg.Results[0].Status != StatusFiltered {
+		t.Fatalf("gRPC filtered: %v %+v", err, resG)
 	}
-	if len(resG.Msg.Results) != 1 || resG.Msg.Results[0].Status != "filtered" {
-		t.Fatalf("expected gRPC status=filtered, got %+v", resG.Msg.Results)
-	}
-
-	// pipeline_failed on gRPC
-	resFailG, err := client.Publish(context.Background(), authed(&devicev1.PublishRequest{
-		Messages: []*devicev1.DeviceMessage{{
-			Element: "scaled",
-			Message: value(t, map[string]any{"value": "not-a-number"}),
-		}},
-	}, tok2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resFailG.Msg.Results) != 1 || resFailG.Msg.Results[0].Status != "pipeline_failed" || resFailG.Msg.Results[0].Code != "pipeline_failed" {
-		t.Fatalf("expected gRPC status=pipeline_failed code=pipeline_failed, got %+v", resFailG.Msg.Results)
+	resF, err := client.Publish(context.Background(), authed(&devicev1.PublishRequest{
+		Messages: []*devicev1.DeviceMessage{{Element: "scaled", Message: value(t, map[string]any{"value": "x"})}}}, tok2))
+	if err != nil || len(resF.Msg.Results) != 1 || resF.Msg.Results[0].Status != StatusPipelineFailed {
+		t.Fatalf("gRPC pipeline_failed: %v %+v", err, resF)
 	}
 }
 
 func TestGatewayPipelineCommandInverse(t *testing.T) {
 	g, _ := testGateway(t)
-	scaleSteps := json.RawMessage(`[{"kind":"scale","field":"value","mul":2.0,"add":0.0}]`)
+	td := addDevice(t, g, events.ElementConfig{Name: "motor", Pipeline: steps(`[{"kind":"scale","mul":2.0}]`)})
+	userMsg := &events.ElementMessage{ElementID: td.elem["motor"], DeviceID: td.cfg.Device.ID, Source: events.SourceUser,
+		Actor: events.Actor{ID: "1", Name: "alice"}, Message: json.RawMessage(`{"value":100}`)}
 
-	td := addDevice(t, g, events.ElementConfig{
-		Name:     "motor",
-		Pipeline: &events.PipelineConfig{Version: 1, Steps: scaleSteps},
-	})
-
-	// User command (SourceUser)
-	userMsg := &events.ElementMessage{
-		ElementID: td.elem["motor"],
-		DeviceID:  td.cfg.Device.ID,
-		Source:    events.SourceUser,
-		Actor:     events.Actor{ID: "1", Name: "alice"},
-		Message:   json.RawMessage(`{"value":100}`),
+	// browsers keep engineering units (100), the device gets 100 / 2 = 50
+	devFrame, brFrame := renderMessage(userMsg, events.Now(), g.pipelineOf(userMsg.DeviceID, userMsg.ElementID))
+	var devObj, brObj struct {
+		Message map[string]any `json:"message"`
 	}
-
-	// 1. renderMessage:
-	// browser frame gets original engineering units: 100
-	// device frame gets inverse: 100 / 2 = 50
-	devFrame, brFrame := renderMessage(userMsg, events.Now(), td.dev.Elements[0].Pipeline)
-	var devObj, brObj map[string]json.RawMessage
-	_ = json.Unmarshal(devFrame, &devObj)
+	_ = json.Unmarshal(devFrame(), &devObj)
 	_ = json.Unmarshal(brFrame, &brObj)
-
-	var devMsgVal, brMsgVal map[string]any
-	_ = json.Unmarshal(devObj["message"], &devMsgVal)
-	_ = json.Unmarshal(brObj["message"], &brMsgVal)
-
-	if brMsgVal["value"].(float64) != 100 {
-		t.Fatalf("expected browser frame to keep engineering value 100, got %v", brMsgVal["value"])
-	}
-	if devMsgVal["value"].(float64) != 50 {
-		t.Fatalf("expected device frame to have inverse value 50, got %v", devMsgVal["value"])
+	if brObj.Message["value"] != 100.0 || devObj.Message["value"] != 50.0 {
+		t.Fatalf("browser %v, device %v", brObj.Message, devObj.Message)
 	}
 
-	// 2. notifyCommand (MQTT downlink):
-	downlinkCalled := false
-	var downlinkMsg map[string]any
-	unreg := g.mqttCore().OnCommand(func(cmd mqtt.Command) {
-		downlinkCalled = true
-		_ = json.Unmarshal(cmd.Message, &downlinkMsg)
-	})
+	var downlink map[string]any
+	unreg := g.mqttCore().OnCommand(func(cmd mqtt.Command) { _ = json.Unmarshal(cmd.Message, &downlink) })
 	defer unreg()
-
 	g.notifyCommand(userMsg, uuid.New(), time.Now())
-	if !downlinkCalled {
-		t.Fatal("expected downlink hook called")
+	if downlink["value"] != 50.0 {
+		t.Fatalf("downlink got %v", downlink)
 	}
-	if downlinkMsg["value"].(float64) != 50 {
-		t.Fatalf("expected downlink command to have inverse value 50, got %v", downlinkMsg["value"])
+
+	// a bare command value comes back bare
+	bare := *userMsg
+	bare.Message = json.RawMessage(`100`)
+	devFrame, _ = renderMessage(&bare, events.Now(), g.pipelineOf(bare.DeviceID, bare.ElementID))
+	if !strings.Contains(string(devFrame()), `"message":50`) {
+		t.Fatalf("bare command: %s", devFrame())
+	}
+}
+
+// A command the pipeline can't convert never reaches the device: refused at
+// the browser, and (if it still arrives) not delivered or remembered.
+func TestCommandThatCannotBeConvertedIsNotDelivered(t *testing.T) {
+	g, pub := testGateway(t)
+	td := addDevice(t, g, events.ElementConfig{Name: "fan", Pipeline: steps(`[{"kind":"script",
+		"source":"function transform(m){return m}\nfunction untransform(m){ if (m.value > 100) throw new Error('too fast'); return m }"}]`)})
+	el := td.elem["fan"]
+
+	b := testBrowser(7, "b1")
+	b.SetPerm(el, store.PermReadWrite)
+	g.hub.Subscribe(b, elementInfo{ID: el, DeviceID: td.cfg.Device.ID}, []byte("c"), nil, true)
+	b.drain()
+	g.browserPublish(b, el.String(), json.RawMessage(`{"value":500}`))
+	frames := b.drain()
+	if pub.count() != 0 || len(frames) != 1 || !strings.Contains(string(frames[0]), "too fast") {
+		t.Fatalf("want the command refused with the reason; published=%d frames=%s", pub.count(), frames)
+	}
+	g.browserPublish(b, el.String(), json.RawMessage(`{"value":50}`))
+	if pub.count() != 1 {
+		t.Fatal("a convertible command must go through")
+	}
+
+	// arriving from elsewhere (another gateway on another version): no frame
+	cmd := &events.ElementMessage{ElementID: el, DeviceID: td.cfg.Device.ID, Source: events.SourceUser,
+		Actor: events.Actor{ID: "7", Name: "u"}, Message: json.RawMessage(`{"value":500}`)}
+	devFrame, _ := renderMessage(cmd, events.Now(), g.pipelineOf(cmd.DeviceID, cmd.ElementID))
+	if devFrame() != nil {
+		t.Fatal("the device must get nothing, not the unconverted command")
+	}
+	d := testDevice(td.cfg.Device.ID, "d1")
+	g.hub.AddDevice(d, []elementInfo{{ID: el, DeviceID: td.cfg.Device.ID}})
+	d.drain()
+	g.hub.Deliver(cmd, uuid.New(), time.Now(), devFrame, []byte("br"), "")
+	if got := d.drain(); len(got) != 0 {
+		t.Fatalf("device got %s", got)
+	}
+	if cmds := g.hub.CommandsSince([]uuid.UUID{el}, nil); !strings.Contains(string(cmds[el].frame), `"value":50}`) {
+		t.Fatalf("REST sync must keep the last convertible command, got %s", cmds[el].frame)
+	}
+	called := false
+	unreg := g.mqttCore().OnCommand(func(mqtt.Command) { called = true })
+	defer unreg()
+	g.notifyCommand(cmd, uuid.New(), time.Now())
+	if called {
+		t.Fatal("no MQTT downlink for an unconvertible command")
+	}
+}
+
+// A device's other connections get its readings in device units.
+func TestDeviceReadingsReachSiblingsInDeviceUnits(t *testing.T) {
+	g, _ := testGateway(t)
+	td := addDevice(t, g, events.ElementConfig{Name: "gate", Pipeline: steps(`[{"kind":"map","table":{"OPEN":"ON","CLOSED":"OFF"}}]`)})
+	el := td.elem["gate"]
+	sibling := testDevice(td.cfg.Device.ID, "sib")
+	g.hub.AddDevice(sibling, []elementInfo{{ID: el, DeviceID: td.cfg.Device.ID}})
+	sibling.drain()
+	if _, err := g.publishDeviceMessage(td.dev, "origin", DeviceMessage{Element: "gate", ByName: true, Message: json.RawMessage(`{"value":"CLOSED"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	got := sibling.drain()
+	if len(got) != 1 || !strings.Contains(string(got[0]), `"value":"CLOSED"`) {
+		t.Fatalf("sibling got %s", got)
+	}
+}
+
+func TestCoalescedMessagesKeepPipelineVersionAndDeadband(t *testing.T) {
+	g, pub := testGateway(t)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Rate: rate(200), Burst: burst(1), OverLimit: store.OverLimitLatest,
+		Pipeline: &events.PipelineConfig{Version: 5, Steps: json.RawMessage(`[{"kind":"deadband","abs":1}]`)}})
+	send := func(v string) string {
+		r, err := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: json.RawMessage(v)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Status
+	}
+	if s := send(`{"value":10}`); s != StatusAccepted {
+		t.Fatal(s)
+	}
+	if s := send(`{"value":20}`); s != StatusCoalesced { // over the limit: held
+		t.Fatal(s)
+	}
+	// compared with the held 20 (not the published 10): a real change, replaces it
+	if s := send(`{"value":10.1}`); s != StatusCoalesced {
+		t.Fatalf("want coalesced (replacing the held value), got %s", s)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for pub.count() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	evs := pub.events()
+	if len(evs) != 2 {
+		t.Fatalf("want the held message flushed, got %d events", len(evs))
+	}
+	if evs[1].QuackPipeline == nil || *evs[1].QuackPipeline != 5 || publishedValue(t, evs[1])["value"] != 10.1 {
+		t.Fatalf("flushed %v (quackpipeline %v)", publishedValue(t, evs[1]), evs[1].QuackPipeline)
 	}
 }
 
@@ -304,43 +360,18 @@ func (g *Gateway) mqttCore() mqttCore {
 
 func TestGatewayPipelineLiveUpdate(t *testing.T) {
 	g, pub := testGateway(t)
-	pipeV1 := json.RawMessage(`[{"kind":"scale","field":"value","mul":2.0}]`)
-	td := addDevice(t, g, events.ElementConfig{
-		Name:     "temp",
-		Pipeline: &events.PipelineConfig{Version: 1, Steps: pipeV1},
-	})
-
-	// Message under version 1
-	res1, _ := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: json.RawMessage(`{"value":10}`)})
-	if res1.Status != StatusAccepted {
-		t.Fatalf("expected accepted, got %s", res1.Status)
+	td := addDevice(t, g, events.ElementConfig{Name: "temp", Pipeline: steps(`[{"kind":"scale","mul":2.0}]`)})
+	if r, _ := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: val(10)}); r.Status != StatusAccepted {
+		t.Fatal(r.Status)
 	}
-	evs1 := pub.events()
-	ev1 := evs1[len(evs1)-1]
-	if *ev1.QuackPipeline != 1 {
-		t.Fatalf("expected quackpipeline=1, got %d", *ev1.QuackPipeline)
-	}
-
-	// Update device snapshot live to version 2 (mul: 3.0)
-	pipeV2 := json.RawMessage(`[{"kind":"scale","field":"value","mul":3.0}]`)
 	td.cfg.Version = 2
-	td.cfg.Elements[0].Pipeline = &events.PipelineConfig{Version: 2, Steps: pipeV2}
+	td.cfg.Elements[0].Pipeline = &events.PipelineConfig{Version: 2, Steps: json.RawMessage(`[{"kind":"scale","mul":3.0}]`)}
 	td.apply(t, g)
-
-	res2, _ := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: json.RawMessage(`{"value":10}`)})
-	if res2.Status != StatusAccepted {
-		t.Fatalf("expected accepted, got %s", res2.Status)
+	if r, _ := g.publishDeviceMessage(td.dev, "o", DeviceMessage{Element: "temp", ByName: true, Message: val(10)}); r.Status != StatusAccepted {
+		t.Fatal(r.Status)
 	}
-	evs2 := pub.events()
-	ev2 := evs2[len(evs2)-1]
-	if *ev2.QuackPipeline != 2 {
-		t.Fatalf("expected quackpipeline=2, got %d", *ev2.QuackPipeline)
-	}
-	var data2 events.ElementMessage
-	_ = ev2.DecodeData(&data2)
-	var m2 map[string]any
-	_ = json.Unmarshal(data2.Message, &m2)
-	if m2["value"].(float64) != 30.0 {
-		t.Fatalf("expected value 30 with v2 pipeline, got %v", m2["value"])
+	evs := pub.events()
+	if ev := evs[len(evs)-1]; *ev.QuackPipeline != 2 || publishedValue(t, ev)["value"] != 30.0 {
+		t.Fatalf("v2: %v", publishedValue(t, ev))
 	}
 }

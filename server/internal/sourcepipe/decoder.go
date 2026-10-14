@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/taha2samy/quackquack/server/internal/jsbox"
 )
 
 const (
@@ -24,10 +26,10 @@ const (
 )
 
 // Decoder is a compiled JavaScript decoder. Each call runs in a fresh
-// runtime (no state survives between messages) with only ECMAScript built-ins:
-// no require, no timers, no I/O, no Go objects.
+// jsbox runtime (no state survives between messages) with only ECMAScript
+// built-ins: no require, no timers, no I/O, no Go objects.
 type Decoder struct {
-	prog      *goja.Program
+	script    *jsbox.Script
 	hasDecode bool
 	hasLegacy bool
 	hasEncode bool
@@ -39,11 +41,11 @@ func Compile(source string) (*Decoder, error) {
 	if len(source) > MaxSourceBytes {
 		return nil, fmt.Errorf("decoder is over %d KB", MaxSourceBytes>>10)
 	}
-	prog, err := goja.Compile("decoder.js", source, false)
+	script, err := jsbox.Compile("decoder.js", source)
 	if err != nil {
 		return nil, fmt.Errorf("syntax: %v", err)
 	}
-	d := &Decoder{prog: prog}
+	d := &Decoder{script: script}
 	vm, stop, err := d.runtime()
 	if err != nil {
 		return nil, err
@@ -61,29 +63,17 @@ func Compile(source string) (*Decoder, error) {
 func (d *Decoder) CanDecode() bool { return d.hasDecode || d.hasLegacy }
 func (d *Decoder) CanEncode() bool { return d.hasEncode }
 
-// runtime starts a fresh VM with the program loaded, interrupted after the deadline.
+// runtime starts a fresh sandbox with the decoder loaded, interrupted after the deadline.
 func (d *Decoder) runtime() (*goja.Runtime, func(), error) {
-	vm := goja.New()
-	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
-	timer := time.AfterFunc(DecoderDeadline, func() { vm.Interrupt("decoder took longer than 20ms") })
-	stop := func() { timer.Stop() }
-	if _, err := vm.RunProgram(d.prog); err != nil {
-		stop()
+	vm, stop, err := d.script.Load(DecoderDeadline, "decoder took longer than 20ms")
+	if err != nil {
 		return nil, nil, jsError("load", err)
 	}
 	return vm, stop, nil
 }
 
 func jsError(stage string, err error) error {
-	var ex *goja.Exception
-	if errors.As(err, &ex) {
-		return fmt.Errorf("%s: %s", stage, ex.Error())
-	}
-	var in *goja.InterruptedError
-	if errors.As(err, &in) {
-		return fmt.Errorf("%s: %v", stage, in.Value())
-	}
-	return fmt.Errorf("%s: %v", stage, err)
+	return fmt.Errorf("%s: %s", stage, jsbox.Message(err))
 }
 
 // UplinkInput is what decodeUplink receives (TTN/ChirpStack fields plus MQTT ones).

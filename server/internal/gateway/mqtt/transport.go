@@ -51,11 +51,22 @@ type Command struct {
 }
 
 // Core is all the transport needs from the gateway.
+// Outcome is what the device core did with an accepted value.
+type Outcome int
+
+const (
+	Published Outcome = iota // on the bus (done reports durability)
+	Filtered                 // dropped by the element pipeline (deadband, drop_if, script)
+	Duplicate                // same client id seen recently
+	Coalesced                // held by over_limit=latest; newest wins
+)
+
 type Core interface {
 	// Publish runs a value through the device core (grants by device id are
 	// the caller's). A returned error means it was rejected; otherwise done
-	// is called once the value is durable on the bus, or failed.
-	Publish(p Publication, done func(error)) error
+	// is called once with the outcome, when the value is durable on the bus
+	// (or failed to be) or at once when it isn't published.
+	Publish(p Publication, done func(Outcome, error)) error
 	// OnCommand registers fn for every user command.
 	OnCommand(fn func(Command)) (cancel func())
 	// SendUserError routes a real-time error frame to the originating user's dashboard sessions.
@@ -116,7 +127,9 @@ type Transport struct {
 	members  []cluster.Member
 	slots    map[slotKey]*slot
 	devIdx   map[uuid.UUID][]*connConfig // device → connections serving it
-	inFlight atomic.Int32
+	inFlight atomic.Int32                // downlink workers
+	dl       downlinkQueue
+	runCtx   context.Context // Run's context (downlink retries stop with it)
 
 	wake  chan struct{}
 	ready atomic.Bool
@@ -132,7 +145,17 @@ func New(o Options) *Transport {
 		}
 	}
 	return &Transport{o: o, conns: map[string]*connConfig{}, slots: map[slotKey]*slot{},
-		devIdx: map[uuid.UUID][]*connConfig{}, wake: make(chan struct{}, 1)}
+		devIdx: map[uuid.UUID][]*connConfig{}, wake: make(chan struct{}, 1),
+		dl: downlinkQueue{pending: map[downlinkKey]Command{}, running: map[downlinkKey]bool{}}}
+}
+
+func (t *Transport) runContext() context.Context {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.runCtx == nil {
+		return context.Background()
+	}
+	return t.runCtx
 }
 
 // Ready reports whether the config topic was read and members are known.
@@ -142,6 +165,9 @@ func (t *Transport) Ready() bool { return t.ready.Load() }
 // downlinks, until ctx ends. Then it disconnects (sessions stay on the
 // brokers for the next owner).
 func (t *Transport) Run(ctx context.Context) error {
+	t.mu.Lock()
+	t.runCtx = ctx
+	t.mu.Unlock()
 	cancelCmd := t.o.Core.OnCommand(t.downlink)
 	defer cancelCmd()
 

@@ -208,6 +208,9 @@ type txStarter interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// UpsertMQTTGrant grants a device to a connection under externalID, taking
+// the external id from any device that has it (callers decide whether that
+// is allowed; see service.GrantMQTTDevice).
 func UpsertMQTTGrant(ctx context.Context, db DBTX, connectionID string, deviceID uuid.UUID, externalID string) error {
 	if starter, ok := db.(txStarter); ok {
 		tx, err := starter.Begin(ctx)
@@ -236,6 +239,18 @@ func upsertMQTTGrantLocked(ctx context.Context, db DBTX, connectionID string, de
 	_, err := db.Exec(ctx, `INSERT INTO mqtt_connection_devices (connection_id, device_id, external_id) VALUES ($1, $2, $3)
 		ON CONFLICT (connection_id, device_id) DO UPDATE SET external_id = EXCLUDED.external_id`, connectionID, deviceID, externalID)
 	return mapErr(err)
+}
+
+// MQTTGrantHolder returns the device that has externalID on a connection
+// (uuid.Nil when none).
+func MQTTGrantHolder(ctx context.Context, db DBTX, connectionID, externalID string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := db.QueryRow(ctx, `SELECT device_id FROM mqtt_connection_devices WHERE connection_id = $1 AND external_id = $2`,
+		connectionID, externalID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	return id, mapErr(err)
 }
 
 func DeleteMQTTGrant(ctx context.Context, db DBTX, connectionID string, deviceID uuid.UUID) error {

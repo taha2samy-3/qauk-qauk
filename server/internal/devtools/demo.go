@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"reflect"
 	"sync"
 	"time"
 
@@ -136,18 +137,30 @@ func Demo(ctx context.Context, pool *pgxpool.Pool, out, adminUser, adminPass, mq
 	}
 	for _, p := range plan {
 		if devID, ok := existing[p.name]; ok {
+			// an earlier demo: bring its pipelines up to date, saving a new
+			// version only where the steps changed
 			elems, err := store.ListElements(ctx, pool, &devID)
-			if err == nil {
-				elemByName := map[string]store.Element{}
-				for _, el := range elems {
-					elemByName[el.Name] = el
+			if err != nil {
+				return err
+			}
+			elemByName := map[string]store.Element{}
+			for _, el := range elems {
+				elemByName[el.Name] = el
+			}
+			for _, e := range p.elems {
+				target, found := elemByName[e.name]
+				if e.pipeline == "" || !found {
+					continue
 				}
-				for _, e := range p.elems {
-					if e.pipeline != "" {
-						if target, found := elemByName[e.name]; found {
-							_, _ = svc.SaveElementPipeline(ctx, a, target.ID, json.RawMessage(e.pipeline))
-						}
-					}
+				cur, err := svc.GetElementPipeline(ctx, target.ID)
+				if err != nil {
+					return err
+				}
+				if cur.Current != nil && sameJSON(cur.Current.Steps, json.RawMessage(e.pipeline)) {
+					continue
+				}
+				if _, err := svc.SaveElementPipeline(ctx, a, target.ID, json.RawMessage(e.pipeline)); err != nil {
+					return fmt.Errorf("pipeline %s: %w", e.name, err)
 				}
 			}
 			continue
@@ -373,4 +386,13 @@ func shouldEcho(f incomingFrame, deviceID string) bool {
 		return false
 	}
 	return true
+}
+
+// sameJSON reports whether two JSON documents hold the same value.
+func sameJSON(a, b json.RawMessage) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }

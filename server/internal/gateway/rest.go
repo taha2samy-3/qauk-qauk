@@ -163,7 +163,7 @@ func (g *Gateway) publishItems(dev *registry.Device, origin string, items []rest
 		if err != nil {
 			var ep *elementpipe.ErrPipeline
 			if errors.As(err, &ep) {
-				res.Status, res.Code, res.Error = "pipeline_failed", "pipeline_failed", ep.Reason
+				res.Status, res.Code, res.Error = StatusPipelineFailed, StatusPipelineFailed, pipelineReason(err)
 			} else {
 				res.Status, res.Code, res.Error = "rejected", errorCode(err), err.Error()
 				var rl *RateLimitedError
@@ -184,7 +184,7 @@ func errorCode(err error) string {
 	var ep *elementpipe.ErrPipeline
 	switch {
 	case errors.As(err, &ep):
-		return "pipeline_failed"
+		return StatusPipelineFailed
 	case errors.As(err, &rl):
 		return "rate_limited"
 	case errors.As(err, &us):
@@ -358,6 +358,10 @@ func (g *Gateway) RESTSyncHandler() http.Handler {
 		for i, e := range dev.Elements {
 			ids[i] = e.ID
 		}
+		if g.draining.Load() { // answer at once; the next poll goes to another instance
+			w.Header().Set("Connection", "close")
+			wait = 0
+		}
 		var signal <-chan struct{}
 		if wait > 0 {
 			ch, cancel := g.hub.WaitCommands(dev.ID)
@@ -379,6 +383,9 @@ func (g *Gateway) RESTSyncHandler() http.Handler {
 			case <-r.Context().Done():
 				return
 			case <-g.ctx.Done():
+				wait = 0
+			case <-g.drainCh:
+				w.Header().Set("Connection", "close")
 				wait = 0
 			}
 		}

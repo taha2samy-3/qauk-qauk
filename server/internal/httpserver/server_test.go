@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/gateway"
@@ -16,7 +15,7 @@ func TestProbes(t *testing.T) {
 		Roles: []string{"gateway"},
 	}
 	gw := gateway.New(t.Context(), cfg, nil, nil, nil, slog.Default())
-	handler := New(cfg, nil, nil, gw, slog.Default())
+	handler := New(cfg, nil, nil, gw, &Lifecycle{}, slog.Default())
 
 	// Liveness: /livez and /healthz
 	for _, p := range []string{"/livez", "/healthz"} {
@@ -54,11 +53,7 @@ func TestProbes(t *testing.T) {
 	}
 
 	// When draining, /readyz must return 503 "server draining"
-	cfg.DrainDuration = 10 * time.Millisecond
-	cfg.DrainPropagationWait = 0
-	go gw.Drain(t.Context())
-	// wait briefly for draining flag to flip
-	time.Sleep(5 * time.Millisecond)
+	gw.StartDrain()
 
 	{
 		rec := httptest.NewRecorder()
@@ -90,5 +85,32 @@ func TestProbes(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("/livez during drain returned %d, want 200", rec.Code)
 		}
+	}
+}
+
+func probe(t *testing.T, h http.Handler, path string) (int, string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	return rec.Code, rec.Body.String()
+}
+
+// An api-only server is ready until it drains (the readiness flag is shared
+// by every role, not only gateways).
+func TestAPIRoleProbes(t *testing.T) {
+	cfg := &config.Config{Roles: []string{"api"}}
+	lc := &Lifecycle{}
+	h := New(cfg, nil, nil, nil, lc, slog.Default())
+	for _, p := range []string{"/readyz", "/startupz", "/livez"} {
+		if code, _ := probe(t, h, p); code != http.StatusOK {
+			t.Fatalf("%s = %d, want 200 when ready", p, code)
+		}
+	}
+	lc.StartDraining()
+	if code, body := probe(t, h, "/readyz"); code != http.StatusServiceUnavailable || body != "server draining\n" {
+		t.Fatalf("/readyz while draining = %d %q", code, body)
+	}
+	if code, _ := probe(t, h, "/livez"); code != http.StatusOK {
+		t.Fatal("liveness stays 200 while draining")
 	}
 }

@@ -68,6 +68,9 @@ var (
 	MQTTValues = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "quack_mqtt_values_published_total", Help: "Element values published from MQTT messages.",
 	}, []string{"connection"})
+	MQTTFiltered = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "quack_mqtt_values_filtered_total", Help: "Element values from MQTT messages that element pipelines filtered (deadband, drop_if, script).",
+	}, []string{"connection"})
 	MQTTRejected = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "quack_mqtt_rejected_total", Help: "MQTT messages (or values) rejected, by reason.",
 	}, []string{"reason"})

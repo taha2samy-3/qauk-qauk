@@ -38,7 +38,7 @@ func msg(el, dev uuid.UUID, source string, v int) *events.ElementMessage {
 func itoa(v int) string { b, _ := json.Marshal(v); return string(b) }
 
 func deliver(h *Hub, m *events.ElementMessage, origin string, at time.Time) {
-	dev, br := renderMessage(m, events.Time{Time: at}, nil)
+	dev, br := renderMessage(m, events.Time{Time: at}, pipelineContext{})
 	h.Deliver(m, uuid.New(), at, dev, br, origin)
 }
 
@@ -181,17 +181,17 @@ func TestWireFramesAreLegacyCompatible(t *testing.T) {
 	el := uuid.MustParse("98994c94-71b8-53b0-85f3-d1c6483978de")
 	at, _ := time.Parse(time.RFC3339, "2026-10-07T10:00:00.123Z")
 	m := msg(el, uuid.New(), events.SourceUser, 5)
-	dev, br := renderMessage(m, events.Time{Time: at}, nil)
+	dev, br := renderMessage(m, events.Time{Time: at}, pipelineContext{})
 	wantDev := `{"element_id":"98994c94-71b8-53b0-85f3-d1c6483978de","message":{"value":5},"auth":{"user_id":7,"username":"alice"},"last_edit_at":"2026-10-07T10:00:00.123Z"}`
-	if string(dev) != wantDev {
-		t.Errorf("device frame:\n got %s\nwant %s", dev, wantDev)
+	if string(dev()) != wantDev {
+		t.Errorf("device frame:\n got %s\nwant %s", dev(), wantDev)
 	}
 	wantBr := `{"type":"message_element","element_id":"98994c94-71b8-53b0-85f3-d1c6483978de","message":{"value":5},"auth":{"user_id":7,"username":"alice"},"last_edit_at":"2026-10-07T10:00:00.123Z"}`
 	if string(br) != wantBr {
 		t.Errorf("browser frame:\n got %s\nwant %s", br, wantBr)
 	}
 	m.Source, m.Actor.ID = events.SourceDevice, el.String()
-	_, br = renderMessage(m, events.Time{Time: at}, nil)
+	_, br = renderMessage(m, events.Time{Time: at}, pipelineContext{})
 	if !contains(br, `"user_id":"98994c94-71b8-53b0-85f3-d1c6483978de"`) {
 		t.Errorf("device actor id must be a string: %s", br)
 	}

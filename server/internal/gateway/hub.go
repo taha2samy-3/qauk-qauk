@@ -10,14 +10,38 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
 )
 
 type ringEntry struct {
-	id      uuid.UUID
-	at      time.Time
-	frame   []byte // browser message_element frame
-	message map[string]any
+	id    uuid.UUID
+	at    time.Time
+	frame []byte       // browser message_element frame
+	msg   *lazyMessage // the device message, for element pipelines; may be nil
+}
+
+// lazyMessage is a device message decoded on first use: only elements with a
+// pipeline read it (deadband, scripts), so most are never decoded. The
+// decoded map is shared read-only.
+type lazyMessage struct {
+	raw  json.RawMessage
+	once sync.Once
+	m    map[string]any
+}
+
+func newLazyMessage(raw json.RawMessage) *lazyMessage { return &lazyMessage{raw: raw} }
+
+func (l *lazyMessage) get() map[string]any {
+	if l == nil {
+		return nil
+	}
+	l.once.Do(func() {
+		if v, err := decodeMessage(l.raw); err == nil {
+			l.m, _ = elementpipe.WrapScalar(v)
+		}
+	})
+	return l.m
 }
 
 // elementState is the local audience and history window of one element.
@@ -100,16 +124,17 @@ func (h *Hub) Latest(elementID uuid.UUID) (ringEntry, bool) {
 	return e, ok
 }
 
-// LatestMessage returns the newest decoded device message map, timestamp, and true,
-// or nil, zero time, false if no message has been seen.
+// LatestMessage returns the newest device message of an element, decoded
+// (bare values as {"value": x}) and read-only, with its time.
 func (h *Hub) LatestMessage(elementID uuid.UUID) (map[string]any, time.Time, bool) {
 	h.lmu.RLock()
-	defer h.lmu.RUnlock()
 	e, ok := h.latest[elementID]
+	h.lmu.RUnlock()
 	if !ok {
 		return nil, time.Time{}, false
 	}
-	return e.message, e.at, true
+	m := e.msg.get()
+	return m, e.at, m != nil
 }
 
 func (h *Hub) forget(elementID uuid.UUID) {
@@ -180,13 +205,13 @@ func (h *Hub) ensure(id, deviceID uuid.UUID, points int) *elementState {
 
 // Deliver fans a message out to every local socket in the element's audience
 // except the origin socket, and appends device data to the history window.
-func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame, browserFrame []byte, localOrigin string) {
+// deviceFrame is called when a device needs the message; nil means the
+// message can't be given to the device (see renderMessage).
+func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame func() []byte, browserFrame []byte, localOrigin string) {
 	if m.Source == events.SourceDevice {
-		var parsed map[string]any
-		_ = json.Unmarshal(m.Message, &parsed)
-		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame, message: parsed})
-	} else {
-		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: deviceFrame})
+		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame, msg: newLazyMessage(m.Message)})
+	} else if f := deviceFrame(); f != nil {
+		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: f})
 	}
 	st := h.get(m.ElementID)
 	if st == nil {
@@ -200,7 +225,9 @@ func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time,
 	}
 	for id, d := range st.devices {
 		if id != localOrigin {
-			d.Send(deviceFrame)
+			if f := deviceFrame(); f != nil {
+				d.Send(f)
+			}
 		}
 	}
 	for id, b := range st.browsers {

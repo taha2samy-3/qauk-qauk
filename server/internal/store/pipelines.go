@@ -38,21 +38,28 @@ func GetElementPipelineVersion(ctx context.Context, db DBTX, elementID uuid.UUID
 	return one[ElementPipelineVersion](db.Query(ctx, `SELECT `+pipelineCols+` FROM element_pipeline_versions WHERE element_id = $1 AND version = $2`, elementID, version))
 }
 
+// SaveElementPipeline stores steps as the element's next pipeline version and
+// records it in the version history. The version continues from the history,
+// so it never collides with an older version (even after a pipeline was
+// cleared). Callers hold the device row lock.
 func SaveElementPipeline(ctx context.Context, db DBTX, elementID uuid.UUID, steps json.RawMessage, updatedBy string) (ElementPipeline, error) {
 	if len(steps) == 0 {
 		steps = json.RawMessage("[]")
 	}
 	p, err := one[ElementPipeline](db.Query(ctx, `
+		WITH next AS (
+			SELECT COALESCE(MAX(version), 0) + 1 AS v FROM element_pipeline_versions WHERE element_id = $1
+		)
 		INSERT INTO element_pipelines (element_id, version, steps, updated_by, updated_at)
-		VALUES ($1, 1, $2, $3, now())
+		SELECT $1, next.v, $2, $3, now() FROM next
 		ON CONFLICT (element_id) DO UPDATE SET
-			version = element_pipelines.version + 1,
+			version = GREATEST(element_pipelines.version + 1, EXCLUDED.version),
 			steps = EXCLUDED.steps,
 			updated_by = EXCLUDED.updated_by,
 			updated_at = now()
 		RETURNING `+pipelineCols, elementID, steps, updatedBy))
 	if err != nil {
-		return ElementPipeline{}, err
+		return ElementPipeline{}, mapErr(err)
 	}
 	_, err = db.Exec(ctx, `
 		INSERT INTO element_pipeline_versions (element_id, version, steps, updated_by, updated_at)
@@ -61,8 +68,4 @@ func SaveElementPipeline(ctx context.Context, db DBTX, elementID uuid.UUID, step
 		return ElementPipeline{}, mapErr(err)
 	}
 	return p, nil
-}
-
-func DeleteElementPipeline(ctx context.Context, db DBTX, elementID uuid.UUID) error {
-	return execOne(db.Exec(ctx, `DELETE FROM element_pipelines WHERE element_id = $1`, elementID))
 }

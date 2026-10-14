@@ -7,205 +7,279 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/taha2samy/quackquack/server/internal/metrics"
+	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
+const (
+	// BaseRetryDelay is the first retry delay; each retry doubles it (±20 %).
+	BaseRetryDelay = 10 * time.Second
+	// MaxRetryDelay caps a retry delay (and a Retry-After).
+	MaxRetryDelay = time.Hour
+	// leaseFor is how long a claimed delivery stays claimed (a request takes
+	// at most RequestTimeout).
+	leaseFor = time.Minute
+)
+
+// Dispatcher sends notifications to endpoints.
 type Dispatcher struct {
-	client     *http.Client
-	baseDelay  time.Duration
-	maxDelay   time.Duration
-	maxRetries int
+	client *http.Client
+	box    *secrets.Box
 }
 
-func NewDispatcher() *Dispatcher {
-	return &Dispatcher{
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		baseDelay:  10 * time.Second,
-		maxDelay:   1 * time.Hour,
-		maxRetries: 5,
+// NewDispatcher returns a dispatcher; allowPrivate is QUACK_WEBHOOK_ALLOW_PRIVATE.
+func NewDispatcher(box *secrets.Box, allowPrivate bool) *Dispatcher {
+	return &Dispatcher{client: NewHTTPClient(allowPrivate), box: box}
+}
+
+// ComputeBackoff is the delay before retry attempt+1: BaseRetryDelay · 2^attempt,
+// capped at MaxRetryDelay, ±20 %.
+func ComputeBackoff(attempt int) time.Duration {
+	d := math.Min(float64(BaseRetryDelay)*math.Pow(2, float64(attempt)), float64(MaxRetryDelay))
+	return time.Duration(d * (0.8 + rand.Float64()*0.4))
+}
+
+// Target opens an endpoint's secrets.
+func (d *Dispatcher) Target(ep store.WebhookEndpoint) (Target, error) {
+	t := Target{Format: ep.Format, Headers: map[string]string{}}
+	var err error
+	if t.URL, err = d.box.Open(ep.URL); err != nil {
+		return t, fmt.Errorf("url: %w", err)
 	}
-}
-
-// ComputeBackoff calculates exponential backoff with full jitter.
-func (d *Dispatcher) ComputeBackoff(attempt int) time.Duration {
-	mult := math.Pow(2, float64(attempt))
-	delay := float64(d.baseDelay) * mult
-	if delay > float64(d.maxDelay) {
-		delay = float64(d.maxDelay)
+	if t.Secret, err = d.box.Open(ep.Secret); err != nil {
+		return t, fmt.Errorf("secret: %w", err)
 	}
-
-	// Apply jitter: 80% to 120% of calculated delay
-	jitter := 0.8 + rand.Float64()*0.4
-	return time.Duration(delay * jitter)
-}
-
-// Deliver sends a single delivery attempt to the endpoint.
-func (d *Dispatcher) Deliver(ctx context.Context, ep store.WebhookEndpoint, dlv store.WebhookDelivery) (int, int, error) {
-	var evt NotificationEvent
-	if err := json.Unmarshal(dlv.Payload, &evt); err != nil {
-		// Fallback if payload isn't strict NotificationEvent
-		evt = NotificationEvent{
-			ID:        dlv.EventID,
-			Type:      dlv.EventType,
-			Severity:  Severity(dlv.Severity),
-			Title:     dlv.EventType,
-			Message:   string(dlv.Payload),
-			Timestamp: dlv.CreatedAt,
+	var stored map[string]string
+	if len(ep.Headers) > 0 {
+		if err := json.Unmarshal(ep.Headers, &stored); err != nil {
+			return t, fmt.Errorf("headers: %w", err)
 		}
 	}
-
-	var customHeaders map[string]string
-	if len(ep.Headers) > 0 {
-		_ = json.Unmarshal(ep.Headers, &customHeaders)
+	for k, v := range stored {
+		if t.Headers[k], err = d.box.Open(v); err != nil {
+			return t, fmt.Errorf("header %s: %w", k, err)
+		}
 	}
+	if ep.CustomTemplate != nil {
+		t.Template = *ep.CustomTemplate
+	}
+	var opts Options
+	if len(ep.Options) > 0 {
+		_ = json.Unmarshal(ep.Options, &opts)
+	}
+	t.ChatID = opts.ChatID
+	return t, nil
+}
 
-	body, headers, err := FormatPayload(ep.Format, ep.Secret, evt, ep.CustomTemplate, customHeaders)
+// Result is the outcome of one request.
+type Result struct {
+	StatusCode int
+	LatencyMs  int
+	Body       string        // the start of the response body
+	RetryAfter time.Duration // from Retry-After on 429/503
+	Err        error         // nil: 2xx
+	Terminal   bool          // retrying won't help (4xx other than 408 and 429, or a broken endpoint)
+}
+
+// Send posts an event to a target once.
+func (d *Dispatcher) Send(ctx context.Context, t Target, evt NotificationEvent) Result {
+	body, headers, err := FormatPayload(t, evt, time.Now())
 	if err != nil {
-		return 0, 0, fmt.Errorf("format payload: %w", err)
+		return Result{Err: err, Terminal: true}
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.URL, bytes.NewReader(body))
 	if err != nil {
-		return 0, 0, fmt.Errorf("create request: %w", err)
+		return Result{Err: errors.New("invalid URL"), Terminal: true}
 	}
-
-	for k, v := range headers {
-		req.Header[k] = v
-	}
-
+	req.Header = headers
 	start := time.Now()
 	resp, err := d.client.Do(req)
-	latencyMs := int(time.Since(start).Milliseconds())
-
+	res := Result{LatencyMs: int(time.Since(start).Milliseconds())}
 	if err != nil {
-		return 0, latencyMs, err
+		res.Err = errors.New(cleanError(err))
+		return res
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp.StatusCode, latencyMs, nil
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes))
+	res.StatusCode, res.Body = resp.StatusCode, string(b)
+	switch code := resp.StatusCode; {
+	case code >= 200 && code < 300:
+		return res
+	case code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable:
+		if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
+			res.RetryAfter = min(time.Duration(s)*time.Second, MaxRetryDelay)
+		}
+	case code >= 400 && code < 500 && code != http.StatusRequestTimeout:
+		res.Terminal = true
 	}
-
-	// Read truncated error body for diagnostics
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	return resp.StatusCode, latencyMs, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	msg := res.Body
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	res.Err = fmt.Errorf("HTTP %d: %s", res.StatusCode, msg)
+	return res
 }
 
-// ProcessDelivery dispatches a delivery and updates its status in the store.
-func (d *Dispatcher) ProcessDelivery(ctx context.Context, db store.DBTX, ep store.WebhookEndpoint, dlv store.WebhookDelivery) error {
-	statusCode, latencyMs, err := d.Deliver(ctx, ep, dlv)
-	if err == nil {
-		return store.RecordDeliverySuccess(ctx, db, dlv.ID, statusCode, latencyMs)
+// SendTest sends a sample notification to an endpoint at once (nothing is
+// enqueued).
+func (d *Dispatcher) SendTest(ctx context.Context, ep store.WebhookEndpoint, severity Severity) Result {
+	t, err := d.Target(ep)
+	if err != nil {
+		return Result{Err: err, Terminal: true}
 	}
-
-	// Determine if error is non-retryable (4xx except 429)
-	var sc *int
-	if statusCode > 0 {
-		sc = &statusCode
-	}
-
-	// 429 (rate limit) or 5xx/network errors are retryable
-	retryable := statusCode == 0 || statusCode == http.StatusTooManyRequests || statusCode >= 500
-	if !retryable {
-		// Non-retryable: exhaust attempts immediately
-		dlv.MaxAttempts = dlv.Attempts + 1
-	}
-
-	backoff := d.ComputeBackoff(dlv.Attempts)
-	return store.RecordDeliveryFailure(ctx, db, dlv.ID, sc, err.Error(), latencyMs, backoff)
+	evt := SampleEvent(severity)
+	evt.ID = uuid.New()
+	return d.Send(ctx, t, evt)
 }
 
-// SendTest sends an immediate test notification to an endpoint and returns the result without enqueueing.
-func (d *Dispatcher) SendTest(ctx context.Context, ep store.WebhookEndpoint, severity Severity) (int, string, int, error) {
-	if severity == "" {
-		severity = SeverityInfo
-	}
-
-	evt := NotificationEvent{
-		ID:          uuid.New(),
-		Type:        "io.quack.test.notification",
-		Severity:    severity,
-		Title:       "Test Webhook Delivery",
-		Message:     "This is a verified test notification sent from Quack Quack IoT platform.",
-		DeviceName:  "Demo Greenhouse Gateway",
-		ElementName: "Soil Moisture",
-		Value:       42.5,
-		Timestamp:   time.Now().UTC(),
-	}
-
-	var customHeaders map[string]string
-	if len(ep.Headers) > 0 {
-		_ = json.Unmarshal(ep.Headers, &customHeaders)
-	}
-
-	body, headers, err := FormatPayload(ep.Format, ep.Secret, evt, ep.CustomTemplate, customHeaders)
-	if err != nil {
-		return 0, "", 0, fmt.Errorf("format payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(body))
-	if err != nil {
-		return 0, "", 0, fmt.Errorf("create request: %w", err)
-	}
-
-	for k, v := range headers {
-		req.Header[k] = v
-	}
-
-	start := time.Now()
-	resp, err := d.client.Do(req)
-	latencyMs := int(time.Since(start).Milliseconds())
-	if err != nil {
-		return 0, "", latencyMs, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp.StatusCode, string(respBody), latencyMs, nil
-	}
-	return resp.StatusCode, string(respBody), latencyMs, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+// Worker delivers queued notifications: Workers deliveries at a time, each
+// endpoint's in order. Several instances can run (one per api-role server):
+// claims are leased rows, taken with SKIP LOCKED.
+type Worker struct {
+	DB         store.DBTX
+	Dispatcher *Dispatcher
+	Workers    int
+	Poll       time.Duration
+	Log        *slog.Logger
 }
 
-// StartWorker starts a resilient background goroutine processing pending deliveries.
-func (d *Dispatcher) StartWorker(ctx context.Context, db store.DBTX, pollInterval time.Duration) {
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
+// Run delivers until ctx ends, then waits for the requests in flight
+// (bounded by RequestTimeout) so their results are recorded.
+func (w *Worker) Run(ctx context.Context) {
+	workers := max(w.Workers, 1)
+	poll := w.Poll
+	if poll <= 0 {
+		poll = 2 * time.Second
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	tick := time.NewTicker(poll)
+	defer tick.Stop()
+	gauge := time.NewTicker(15 * time.Second)
+	defer gauge.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			deliveries, err := store.FetchPendingDeliveries(ctx, db, 20)
-			if err != nil || len(deliveries) == 0 {
-				continue
+		case <-gauge.C:
+			if n, err := store.CountOpenWebhookDeliveries(ctx, w.DB); err == nil {
+				metrics.WebhookQueue.Set(float64(n))
 			}
-
-			for _, dlv := range deliveries {
-				ep, err := store.GetWebhookEndpoint(ctx, db, dlv.EndpointID)
-				if err != nil {
-					if errors.Is(err, store.ErrNotFound) {
-						// Endpoint was deleted
-						_ = store.RecordDeliveryFailure(ctx, db, dlv.ID, nil, "endpoint not found", 0, 0)
-					}
-					continue
-				}
-
-				if !ep.Enabled {
-					continue
-				}
-
-				_ = d.ProcessDelivery(ctx, db, ep, dlv)
+			continue
+		case <-tick.C:
+		}
+		free := workers - len(sem)
+		if free <= 0 {
+			continue
+		}
+		claimed, err := store.ClaimWebhookDeliveries(ctx, w.DB, free, leaseFor)
+		if err != nil {
+			if ctx.Err() == nil {
+				w.Log.Warn("webhook: claim failed", "err", err)
 			}
+			continue
+		}
+		for _, dlv := range claimed {
+			sem <- struct{}{}
+			wg.Add(1)
+			go func() {
+				defer func() { <-sem; wg.Done() }()
+				// a delivery in flight finishes (and is recorded) even when
+				// the server is stopping
+				w.process(context.WithoutCancel(ctx), dlv)
+			}()
+		}
+	}
+}
+
+func (w *Worker) process(ctx context.Context, dlv store.WebhookDelivery) {
+	record := func(f func(context.Context) error) {
+		rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := f(rctx); err != nil {
+			w.Log.Warn("webhook: recording a delivery failed", "delivery", dlv.ID, "err", err)
+		}
+	}
+	ep, err := store.GetWebhookEndpoint(ctx, w.DB, dlv.EndpointID)
+	if err != nil {
+		reason := "endpoint unavailable"
+		if errors.Is(err, store.ErrNotFound) {
+			reason = "endpoint deleted"
+		}
+		metrics.WebhookDeliveries.WithLabelValues("failed").Inc()
+		record(func(c context.Context) error {
+			return store.RecordDeliveryFailure(c, w.DB, dlv.ID, nil, reason, 0, ComputeBackoff(dlv.Attempts), errors.Is(err, store.ErrNotFound))
+		})
+		return
+	}
+	var evt NotificationEvent
+	if err := json.Unmarshal(dlv.Payload, &evt); err != nil {
+		record(func(c context.Context) error {
+			return store.RecordDeliveryFailure(c, w.DB, dlv.ID, nil, "unreadable payload", 0, 0, true)
+		})
+		return
+	}
+	var res Result
+	if t, err := w.Dispatcher.Target(ep); err != nil {
+		res = Result{Err: err, Terminal: true}
+	} else {
+		reqCtx, cancel := context.WithTimeout(ctx, RequestTimeout+time.Second)
+		res = w.Dispatcher.Send(reqCtx, t, evt)
+		cancel()
+	}
+	if res.Err == nil {
+		metrics.WebhookDeliveries.WithLabelValues("delivered").Inc()
+		record(func(c context.Context) error {
+			return store.RecordDeliverySuccess(c, w.DB, dlv.ID, res.StatusCode, res.LatencyMs)
+		})
+		return
+	}
+	last := res.Terminal || dlv.Attempts+1 >= dlv.MaxAttempts
+	if last {
+		metrics.WebhookDeliveries.WithLabelValues("failed").Inc()
+		w.Log.Warn("webhook: delivery failed", "endpoint", ep.ID, "delivery", dlv.ID, "attempts", dlv.Attempts+1, "err", res.Err)
+	} else {
+		metrics.WebhookDeliveries.WithLabelValues("retry").Inc()
+	}
+	var code *int
+	if res.StatusCode > 0 {
+		code = &res.StatusCode
+	}
+	delay := max(ComputeBackoff(dlv.Attempts), res.RetryAfter)
+	record(func(c context.Context) error {
+		return store.RecordDeliveryFailure(c, w.DB, dlv.ID, code, res.Err.Error(), res.LatencyMs, delay, res.Terminal)
+	})
+}
+
+// Purge deletes finished deliveries older than retention, hourly, until ctx ends.
+func Purge(ctx context.Context, db store.DBTX, retention time.Duration, log *slog.Logger) {
+	if retention <= 0 {
+		return
+	}
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := store.PurgeWebhookDeliveries(ctx, db, retention); err != nil && ctx.Err() == nil {
+			log.Warn("webhook: purge failed", "err", err)
+		} else if n > 0 {
+			log.Info("webhook: purged old deliveries", "deleted", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
 		}
 	}
 }

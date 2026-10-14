@@ -1,168 +1,83 @@
 package alert
 
 import (
+	"encoding/json"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
-func TestAlertEvaluatorAboveCondition(t *testing.T) {
-	ev := NewEvaluator()
-	ruleID := uuid.New()
-	elemID := uuid.New()
-	rule := store.ElementAlertRule{
-		ID:         ruleID,
-		ElementID:  elemID,
-		Name:       "High Temp",
-		Condition:  "above",
-		Threshold:  35.0,
-		Hysteresis: 1.0,
-		Severity:   "critical",
-	}
+func rule(cond string, t float64, h float64) store.ElementAlertRule {
+	return store.ElementAlertRule{Condition: cond, Threshold: t, Hysteresis: h}
+}
 
-	// 1. Below threshold: no trigger
-	trig, recov := ev.CheckCondition(rule, 34.0)
-	if trig || recov {
-		t.Fatalf("expected no trigger, got trig=%v recov=%v", trig, recov)
+// run feeds values and returns the firing state after each.
+func run(r store.ElementAlertRule, values ...float64) []bool {
+	firing := false
+	out := make([]bool, len(values))
+	for i, v := range values {
+		firing = Next(r, firing, v)
+		out[i] = firing
 	}
+	return out
+}
 
-	// 2. Crosses above 35: triggers
-	trig, recov = ev.CheckCondition(rule, 35.5)
-	if !trig || recov {
-		t.Fatalf("expected trigger, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 3. Still above 35: doesn't re-trigger (already active)
-	trig, recov = ev.CheckCondition(rule, 36.0)
-	if trig || recov {
-		t.Fatalf("expected no new trigger while active, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 4. Drops to 34.5 (above threshold - hysteresis of 34.0): stays in alarm
-	trig, recov = ev.CheckCondition(rule, 34.5)
-	if trig || recov {
-		t.Fatalf("expected hysteresis to hold alarm, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 5. Drops below 34.0: recovers
-	trig, recov = ev.CheckCondition(rule, 33.8)
-	if trig || !recov {
-		t.Fatalf("expected recovery, got trig=%v recov=%v", trig, recov)
+func eq(t *testing.T, got []bool, want ...bool) {
+	t.Helper()
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
 	}
 }
 
-func TestAlertEvaluatorBelowCondition(t *testing.T) {
-	ev := NewEvaluator()
-	ruleID := uuid.New()
-	rule := store.ElementAlertRule{
-		ID:         ruleID,
-		Condition:  "below",
-		Threshold:  10.0,
-		Hysteresis: 0.5,
-		Severity:   "warning",
-	}
-
-	// Above 10: normal
-	trig, _ := ev.CheckCondition(rule, 15.0)
-	if trig {
-		t.Fatalf("expected normal")
-	}
-
-	// Drops to 9.0: triggers
-	trig, _ = ev.CheckCondition(rule, 9.0)
-	if !trig {
-		t.Fatalf("expected trigger")
-	}
-
-	// Recovers when it reaches 10.5
-	_, recov := ev.CheckCondition(rule, 10.6)
-	if !recov {
-		t.Fatalf("expected recovery")
-	}
+func TestAboveWithHysteresis(t *testing.T) {
+	// fires above 30; resolves only at or below 28
+	eq(t, run(rule("above", 30, 2), 29, 31, 29, 28.5, 28, 31), false, true, true, true, false, true)
 }
 
-func TestAlertEvaluatorOutsideRangeCondition(t *testing.T) {
-	ev := NewEvaluator()
-	ruleID := uuid.New()
+func TestBelowWithHysteresis(t *testing.T) {
+	eq(t, run(rule("below", 5, 1), 6, 4, 5.5, 6, 4), false, true, true, false, true)
+}
+
+func TestOutsideRange(t *testing.T) {
 	max := 30.0
-	rule := store.ElementAlertRule{
-		ID:           ruleID,
-		Condition:    "outside_range",
-		Threshold:    10.0,
-		ThresholdMax: &max,
-		Hysteresis:   1.0,
-		Severity:     "warning",
-	}
+	r := rule("outside_range", 10, 2)
+	r.ThresholdMax = &max
+	// out, back inside but within hysteresis of the edge, well inside, out high
+	eq(t, run(r, 20, 9, 11, 15, 31, 29, 27), false, true, true, false, true, true, false)
+}
 
-	// 1. Value inside range [10, 30]: normal
-	trig, recov := ev.CheckCondition(rule, 20.0)
-	if trig || recov {
-		t.Fatalf("expected normal in-range, got trig=%v recov=%v", trig, recov)
-	}
+func TestEquals(t *testing.T) {
+	eq(t, run(rule("equals", 1, 0), 0, 1, 1, 0), false, true, true, false)
+	// with hysteresis it stays firing within the band
+	eq(t, run(rule("equals", 50, 5), 50, 53, 56), true, true, false)
+}
 
-	// 2. Value drops below min (8.0 < 10.0): triggers
-	trig, recov = ev.CheckCondition(rule, 8.0)
-	if !trig || recov {
-		t.Fatalf("expected trigger below min, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 3. Value enters between 10.0 and 11.0 (within hysteresis band): stays in alarm
-	trig, recov = ev.CheckCondition(rule, 10.5)
-	if trig || recov {
-		t.Fatalf("expected hysteresis hold, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 4. Value reaches 12.0 (>= 10 + 1.0 and <= 30 - 1.0): recovers
-	trig, recov = ev.CheckCondition(rule, 12.0)
-	if trig || !recov {
-		t.Fatalf("expected recovery in safe band, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 5. Value rises above max (32.0 > 30.0): triggers
-	trig, recov = ev.CheckCondition(rule, 32.0)
-	if !trig || recov {
-		t.Fatalf("expected trigger above max, got trig=%v recov=%v", trig, recov)
-	}
-
-	// 6. Drops back to 28.0 (<= 30 - 1.0): recovers
-	trig, recov = ev.CheckCondition(rule, 28.0)
-	if trig || !recov {
-		t.Fatalf("expected recovery after max, got trig=%v recov=%v", trig, recov)
+func TestUnknownConditionKeepsState(t *testing.T) {
+	if Next(rule("nope", 1, 0), true, 100) != true || Next(rule("nope", 1, 0), false, 100) != false {
+		t.Fatal("an unknown condition must not change the state")
 	}
 }
 
-func TestAlertEvaluatorEqualsCondition(t *testing.T) {
-	ev := NewEvaluator()
-	ruleID := uuid.New()
-	rule := store.ElementAlertRule{
-		ID:        ruleID,
-		Condition: "equals",
-		Threshold: 0.0, // e.g. error code 0 or offline state
-		Severity:  "critical",
+func TestNumber(t *testing.T) {
+	for in, want := range map[string]float64{`21.5`: 21.5, `{"value": 3}`: 3, `true`: 1, `{"value": false}`: 0} {
+		if v, ok := Number(json.RawMessage(in)); !ok || v != want {
+			t.Errorf("%s: %v %v", in, v, ok)
+		}
 	}
-
-	// 1. Initial non-matching: normal
-	trig, recov := ev.CheckCondition(rule, 1.0)
-	if trig || recov {
-		t.Fatalf("expected no trigger")
+	for _, in := range []string{`"21"`, `{"temperature": 3}`, `null`, `{"value": "x"}`, `nope`} {
+		if _, ok := Number(json.RawMessage(in)); ok {
+			t.Errorf("%s must not be evaluated", in)
+		}
 	}
+}
 
-	// 2. Matches threshold: triggers
-	trig, recov = ev.CheckCondition(rule, 0.0)
-	if !trig || recov {
-		t.Fatalf("expected trigger on equals")
-	}
-
-	// 3. Stays matching: does not re-trigger
-	trig, recov = ev.CheckCondition(rule, 0.0)
-	if trig || recov {
-		t.Fatalf("expected no re-trigger")
-	}
-
-	// 4. Value changes away from threshold: recovers
-	trig, recov = ev.CheckCondition(rule, 1.0)
-	if trig || !recov {
-		t.Fatalf("expected recovery when value leaves equals")
+func TestDescribe(t *testing.T) {
+	max := 2.5
+	r := rule("outside_range", 1, 0)
+	r.ThresholdMax = &max
+	if got := describe(r); got != "outside 1–2.5" {
+		t.Fatal(got)
 	}
 }

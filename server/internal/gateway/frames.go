@@ -1,11 +1,14 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"strconv"
+	"sync"
 
 	"github.com/taha2samy/quackquack/server/internal/elementpipe"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/metrics"
 )
 
 // Wire frames are byte-compatible with the legacy Django consumers
@@ -43,28 +46,80 @@ func actorUserID(source, id string) json.RawMessage {
 	return b
 }
 
-// renderMessage serializes an element message once per audience.
-func renderMessage(m *events.ElementMessage, at events.Time, pipe *elementpipe.Pipeline) (device, browser []byte) {
+// renderMessage serializes an element message once per audience. The device
+// frame is built on first use (often no device needs it) and carries the
+// message in device units: when the element's pipeline transforms commands,
+// its inverse runs on the message. If that fails, the device frame is nil and
+// the device gets nothing, never the unconverted value.
+func renderMessage(m *events.ElementMessage, at events.Time, pc pipelineContext) (device func() []byte, browser []byte) {
 	auth := authJSON{UserID: actorUserID(m.Source, m.Actor.ID), Username: m.Actor.Name}
 	msg := m.Message
 	if len(msg) == 0 {
 		msg = json.RawMessage("null")
 	}
-	devMsg := msg
-	if m.Source == events.SourceUser && pipe != nil {
-		var parsed map[string]any
-		if err := json.Unmarshal(msg, &parsed); err == nil {
-			if inv, err := pipe.Inverse(parsed); err == nil {
-				if b, err := json.Marshal(inv); err == nil {
-					devMsg = b
-				}
-			}
-		}
-	}
 	ts := at.String()
-	device = mustJSON(deviceMsgFrame{ElementID: m.ElementID.String(), Message: devMsg, Auth: auth, LastEditAt: ts})
 	browser = mustJSON(browserMsgFrame{Type: "message_element", ElementID: m.ElementID.String(), Message: msg, Auth: auth, LastEditAt: ts})
+	device = sync.OnceValue(func() []byte {
+		devMsg := msg
+		if pc.pipe.Invertible() {
+			inv, err := inverseMessage(msg, pc.pipe, elementpipe.Context{Element: pc.element, Device: pc.device, Time: at.Time})
+			if err != nil {
+				metrics.PipelineFailed.WithLabelValues("inverse").Inc()
+				return nil
+			}
+			devMsg = inv
+		}
+		return mustJSON(deviceMsgFrame{ElementID: m.ElementID.String(), Message: devMsg, Auth: auth, LastEditAt: ts})
+	})
 	return device, browser
+}
+
+// pipelineContext is an element's pipeline and the names its steps see.
+type pipelineContext struct {
+	pipe    *elementpipe.Pipeline
+	element string
+	device  string
+}
+
+// inverseMessage converts a message (engineering units) to device units. A
+// bare JSON value is run as {"value": x} and unwrapped again.
+func inverseMessage(raw json.RawMessage, pipe *elementpipe.Pipeline, ctx elementpipe.Context) (json.RawMessage, error) {
+	v, err := decodeMessage(raw)
+	if err != nil {
+		return nil, err
+	}
+	msg, wrapped := elementpipe.WrapScalar(v)
+	out, err := pipe.InverseWithContext(msg, ctx)
+	if err != nil {
+		return nil, err
+	}
+	var res any = out
+	if inner, ok := out["value"]; wrapped && ok && len(out) == 1 {
+		res = inner
+	}
+	return encodeMessage(res)
+}
+
+// decodeMessage decodes an element message keeping numbers exact.
+func decodeMessage(raw json.RawMessage) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// encodeMessage encodes a message without HTML escaping (<, >, & stay as sent).
+func encodeMessage(v any) (json.RawMessage, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(b.Bytes(), "\n"), nil
 }
 
 func subscribeFrame(elementID, perm string, details json.RawMessage, connected bool) []byte {

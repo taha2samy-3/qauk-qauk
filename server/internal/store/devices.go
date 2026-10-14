@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -84,8 +85,10 @@ func GetDeviceAuth(ctx context.Context, db DBTX, id uuid.UUID) (DeviceAuth, erro
 
 // --- Elements ---
 
+// elementCols is for INSERT/UPDATE ... RETURNING on elements.
 const elementCols = `id, device_id, name, points, description, details, created_at, msg_rate, msg_burst, over_limit,
-	NULL::int AS pipeline_version, NULL::int AS pipeline_steps`
+	(SELECT p.version FROM element_pipelines p WHERE p.element_id = elements.id) AS pipeline_version,
+	(SELECT jsonb_array_length(p.steps) FROM element_pipelines p WHERE p.element_id = elements.id) AS pipeline_steps`
 
 const elementSelectCols = `e.id, e.device_id, e.name, e.points, e.description, e.details, e.created_at, e.msg_rate, e.msg_burst, e.over_limit,
 	p.version AS pipeline_version,
@@ -217,24 +220,24 @@ func DeviceConfig(ctx context.Context, db DBTX, id uuid.UUID) (events.DeviceConf
 		for i, e := range els {
 			elementIDs[i] = e.ID
 		}
-		rows, err := db.Query(ctx, `SELECT element_id, version, steps FROM element_pipelines WHERE element_id = ANY($1)`, elementIDs)
-		if err == nil {
-			type pipeRow struct {
-				ElementID uuid.UUID       `db:"element_id"`
-				Version   int             `db:"version"`
-				Steps     json.RawMessage `db:"steps"`
-			}
-			pipes, err := pgx.CollectRows(rows, pgx.RowToStructByName[pipeRow])
-			if err == nil {
-				pipeMap := make(map[uuid.UUID]pipeRow, len(pipes))
-				for _, p := range pipes {
-					pipeMap[p.ElementID] = p
-				}
-				for i, e := range els {
-					if pr, ok := pipeMap[e.ID]; ok && len(pr.Steps) > 0 && string(pr.Steps) != "[]" && string(pr.Steps) != "null" {
-						cfg.Elements[i].Pipeline = &events.PipelineConfig{Version: pr.Version, Steps: pr.Steps}
-					}
-				}
+		type pipeRow struct {
+			ElementID uuid.UUID       `db:"element_id"`
+			Version   int             `db:"version"`
+			Steps     json.RawMessage `db:"steps"`
+		}
+		// an error here must fail the snapshot: one without pipelines would
+		// make gateways publish untransformed values
+		pipes, err := many[pipeRow](db.Query(ctx, `SELECT element_id, version, steps FROM element_pipelines WHERE element_id = ANY($1)`, elementIDs))
+		if err != nil {
+			return events.DeviceConfig{}, fmt.Errorf("element pipelines: %w", err)
+		}
+		pipeMap := make(map[uuid.UUID]pipeRow, len(pipes))
+		for _, p := range pipes {
+			pipeMap[p.ElementID] = p
+		}
+		for i, e := range els {
+			if pr, ok := pipeMap[e.ID]; ok && len(pr.Steps) > 0 && string(pr.Steps) != "[]" && string(pr.Steps) != "null" {
+				cfg.Elements[i].Pipeline = &events.PipelineConfig{Version: pr.Version, Steps: pr.Steps}
 			}
 		}
 	}
