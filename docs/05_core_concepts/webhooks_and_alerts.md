@@ -4,196 +4,216 @@
   <img src="/brand/logo-alerts-wordmark.svg" alt="Quack Quack Alerts and Notification Channels" width="370" />
 </p>
 
-Quack Quack includes an integrated **Element Alert Rules** engine and **Universal Webhook Notification Dispatcher**. This allows telemetry values to trigger notifications across external services (Slack, Discord, Microsoft Teams, Telegram, and standard webhooks) with hysteresis to prevent alarm flapping and automatic recovery detection.
+**Alert rules** watch element values and notify **webhooks** once when a rule starts firing and once when it resolves. Webhooks can post to Slack, Discord, Microsoft Teams, Telegram, any receiver of signed JSON (Standard Webhooks), or a body built from your own template.
 
 ---
 
-## 1. Architecture
+## 1. How it works
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion ["Telemetry Ingestion"]
-        D["Device / MQTT / Node-RED"] --> GW["Gateway Device Core"]
-        GW --> EP["Element Pipeline"]
-    end
-
-    subgraph Evaluation ["Alert Evaluator"]
-        EP --> EV["Evaluator (Threshold & Hysteresis)"]
-        EV -- "Triggered or Recovered" --> OB[("PostgreSQL webhook_deliveries")]
-    end
-
-    subgraph Dispatcher ["Webhook Engine"]
-        OB --> WD["Dispatcher Worker Pool<br/>(Backoff & Jitter)"]
-        WD --> S["Standard JSON (HMAC-SHA256)"]
-        WD --> SL["Slack (Block Kit)"]
-        WD --> DC["Discord (Rich Embeds)"]
-        WD --> MT["Microsoft Teams (Adaptive Cards)"]
-        WD --> TG["Telegram (Bot API)"]
-        WD --> CT["Custom Template"]
-    end
+flowchart LR
+    GW["Gateways<br/>(after the element pipeline)"] --> EE[("element-events.v1")]
+    EE --> AE["Alert engine<br/>(api role, consumer group)"]
+    AE -- "state change + deliveries,<br/>one transaction" --> DB[("PostgreSQL<br/>element_alert_state<br/>webhook_deliveries")]
+    DB --> WK["Delivery workers<br/>(api role)"]
+    WK --> EP["Slack · Discord · Teams · Telegram<br/>Standard Webhooks · custom"]
 ```
 
-1. **Evaluation**: Incoming element telemetry is evaluated against configured rules.
-2. **Hysteresis & Recovery**: If an alarm condition is met, a `NotificationEvent` is created and enqueued. When the value returns within the safe threshold band past the hysteresis window, a recovery event is dispatched.
-3. **Queueing**: Events are transactionally recorded in `webhook_deliveries` with delivery status (`pending`, `retrying`, `delivered`, `failed`).
-4. **Dispatch**: A background dispatcher delivers the payload with format-specific adapters, retrying failed attempts with exponential backoff and jitter.
+1. **Evaluation.** The alert engine runs in every `api` server, in the consumer group `QUACK_ALERT_GROUP` on `element-events.v1`. Each element's partition is read by one server, in order, so several api servers neither repeat nor miss an alert. A new group starts at the newest events (no replay of history).
+2. **State.** Whether a rule is firing is kept in `element_alert_state`. A change of state and the deliveries it causes are written in **one transaction** (the state changes only if it still has the value read), so a restart or a retried batch neither repeats an alert nor loses a recovery.
+3. **Queue.** One delivery is queued per enabled endpoint subscribed to the rule's severity (`webhook_deliveries`, unique per endpoint and event).
+4. **Delivery.** Workers in every api server claim deliveries with a lease, oldest first per endpoint, and send them (see [§4](#_4-delivery-and-retries)).
+
+The engine evaluates the element's value **after** the element pipeline: a bare number, a boolean (`true` = 1), or the `value` field of an object holding one. Other messages (text, objects without a numeric `value`) are ignored. Rule changes are picked up within 5 seconds.
 
 ---
 
-## 2. Element Alert Rules
+## 2. Alert rules
 
-Alert rules are defined per element by administrators in **Admin → Elements → Alerts**.
+Rules belong to an element: **Admin → Elements → Alerts**.
 
-### Supported Conditions
-
-| Condition | Thresholds Required | Description |
-|---|---|---|
-| `above` | `threshold` | Triggers when telemetry rises strictly above the threshold ($v > T$). |
-| `below` | `threshold` | Triggers when telemetry drops strictly below the threshold ($v < T$). |
-| `outside_range` | `threshold` (min), `threshold_max` (max) | Triggers when telemetry leaves the allowed band ($v < T_{min}$ or $v > T_{max}$). |
-| `equals` | `threshold` | Triggers when telemetry exactly equals a numeric value ($v == T$). |
-
-### Severities
-
-Each rule assigns a severity:
-
-- **`critical`**: High-priority alarm (red badge in UI, red embeds in Discord/Teams).
-- **`warning`**: Warning or advisory (amber badge in UI, amber embeds).
-- **`info`**: Informational change (blue badge in UI, blue embeds).
-
-Recovery notifications are dispatched with severity `info` and `isRecovery: true`.
-
-### Hysteresis Band (Anti-Flapping)
-
-In industrial IoT, noisy sensors floating near a threshold can trigger dozens of alarms per minute. A configurable **Hysteresis Band** ($H$) stabilizes the alarm state:
-
-- For `above` condition ($T = 35$, $H = 1.0$):
-  - Alarm triggers at $v > 35.0$.
-  - Alarm **does not clear** until $v \le 34.0$ ($T - H$).
-- For `below` condition ($T = 10$, $H = 0.5$):
-  - Alarm triggers at $v < 10.0$.
-  - Alarm **does not clear** until $v \ge 10.5$ ($T + H$).
-- For `outside_range` ($T_{min} = 10$, $T_{max} = 30$, $H = 1.0$):
-  - Alarm triggers when $v < 10.0$ or $v > 30.0$.
-  - Alarm only clears when $11.0 \le v \le 29.0$.
-
-### Alert Configuration Interface
-
-| Light Theme | Dark Theme |
+| Light | Dark |
 |---|---|
-| ![Alert Rules Sheet in Light Theme](../imgs/screenshots/admin-alerts-light.webp) | ![Alert Rules Sheet in Dark Theme](../imgs/screenshots/admin-alerts-dark.webp) |
+| ![Alert rules in the light theme](../imgs/screenshots/admin-alerts-light.webp) | ![Alert rules in the dark theme](../imgs/screenshots/admin-alerts-dark.webp) |
+
+### Conditions
+
+| `condition` | Thresholds | Fires when |
+|---|---|---|
+| `above` | `threshold` | $v > T$ |
+| `below` | `threshold` | $v < T$ |
+| `outside_range` | `threshold` (low), `threshold_max` (high) | $v < T_{min}$ or $v > T_{max}$ |
+| `equals` | `threshold` | $v = T$ |
+
+`severity` is `info`, `warning` (the default) or `critical`. The firing **and** the resolved notification carry the rule's severity, with `state` = `firing` or `resolved`. `message` (optional, up to 500 characters) replaces the generated text of the firing notification. A rule can be disabled without deleting it (`enabled: false`).
+
+### Hysteresis
+
+A value hovering at a threshold would fire and resolve over and over. With a hysteresis $H$, a firing rule resolves only once the value is back past the threshold by $H$:
+
+| Condition | Fires | Resolves |
+|---|---|---|
+| `above` 35, $H$ = 1 | $v > 35$ | $v \le 34$ |
+| `below` 10, $H$ = 0.5 | $v < 10$ | $v \ge 10.5$ |
+| `outside_range` 10–30, $H$ = 1 | $v < 10$ or $v > 30$ | $11 \le v \le 29$ |
+| `equals` 50, $H$ = 5 | $v = 50$ | $\lvert v - 50 \rvert > 5$ |
+
+For `outside_range`, $H$ must be less than half the range, or the rule could never resolve. The API refuses such a rule, and a `threshold_max` on any other condition.
+
+Deleting or disabling a firing rule sends no "resolved" notification.
 
 ---
 
-## 3. Webhook Adapters
+## 3. Webhooks
 
-Webhooks are configured in **Admin → Webhooks** (`/admin/webhooks`). Each endpoint can subscribe to a subset of severities (`info`, `warning`, `critical`).
+Endpoints are managed in **Admin → Webhooks**. Each one subscribes to some severities.
 
-| Webhooks Administration | Add Webhook Modal |
+| Webhooks | New webhook |
 |---|---|
-| ![Webhooks Administration List](../imgs/screenshots/admin-webhooks-light.webp) | ![Add Webhook Dialog](../imgs/screenshots/admin-webhook-dialog-light.webp) |
+| ![Webhooks list](../imgs/screenshots/admin-webhooks-light.webp) | ![New webhook dialog](../imgs/screenshots/admin-webhook-dialog-light.webp) |
 
-### Supported Payload Formats
+### Formats
 
-| Format | Target Services | Payload Structure |
+| `format` | For | Body |
 |---|---|---|
-| `standard` | CloudEvents / Standard Webhooks / Zapier / Make | CloudEvents 1.0 JSON with HMAC-SHA256 signature headers. |
-| `slack` | Slack Incoming Webhooks | Slack Block Kit with color-coded attachments, device info, and timestamp. |
-| `discord` | Discord Webhooks | Rich Embed with hex color coding (`0xE11D48` critical, `0xD97706` warning, `0x0284C7` info). |
-| `teams` | Microsoft Teams Webhooks / Power Automate | Adaptive Card 1.5 schema with alert facts and Markdown body. |
-| `telegram` | Telegram Bot API (`/sendMessage`) | HTML formatted alert message with bold headers and code blocks. |
-| `custom` | Any custom REST API | Go text/template JSON payload rendered with event fields. |
+| `standard` | Your own receiver, Zapier, Make… | CloudEvents 1.0 JSON; the notification is in `data` |
+| `slack` | Slack incoming webhooks | Block Kit, colored by severity |
+| `discord` | Discord webhooks | An embed, colored by severity |
+| `teams` | Microsoft Teams (Workflows) | Adaptive Card 1.5 |
+| `telegram` | Telegram Bot API `sendMessage` | HTML text to `options.chat_id` (required) |
+| `custom` | Anything else | Your Go template (below) |
 
-### Standard Webhook Signatures
+The notification (`data` of the standard format, and the fields a custom template sees):
 
-Endpoints configured with `standard` format include cryptographic verification headers following the [Standard Webhooks specification](https://standardwebhooks.com/):
+```json
+{
+  "id": "0199…", "type": "io.quack.alert.threshold", "severity": "warning", "state": "firing",
+  "rule_id": "…", "rule_name": "Hot", "title": "Alert: Hot", "message": "35 is above 30 (Cold room temperature)",
+  "device_id": "…", "device_name": "Cold room", "element_id": "…", "element_name": "temperature",
+  "value": 35, "timestamp": "2026-10-14T09:00:00Z"
+}
+```
 
-| Header | Description |
+A test from the admin UI (**Send test**) has `type` `io.quack.test.notification`.
+
+### Custom templates
+
+Go [`text/template`](https://pkg.go.dev/text/template) over the notification's fields (`.Title`, `.Message`, `.Severity`, `.State`, `.Value`, `.RuleName`, `.ElementName`, `.DeviceName`, `.Timestamp`…). The output must be valid JSON: write each value with `json` so it is quoted and escaped whatever it contains.
+
+```
+{"text": {{json .Title}}, "level": {{json .Severity}}, "value": {{json .Value}}}
+```
+
+`range` and nested templates aren't allowed, a missing field is an error, the template is at most 16 KiB and its output at most 64 KiB. A template is checked against a sample notification when it is saved.
+
+### Secrets
+
+The URL (Slack, Discord, Teams and Telegram URLs hold a token), the signing secret and header values are secrets:
+
+- They are **never returned** by the API. An endpoint shows its URL redacted (`https://hooks.slack.com/…/X00`), its header names, and whether it has a secret.
+- With `QUACK_SECRETS_KEY` (base64 of 32 bytes) they are stored encrypted (AES-256-GCM). Without it they are stored as written, and the server logs a warning at startup.
+- Any of them can be an `env:NAME` or `file:/path` reference instead, resolved when sending and never stored resolved. References are shown, since they aren't secret.
+- On update, an empty `url` or `secret` keeps the stored one, and an empty header value keeps that header's stored value. The `headers` map replaces the headers, so a header left out is removed.
+
+### Signatures (Standard Webhooks)
+
+Every request of an endpoint with a secret, whatever its format, is signed following [Standard Webhooks](https://www.standardwebhooks.com/):
+
+| Header | |
 |---|---|
-| `webhook-id` | Unique message UUID (`event_id`). |
-| `webhook-timestamp` | Unix epoch timestamp in seconds. |
-| `webhook-signature` | `v1,` prefixed base64 HMAC-SHA256 signature calculated over `${webhook-id}.${webhook-timestamp}.${body}`. |
+| `webhook-id` | The notification id (the same on every attempt: use it to drop duplicates) |
+| `webhook-timestamp` | When this attempt was sent, Unix seconds |
+| `webhook-signature` | `v1,` + base64 of HMAC-SHA256 over `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the base64 part of the `whsec_…` secret |
 
-Receivers verify the signature using the endpoint secret (`whsec_...`):
+A new endpoint without a secret gets a generated one, returned **once** in the create response (and in the response of an update with `new_secret: true`); the admin UI shows it once to copy. Receivers should refuse timestamps more than 5 minutes from their clock:
 
 ```python
-import hmac, hashlib, base64
+import base64, hashlib, hmac, time
 
-def verify(secret, webhook_id, timestamp, body, signature):
-    key = base64.b64decode(secret.replace("whsec_", ""))
-    signed_content = f"{webhook_id}.{timestamp}.{body}".encode("utf-8")
-    expected = "v1," + base64.b64encode(hmac.new(key, signed_content, hashlib.sha256).digest()).decode("utf-8")
-    return hmac.compare_digest(expected, signature)
+def verify(secret: str, headers: dict, body: bytes, tolerance: int = 300) -> bool:
+    msg_id, ts = headers["webhook-id"], headers["webhook-timestamp"]
+    if abs(time.time() - int(ts)) > tolerance:
+        return False  # too old or from the future: a replay
+    key = base64.b64decode(secret.removeprefix("whsec_"))
+    mac = hmac.new(key, f"{msg_id}.{ts}.".encode() + body, hashlib.sha256).digest()
+    expected = "v1," + base64.b64encode(mac).decode()
+    return any(hmac.compare_digest(expected, s) for s in headers["webhook-signature"].split())
 ```
 
----
+Sign the raw body bytes as received, not re-encoded JSON.
 
-## 4. Delivery & Retry Policy
+### Where webhooks may go
 
-Deliveries run asynchronously in a background worker pool:
-
-- **Initial Attempt**: Immediately upon event generation.
-- **Exponential Backoff**:
-  $$\text{Delay} = \min(\text{BaseDelay} \times 2^{\text{attempt}}, \text{MaxDelay}) \times (0.8 \dots 1.2 \text{ Jitter})$$
-  - Base delay: 10 seconds.
-  - Max delay: 1 hour.
-  - Maximum attempts: 5.
-- **Non-Retryable Failures**: HTTP 400, 401, 403, and 404 responses are marked as terminal failures immediately without retrying.
-- **Delivery Log Inspection**: The Admin UI displays recent delivery logs, HTTP status codes, latency in milliseconds, and the exact response bodies for debugging.
-- **Instant Test Ping**: Administrators can click **Send Test** on any endpoint to dispatch a simulated event and receive live round-trip latency feedback.
+A webhook can't be used to reach the platform's own network. URLs must be `https`, and the address a host name resolves to is checked when connecting: only public addresses (no loopback, private, link-local or metadata addresses). Redirects aren't followed, a request has 10 seconds, and only the first 2 KiB of a response is kept. `QUACK_WEBHOOK_ALLOW_PRIVATE=true` lifts the address check and allows `http`, for development only (`task dev` sets it so tests can use a local receiver).
 
 ---
 
-## 5. REST API Reference
+## 4. Delivery and retries
 
-### Element Alert Rules
+- Each api server runs `QUACK_WEBHOOK_WORKERS` (default 4) deliveries at a time. A claimed delivery is leased for a minute: if its server dies, another one takes it over.
+- Deliveries to one endpoint go out oldest first, one at a time, so a receiver gets them in order and an endpoint that is down delays only itself. Deliveries queued for a disabled endpoint wait until it is enabled again.
+- A failed attempt is retried after $\min(10\,\text{s} \times 2^{n}, 1\,\text{h})$ ±20 %, or after the response's `Retry-After` (429/503) if longer, up to **8 attempts** in all.
+- Retrying can't help with a 4xx other than 408 and 429, or with an endpoint whose URL or secret can't be resolved: those fail at once.
+- Each delivery records its status (`pending`, `delivering`, `retrying`, `delivered`, `failed`), attempts, last HTTP status, error and latency; the admin UI shows them under **Delivery history**.
+- Delivered and failed deliveries are deleted after `QUACK_WEBHOOK_RETENTION` (default 30 days).
+
+---
+
+## 5. REST API
+
+All endpoints need an admin session.
+
+### Alert rules
 
 ```http
-GET    /api/v1/admin/elements/{id}/alerts
-POST   /api/v1/admin/elements/{id}/alerts
+GET    /api/v1/admin/elements/{id}/alerts            # the rules, each with "firing"
+POST   /api/v1/admin/elements/{id}/alerts            # create, or update the rule named by "id"
 DELETE /api/v1/admin/elements/{id}/alerts/{ruleId}
 ```
 
-#### Example: Create an Alert Rule
-
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/admin/elements/$ELEMENT_ID/alerts \
-  -b cookies.txt \
+curl -X POST http://127.0.0.1:8080/api/v1/admin/elements/$ELEMENT_ID/alerts -b cookies.txt \
   -H 'Content-Type: application/json' \
-  -d '{
-    "name": "High Motor Temperature",
-    "condition": "above",
-    "threshold": 75.0,
-    "hysteresis": 2.0,
-    "severity": "critical",
-    "message": "Motor temperature exceeded maximum rated limit",
-    "enabled": true
-  }'
+  -d '{"name": "High motor temperature", "condition": "above", "threshold": 75, "hysteresis": 2,
+       "severity": "critical", "message": "Motor temperature over its rated limit"}'
 ```
 
-### Webhook Endpoints
+### Webhooks
 
 ```http
 GET    /api/v1/admin/webhooks
-POST   /api/v1/admin/webhooks
+POST   /api/v1/admin/webhooks                      # 201, with "secret" when one was generated
 GET    /api/v1/admin/webhooks/{id}
-PATCH  /api/v1/admin/webhooks/{id}
+PUT    /api/v1/admin/webhooks/{id}
 DELETE /api/v1/admin/webhooks/{id}
-POST   /api/v1/admin/webhooks/{id}/test
-GET    /api/v1/admin/webhooks/{id}/deliveries
+POST   /api/v1/admin/webhooks/{id}/test            # {"severity": "info"} → status_code, latency_ms, response, success, error
+GET    /api/v1/admin/webhooks/{id}/deliveries?limit=50   # 1–500
 ```
-
-#### Example: Create a Slack Webhook
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/admin/webhooks \
-  -b cookies.txt \
+curl -X POST http://127.0.0.1:8080/api/v1/admin/webhooks -b cookies.txt \
   -H 'Content-Type: application/json' \
-  -d '{
-    "name": "Production Alerts Channel",
-    "url": "https://hooks.slack.com/services/T000/B000/XXXX",
-    "format": "slack",
-    "severities": ["warning", "critical"],
-    "enabled": true
-  }'
+  -d '{"name": "Production alerts", "url": "env:SLACK_ALERTS_URL", "format": "slack",
+       "severities": ["warning", "critical"]}'
 ```
+
+```bash
+# Telegram: the bot token is in the URL, the chat in options
+curl -X POST http://127.0.0.1:8080/api/v1/admin/webhooks -b cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "On-call", "url": "https://api.telegram.org/bot'"$BOT_TOKEN"'/sendMessage",
+       "format": "telegram", "options": {"chat_id": "-1001234567890"}, "severities": ["critical"]}'
+```
+
+Changes to rules and endpoints are recorded in the audit log, without secret values.
+
+---
+
+## 6. Metrics
+
+| Metric | Type | Labels | |
+|---|---|---|---|
+| `quack_webhook_deliveries_total` | counter | `result` = `delivered` \| `retry` \| `failed` | Delivery attempts |
+| `quack_webhook_queue` | gauge | | Deliveries not yet delivered or failed |
+| `quack_alert_transitions_total` | counter | `state` = `firing` \| `resolved` | Rules that started firing or resolved |
+| `quack_alert_errors_total` | counter | | Evaluation batches that failed (and were retried) |

@@ -19,26 +19,26 @@ Implementation plan and status for the Quack Quack Element Pipeline (Station 2).
 
 | Component | Status | Notes |
 |---|---|---|
-| `internal/elementpipe` | Completed | Pure closures for pick, scale, unit, round, clamp, map, deadband, drop_if, script. Benchmarked: 1.8 µs for 5 built-in steps, 17.8 µs for script. |
-| Migrations | Completed | Migration `00008_element_pipelines.sql` creates `element_pipelines` and `element_pipeline_versions`. |
-| Schemas | Completed | Updated `cloudevent.json` (`quackpipeline` attribute) and `io.quack.device.config.v1.json` (`pipeline` element property). |
-| Bus Topics | Completed | Added `TopicElementPipelineDLQ` (`element-pipeline.dlq.v1`, 3 partitions, 30 days). Total 10 topics. |
-| Gateway Core Integration | Completed | Order: validation → resolve element → client-id dedupe → ELEMENT PIPELINE → element limit → publish. Handled `filtered` and `pipeline_failed`. |
-| Command Inversion | Completed | Applied in `renderMessage` (for device frames) and `notifyCommand` (for MQTT downlinks). |
-| Admin API | Completed | CRUD, rollback, preview (500 historical points), and test endpoints in `internal/api/admin_pipeline.go`. |
-| Web UI | Completed | Admin → Elements Pipeline sheet: step builder, invertible badges, map warnings, preview table & chart, live test form, version list & rollback, and Elements table badge (`N steps · vM`). |
-| Demo & Simulator | Completed | Seeded Greenhouse soil moisture (raw ADC → % scaled/rounded/clamped), cold room temp (deadband), fan speed (rpm ↔ %), gate relay (OPEN/CLOSED ↔ ON/OFF), and climate dew point script. |
-| Tests | Completed | Unit benchmarks & tests (`elementpipe`, `gateway`), integration tests (`pipeline_test.go`), and contract tests. |
+| `internal/elementpipe` | Completed | Go closures for pick, scale, unit, round, clamp, map, deadband, drop_if; script via the `jsbox` sandbox (20 ms, size and recursion caps). Copy-on-write messages. Measured: ~1.6 µs for 5 built-in steps, ~8.7 µs for a script step ([baseline](./baseline.md#element-pipeline-benchmarks)). |
+| Migrations | Completed | `00008_element_pipelines.sql`: `element_pipelines` and `element_pipeline_versions`. A delete saves an empty version, so version numbers never repeat. |
+| Schemas | Completed | `cloudevent.json` (`quackpipeline` = the version), `io.quack.device.config.v1.json` (`pipeline` per element), `io.quack.command.failed.v1`. |
+| Bus Topics | Completed | `element-pipeline.dlq.v1` (3 partitions, 30 days): plain JSON with the message cut to 4 KiB and its full size. |
+| Gateway Core Integration | Completed | validation → resolve element → client-id dedupe → ELEMENT PIPELINE → element limit → publish. Statuses `filtered` and `pipeline_failed` on every transport; MQTT counts `filtered`. |
+| Command Inversion | Completed | Reverse steps in `renderMessage` (device frames, built lazily) and `notifyCommand` (MQTT). A command the reverse can't convert is refused where the user sends it (error frame `pipeline_failed`) and never delivered unconverted. MQTT delivery failures reach the user over `io.quack.command.failed.v1`. |
+| Admin API | Completed | get, save, rollback, delete, preview (500 stored messages, with `basis`), test (with the inverse), validate, units. |
+| Web UI | Completed | Admin → Elements → Pipeline: step editor (numbers kept as typed, map tables checked), per-step command badges and errors from `validate`, unit suggestions, preview chart and table (stored / input / output), test, versions and rollback. |
+| Demo & Simulator | Completed | Greenhouse soil moisture (raw ADC → %), cold room temperature (deadband), fan speed (rpm ↔ %), gate relay (OPEN/CLOSED ↔ ON/OFF), climate dew point script. Pipelines are re-saved only when they changed. |
+| Tests | Completed | Unit tests and benchmarks (`elementpipe`, `jsbox`, `gateway`), integration tests (`pipeline_test.go`), web unit tests (`pipelineSteps.test.ts`), e2e (`pipeline.spec.ts`). |
 
 ---
 
-## 3. Deviations from Initial Prompt & Rationale
+## 3. Design decisions
 
-1. **Deadband Comparison State:**
-   - *Design:* Rather than storing per-connection state on incoming sockets, deadband reads from `hub.LatestMessage(elementID)`, which receives every broadcast on `element-events.v1`.
-   - *Rationale:* Ensures global consistency across multi-gateway clusters when roaming devices migrate between gateway instances without needing a shared distributed lock.
-2. **Coalescer Pipeline Version Preservation:**
-   - *Design:* When an element has `over_limit="latest"` and a burst threshold is exceeded, the held message preserves the `pipelineVersion` calculated during the pipeline stage so that when the timer flushes the held message, `quackpipeline` is tagged with the exact version applied.
+1. **Deadband compares with the last accepted value.** It reads the message held by `over_limit: latest` if any, else `hub.LatestMessage(elementID)`, which sees every message on `element-events.v1`: consistent across gateways with no shared state. `max_silence` uses the time that value was published.
+2. **Deadband order rule.** The "last value" is pipeline output, so a step after a deadband that changes its field (or `pick`/`script`) is refused at validation.
+3. **Fail closed.** A version that doesn't compile on a gateway keeps the last working one; with none, the element's messages fail instead of being published in device units.
+4. **Held messages keep their version.** A message held by `over_limit: latest` keeps the pipeline version that transformed it, so `quackpipeline` is right when it is flushed (also on shutdown).
+5. **Previews say what they ran on.** Stored values are pipeline output; the preview reverses the version active then when it can (`reconstructed`), else runs on the stored value (`stored`).
 
 ---
 

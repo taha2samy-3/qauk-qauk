@@ -66,7 +66,7 @@ With `replicas > 1`, each slot subscribes to `$share/<client_id_prefix>/<filter>
 In **Admin → MQTT**:
 
 1. **New connection**: the broker URL (`mqtts://`, `mqtt://`, `wss://` or `ws://`), the authentication, and the number of replicas.
-2. **Grant devices**: pick a device and give it its external id, e.g. `cold-room-1`.
+2. **Grant devices**: pick a device and give it its external id, e.g. `cold-room-1`. An external id belongs to one device per connection: granting one that another device holds is refused (`409`), unless you choose to move it (`replace: true` in the API), which revokes the other device's grant (both are in the audit log).
 3. **Uplink rules**: a topic filter, the payload format, an optional decoder, where the external id is, and a field map.
 4. Optionally, **downlinks** for elements that dashboards control, and **decoders** for binary payloads.
 
@@ -168,11 +168,13 @@ A downlink sends dashboard commands for one element of one granted device to the
 
 The device should confirm by publishing its new state, which an uplink rule maps back to the same element: the dashboard switch then shows the confirmed state, as with the other transports.
 
+Commands for one element of one device go out **one at a time, newest wins**: if the broker is slow or unreachable and a newer command arrives while an older one is still being retried, the older one is dropped, so an old `ON` can't land after a newer `OFF`. A publish is retried a few times with backoff; when it still fails, or when the topic template or encoder can't produce a valid topic or payload (not retried), the user's dashboards get a `delivery_failed` error.
+
 | Configured Downlinks Table | New Downlink Configuration Dialog |
 |---|---|
 | ![Active Downlink rules table showing target devices, topics, and encoders](./imgs/screenshots/mqtt-downlinks-table.webp) | ![New downlink dialog with JSON template encoder](./imgs/screenshots/mqtt-downlink-dialog.webp) |
 
-**Command inversion:** If an element has an [element pipeline](./05_core_concepts/element_pipeline.md) with invertible steps (such as `scale`, `round`, `clamp`, or `map`), dashboard commands pass through the pipeline's **inverse** before reaching the downlink encoder. The device on the broker receives actuator units, while dashboards and history maintain engineering units.
+**Command inversion:** if the element has an [element pipeline](./05_core_concepts/element_pipeline.md#_4-commands-the-pipeline-in-reverse), the steps that apply to commands (`scale`, `unit`, a one-to-one `map`, a script with `untransform`) run in reverse before the downlink encoder, so the device receives its own units while dashboards and history keep engineering units. A command the reverse can't convert is refused when the user sends it.
 
 ---
 
@@ -509,8 +511,8 @@ Sample hex payload: `hex:2cbe028023`
 | Byte 0 | Soil Moisture | `0x2C` (44) | $M = \text{byte}$ | `44 %` |
 | Byte 1 | Soil Temperature | `0xBE` (190) | $T = (\text{byte} - 100) / 10$ | `9.0 °C` |
 | Bytes 2–3 | Electrical Conductivity (EC) | `0x02 0x80` | $\text{EC} = (\text{b}_2 \ll 8) \mid \text{b}_3$ | `640 µS/cm` |
-| Byte 4 (bits 7..1) | Battery Voltage | `0x11` (17) | $V = 3.0 + (\text{bits} \times 0.1)$ | `4.7 V` |
-| Byte 4 (bit 0) | Solenoid Valve State | `0x01` | $\text{bit } 0 == 1$ | `true` (Active) |
+| Byte 4 (bits 7..1) | Battery Voltage | `0x23` → bits 7..1 = 17 | $V = 3.0 + (\text{bits} \times 0.1)$ | `4.7 V` |
+| Byte 4 (bit 0) | Solenoid Valve State | `0x23` → bit 0 = 1 | $\text{bit } 0 == 1$ | `true` (Active) |
 
 #### 2. JavaScript Codec (`decodeUplink` & `encodeDownlink`)
 Quack Quack adheres directly to the open **The Things Network (TTN) Device Repository** codec specification. Decoders execute inside an isolated JavaScript sandbox (Goja runtime, 20 ms strict execution ceiling, no network, no disk access):
@@ -608,12 +610,13 @@ docker exec quack-mosquitto-1 mosquitto_sub -V mqttv5 -t 'quack/demo/#' -v   # w
 | `quack_mqtt_connected{connection}` | 1 while a slot is connected on this gateway |
 | `quack_mqtt_owned_slots` | Slots this gateway owns |
 | `quack_mqtt_messages_received_total`, `quack_mqtt_values_published_total` | Messages in, values out |
+| `quack_mqtt_values_filtered_total{connection}` | Values an element pipeline dropped (deadband, `drop_if`, a script returning `null`); acknowledged, not errors |
 | `quack_mqtt_rejected_total{reason}` | Rejections: `no_rule`, `pipeline`, `not_granted`, `core`… |
 | `quack_mqtt_decoder_seconds` | Decoder run time |
 | `quack_mqtt_unacked` | Messages waiting for their values to be durable before the acknowledgement |
 | `quack_mqtt_downlinks_total{result}` | Commands published or failed |
 
-Each slot's state is also in `mqtt_connection_status` and on the connection's page: the owning gateway, whether it is connected, the last MQTT reason code and counters.
+Each slot's state is also in `mqtt_connection_status` and on the connection's page: the owning gateway, whether it is connected, the last MQTT reason code and counters (`received`, `published`, `filtered`, `rejected`).
 
 | Symptom | Look at |
 |---|---|

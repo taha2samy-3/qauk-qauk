@@ -169,7 +169,7 @@ Each one is a small service (Go, or any language), scales to zero, and can't tak
 |---|---|---|---|
 | K1 | Helm chart: separate `gateway`, `api`, `ingest` Deployments, a `migrate` Job (pre-install/upgrade hook), Services, Ingress with WebSocket timeouts, PodDisruptionBudget (gateway `minAvailable: 1`), probes on `/healthz` and `/readyz`, ServiceMonitor | P1 | M |
 | K2 | Postgres via **CloudNativePG** with a TimescaleDB image (backups to object storage, PITR); Redpanda via the **Redpanda Operator** (3 brokers, `acks=all` already set) | P1 | M |
-| K3 | `terminationGracePeriodSeconds` ≥ drain time (F1) and a `preStop` hook on the gateway | P0 with K1 | S |
+| K3 | `terminationGracePeriodSeconds` above the worst-case shutdown (propagation wait + drain + `QUACK_SHUTDOWN_TIMEOUT` + 15 s + 10 s; 63 s with the defaults, see F1) | P0 with K1 | S |
 | K4 | Separate metrics port so `/metrics` is not public (F8) | P1 | S |
 
 ---
@@ -180,7 +180,7 @@ Verified in the code on `main`. Ordered by priority.
 
 | Id | Finding (where) | Impact | Fix | P | Effort |
 |---|---|---|---|---|---|
-| **F1** | ~~No graceful drain: `Gateway.shutdown()` closes **all** sockets at once~~<br/>✅ **RESOLVED**: Phased graceful drain implemented in `internal/gateway/drain.go` with `/readyz` 503 cut-off, `DrainPropagationWait`, jittered disconnects (code 1012), `/livez`, `/startupz`, and unit tests. | ~~Every deploy or scale-down triggers a reconnect storm~~<br/>Smoothly drains over `QUACK_DRAIN_DURATION` with zero reconnect storm. | Done: Configurable drain window, propagation pause, and K8s probes. | **P0** | **DONE** |
+| **F1** | ~~No graceful drain: `Gateway.shutdown()` closes **all** sockets at once~~<br/>✅ **RESOLVED** (`cmd/quack/shutdown.go`, `internal/gateway/drain.go`): on SIGTERM `/readyz` turns 503 and the gateway refuses new sockets, gRPC streams and REST long-polls; after `QUACK_DRAIN_PROPAGATION_WAIT` the open clients are closed in random order over `QUACK_DRAIN_DURATION` (1012), ending early once none is left; then in-flight HTTP requests finish before the background loops stop (held messages flushed, MQTT leaves the member list), and the producer flush is bounded. A second signal aborts. Probes `/livez`, `/startupz`, `/readyz` (database checked by the api role only). See [Graceful shutdown](../02_architecture.md#graceful-shutdown). | ~~Every deploy or scale-down triggers a reconnect storm~~<br/>Reconnects are spread over the drain window. Unit-tested; not yet measured under a real rollout with many sockets. | Done | **P0** | **DONE** |
 | **F2** | Device auth hits Postgres on **every** handshake (`DeviceVerifier.Load` → `GetDeviceAuth`). The plan's 60 s key cache was never built | A reconnect storm becomes a DB storm | LRU cache of `(device → key)` with 60 s TTL, invalidated by `jwt_key` / `device` control events (already consumed). Also add a per-IP handshake rate limit | **P0** | S |
 | **F3** | Rate limits are **per socket** (`limiter` in `deviceClient`/`browserClient`) | A device opening 10 sockets gets 10× the budget | Per-device (and per-user) buckets in the hub, plus a max sockets per device (config, default 4) | P1 | S |
 | **F4** | Login limiter is **in memory per instance** (`internal/api/auth.go`) | With N API pods an attacker gets N× the attempts | Store attempts in Postgres (`login_attempts` with a TTL purge), or put an edge rate-limit at the ingress | P1 | S |

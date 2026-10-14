@@ -334,7 +334,8 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_TOPIC_PREFIX` | *(empty)* | all | Prefix for every Redpanda topic (e.g. `staging.`). **Environments that share a Redpanda cluster must use different prefixes**, or each would see the other's events and devices ([why](./05_core_concepts/realtime_events.md#sharing-a-cluster)). The integration tests use `it.` and the contract suite `contract.`. |
 | `QUACK_KAFKA_ACKS_ALL` | `true` | serve | `true` means `acks=all` (durable). `false` means `acks=1` (lower latency, may lose events on broker failure). |
 | `QUACK_INGEST_GROUP` | `quack-ingest` | ingest | Consumer group of the ingester. **Use a different value per environment/database** sharing a Redpanda cluster ([why](./02_architecture.md#the-ingester-consumer-group)). |
-| `QUACK_HTTP_ADDR` | `:8080` | serve, ingest | Listen address. The ingester only serves `/healthz` and `/metrics` on it (the tasks and compose use `:9100`). |
+| `QUACK_ALERT_GROUP` | `quack-alerts` | serve (`api`) | Consumer group of the alert engine. Like `QUACK_INGEST_GROUP`, environments sharing a Redpanda cluster need their own. See [Alerts and webhooks](./05_core_concepts/webhooks_and_alerts.md). |
+| `QUACK_HTTP_ADDR` | `:8080` | serve, ingest | Listen address. The ingester only serves its probes (`/livez`, `/readyz`, `/startupz`, `/healthz`) and `/metrics` on it (the tasks and compose use `:9100`). |
 | `QUACK_ROLES` | `api,gateway` | serve | Roles to enable: `api`, `gateway`, `mqtt` (needs `gateway`). |
 | `QUACK_GATEWAY_ID` | `gw-<hostname>-<random>` | serve | Unique id of this gateway instance (presence leases, own-event detection). |
 | `QUACK_ALLOWED_ORIGINS` | *(empty)* | serve | Extra trusted origins (`scheme://host[:port]`) for the browser WebSocket and for cross-origin API writes. Same-host requests are always allowed. |
@@ -353,9 +354,13 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_MQTT_WEIGHT` | `1` | serve (`mqtt`) | This gateway's weight in the MQTT slot assignment: a gateway with weight 2 owns about twice as many slots. |
 | `QUACK_MQTT_CONNECTION_MSG_RATE` | `5000` | serve (`mqtt`) | Messages per second one MQTT connection may turn into values on one gateway. The excess is rejected (dead-lettered). |
 | `QUACK_ALLOW_INSECURE_TLS` | `false` | serve | Lets MQTT connections use passwords without TLS and `insecure_skip_verify`. For development brokers only. |
-| `QUACK_DRAIN_DURATION` | `25s` | serve | Time over which open WebSockets are closed in batches with randomized jitter during graceful shutdown (F1). |
-| `QUACK_DRAIN_PROPAGATION_WAIT` | `3s` | serve | Pause after `/readyz` fails (503) before closing sockets to allow Ingress / load balancers time to remove this pod. |
-| `QUACK_SHUTDOWN_TIMEOUT` | `10s` | serve | Maximum time for `http.Server.Shutdown()` to complete in-flight HTTP requests after draining. |
+| `QUACK_SECRETS_KEY` | *(unset)* | serve | Base64 of 32 random bytes (`openssl rand -base64 32`). Encrypts webhook URLs, signing secrets and header values in the database (AES-256-GCM). Unset, they are stored as written and a warning is logged. Keep it: without it, stored secrets can't be read. `task dev` sets a fixed development key. |
+| `QUACK_WEBHOOK_ALLOW_PRIVATE` | `false` | serve (`api`) | Lets webhooks reach loopback, private and link-local addresses and plain `http`. Development only (`task dev` sets it). |
+| `QUACK_WEBHOOK_WORKERS` | `4` | serve (`api`) | Webhook deliveries one api server sends at a time. |
+| `QUACK_WEBHOOK_RETENTION` | `720h` | serve (`api`) | How long delivered and failed webhook deliveries are kept. |
+| `QUACK_DRAIN_DURATION` | `25s` | serve | On shutdown, the gateway's sockets and streams are closed spread over this time, so clients reconnect to other instances gradually. It ends early once every client is gone. See [Graceful shutdown](./02_architecture.md#graceful-shutdown). |
+| `QUACK_DRAIN_PROPAGATION_WAIT` | `3s` | serve | On shutdown, the wait between `/readyz` turning `503` and the first closed socket, so load balancers stop sending new clients here. `0s` for a single local instance. |
+| `QUACK_SHUTDOWN_TIMEOUT` | `10s` | serve | On shutdown, the most time in-flight HTTP requests get to finish after the drain. |
 | `QUACK_WEB_DIR` | `../web` | serve | Directory of the built web app, served at `/` with SPA fallback. It is ignored if missing; set it to empty to disable. The tasks use `web/dist`, and the image uses `/web`. |
 | `QUACK_LOG_LEVEL` | `info` | all | `debug`, `info`, `warn`, `error`. Logs are JSON on stderr. |
 | `QUACK_KAFKA_DEBUG` | *(unset)* | ingest | Any value enables franz-go client logs for the consumer group. |

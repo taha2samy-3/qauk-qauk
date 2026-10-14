@@ -15,6 +15,7 @@ Two stores, both migrated by `quack migrate`:
 | `00008_element_pipelines.sql` | Element pipelines and version history (`element_pipelines`, `element_pipeline_versions`) |
 | `00009_webhooks.sql` | Webhook endpoints and deliveries (`webhook_endpoints`, `webhook_deliveries`) |
 | `00010_element_alerts.sql` | Per-element alert rules with thresholds, hysteresis and severities (`element_alert_rules`) |
+| `00011_alerts_webhooks_hardening.sql` | Alert state (`element_alert_state`), webhook `options`, delivery leases (`locked_until`), 8 attempts by default, one delivery per endpoint and event |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -169,6 +170,7 @@ erDiagram
   elements ||--o| element_pipelines : "active pipeline"
   elements ||--o{ element_pipeline_versions : "version history"
   elements ||--o{ element_alert_rules : "alert rules"
+  element_alert_rules ||--o| element_alert_state : "firing?"
   elements ||--o{ element_permissions : ""
   users |o--o{ element_permissions : "direct grant"
   groups |o--o{ element_permissions : "group grant"
@@ -184,7 +186,7 @@ erDiagram
 
 - Deleting a **user** cascades to their sessions, memberships, direct grants and dashboards.
 - Deleting a **group** cascades to its memberships and grants.
-- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines, pipeline versions, and alert rules.
+- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines, pipeline versions, and alert rules (and their state).
 - Deleting a **webhook endpoint** cascades to its delivery logs.
 - Deleting a **key** sets `devices.public_key_id` to `NULL`, so those devices can no longer connect.
 - `device_connections`, `device_presence` and `audit_log` keep their rows. The history store keeps a deleted element's events until retention drops them (it has no foreign keys into Postgres).
@@ -341,6 +343,16 @@ Migration `00008_element_pipelines.sql`. These tables store the per-element in-m
 
 | Table | Holds |
 |---|---|
-| `element_pipelines` | The active pipeline per element: `element_id` (PK, cascades on element delete), `version` (starts at 1 and increments on edit), `steps` (JSONB array of pipeline step configurations), `updated_by` (actor username or id), and `updated_at`. Changes update the element's parent device snapshot in `device-config.v1` via the outbox. |
+| `element_pipelines` | The active pipeline per element: `element_id` (PK, cascades on element delete), `version` (one more than the highest version saved, so numbers never repeat; removing a pipeline saves an empty version), `steps` (JSONB array of pipeline step configurations), `updated_by` (actor username or id), and `updated_at`. Changes update the element's parent device snapshot in `device-config.v1` via the outbox. |
 | `element_pipeline_versions` | Immutable version history for pipelines: `(element_id, version)` PK, `steps`, `updated_by`, and `updated_at`. Used to view history and rollback pipelines to any prior version. |
 
+## Alerts and webhooks
+
+Migrations `00009_webhooks.sql`, `00010_element_alerts.sql` and `00011_alerts_webhooks_hardening.sql`. See [Alerts and webhooks](../05_core_concepts/webhooks_and_alerts.md).
+
+| Table | Holds |
+|---|---|
+| `element_alert_rules` | Per element: `name`, `condition` (`above`, `below`, `outside_range`, `equals`), `threshold`, `threshold_max`, `hysteresis`, `severity`, `message`, `enabled`. Cascades on element delete. |
+| `element_alert_state` | Per rule: `firing`, `last_value`, `changed_at`. Changed only in the transaction that queues the notifications of that change, and only if it still holds the value read, so a restart neither repeats an alert nor loses a recovery. |
+| `webhook_endpoints` | `name`, `url`, `format`, `secret`, `severities`, `headers`, `custom_template`, `options` (Telegram's `chat_id`), `enabled`. `url`, `secret` and header values are stored encrypted (`enc:v1:…`, with `QUACK_SECRETS_KEY`), as `env:`/`file:` references, or as written when no key is set. |
+| `webhook_deliveries` | One per endpoint and notification (unique `(endpoint_id, event_id)`): `payload`, `status` (`pending`, `delivering`, `retrying`, `delivered`, `failed`), `attempts` / `max_attempts` (8), `last_status_code`, `last_error`, `latency_ms`, `next_retry_at`, `locked_until` (the lease of the worker sending it), `delivered_at`. Delivered and failed rows are purged after `QUACK_WEBHOOK_RETENTION`. Cascades on endpoint delete. |

@@ -91,7 +91,7 @@ Dashboards and history keep engineering units (`50 %`, `"ON"`). When a user send
 |---|---|
 | The user's browser socket (`message_element`) | Checked first: the command is refused with an error frame `pipeline_failed` and isn't published |
 | Device frames (WebSocket, REST sync, gRPC), built in `renderMessage` | The device gets nothing, never the unconverted value |
-| MQTT downlinks (`notifyCommand`) | Not sent; an `io.quack.command.failed.v1` event on `control-events.v1` reaches the user's dashboards on whichever gateway they are connected to |
+| MQTT downlinks (`notifyCommand`) | Already refused where the user sent it (first row). A gateway that still can't convert it (one holding another pipeline version) doesn't send it and logs a warning |
 
 A pipeline where a value-changing step doesn't apply to commands (a `pick`, a `map` with repeated values, a script without `untransform`) still delivers commands, just without that step. The admin UI warns about it: the validate endpoint's `round_trips` is false.
 

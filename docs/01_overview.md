@@ -28,11 +28,13 @@ Quack Quack is the realtime core of an IoT system. It sits between **devices**, 
 
 ## Features
 
-- A realtime gateway: three device transports on one core ([WebSocket](./04_api_reference/device_api.md), [REST](./04_api_reference/device_rest_api.md) with SenML and long-poll commands, [gRPC](./04_api_reference/device_grpc_api.md) with streams), the browser WebSocket, in-memory fan-out, a history replay window per element, presence with leases, bounded queues, and [per-element rate limits](./05_core_concepts/rate_limits.md).
-- A REST API (OpenAPI 3.1) for login, the current user's elements, element history, dashboards and a full admin surface (users, groups, keys, devices, elements, styles, permissions, connections, presence, audit log).
+- A realtime gateway: three device transports on one core ([WebSocket](./04_api_reference/device_api.md), [REST](./04_api_reference/device_rest_api.md) with SenML and long-poll commands, [gRPC](./04_api_reference/device_grpc_api.md) with streams), the browser WebSocket, in-memory fan-out, a history replay window per element, presence with leases, bounded queues, [per-element rate limits](./05_core_concepts/rate_limits.md), and a graceful shutdown that spreads reconnects over time.
+- [Element pipelines](./05_core_concepts/element_pipeline.md): per-element steps (scale, unit conversion, round, clamp, lookup tables, deadband, filters, sandboxed JavaScript) that turn device values into engineering units in the gateway before they reach the bus, and turn commands back into device units. Versioned, with a preview over stored history.
+- [MQTT connections](./10_mqtt.md): the gateways subscribe to your brokers, decode payloads (JSON or binary through JavaScript decoders) and send commands back as downlinks.
+- A REST API (OpenAPI 3.1) for login, the current user's elements, element history, dashboards and a full admin surface (users, groups, keys, devices, elements, styles, pipelines, alerts, webhooks, permissions, MQTT, connections, presence, audit log).
 - A React web app with drag-and-drop dashboards, live widgets, history charts with time-range selection, admin pages, and light and dark themes.
 - An ingester that writes every element event from Redpanda into the history store (TimescaleDB or ClickHouse), batched and idempotent, with a dead-letter topic for unstorable data.
-- An integrated alert and notification engine: per-element alert rules (above, below, outside range, equals) with hysteresis anti-flapping and auto-recovery, dispatching to universal webhooks (Standard HMAC-SHA256, Slack, Discord, MS Teams, Telegram, custom templates) with exponential backoff & jitter.
+- [Alerts and webhooks](./05_core_concepts/webhooks_and_alerts.md): per-element rules (above, below, outside a range, equals) with hysteresis, notifying once when they fire and once when they resolve, even across restarts. Webhooks post to Slack, Discord, Microsoft Teams, Telegram, signed JSON (Standard Webhooks) or your own template, with retries, secrets encrypted at rest, and no access to private networks.
 - Admin tooling: `quack admin create-user | set-password | import-key`, and `quack import-django` for migration.
 - Quality gates: unit and integration tests, a 62-test black-box WebSocket contract suite, a load test and Playwright end-to-end tests.
 

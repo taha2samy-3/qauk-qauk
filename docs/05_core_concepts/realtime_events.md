@@ -8,13 +8,13 @@ There are ten topics, all created by `quack migrate`. Topic auto-creation is dis
 
 | Topic | Partitions | Retention | Key | Event type | Producers | Consumers |
 |---|---|---|---|---|---|---|
-| `element-events.v1` | 12 | 7 days | `element_id` | `io.quack.element.message.v1` | gateways | every gateway (broadcast), `quack ingest` (consumer group) |
-| `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1` | outbox relay (`api` role) | every gateway (broadcast) |
+| `element-events.v1` | 12 | 7 days | `element_id` | `io.quack.element.message.v1` | gateways | every gateway (broadcast), `quack ingest` and the [alert engine](./webhooks_and_alerts.md) (consumer groups) |
+| `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1`; `io.quack.command.failed.v1` ([below](#failed-commands)) | outbox relay (`api` role); gateways (failed commands) | every gateway (broadcast) |
 | `presence.v1` | 3 | compacted | `device_id` | `io.quack.device.presence.v1` | gateways | every gateway (broadcast) |
 | `element-state.v1` | 12 | compacted | `element_id` | `io.quack.element.message.v1` (the newest stored device message) | `quack ingest`, after each batch | every gateway, read in full on start to warm the latest values |
 | `device-config.v1` | 3 | compacted (tombstones kept 1 day) | `device_id` | `io.quack.device.config.v1` (a full device snapshot); a deleted device gets a tombstone | outbox relay, in the transaction of every device, element or key change | every gateway, read in full on start and followed ([below](#device-config-v1)) |
 | `element-events.dlq.v1` | 3 | 30 days | `element_id` | the original record, unchanged, plus an `error` header with the reason and a `source` header (topic/partition/offset) | `quack ingest`, for events the history store rejected | operators, to inspect and replay |
-| `element-pipeline.dlq.v1` | 3 | 30 days | `element_id` | plain JSON: `{element, device, pipeline_version, step, reason, message, time, gateway}` | gateways | operators, for pipeline error inspection |
+| `element-pipeline.dlq.v1` | 3 | 30 days | `element_id` | plain JSON (not a CloudEvent): `{element_id, device_id, pipeline_version, step, reason, message, message_size, gateway_id, time}`, where `message` is the device's message as text, cut to 4 KiB, and `message_size` its full size ([example](./element_pipeline.md#_5-in-the-gateway)) | gateways, when an element pipeline step fails | operators, to inspect pipeline errors |
 | `mqtt-config.v1` | 3 | compacted (tombstones kept 1 day) | connection id | `io.quack.mqtt.config.v1` (a full [MQTT connection](../10_mqtt.md) snapshot: rules, decoders, grants, downlinks; secrets only as references); a deleted connection gets a tombstone | outbox relay, in the transaction of every MQTT change | gateways with the `mqtt` role, read in full on start and followed |
 | `mqtt.dlq.v1` | 3 | 30 days | connection id | plain JSON (not a CloudEvent): a rejected MQTT message with its topic, the first 4 KiB of the payload and the reasons | `mqtt` gateways | operators, through *Admin → MQTT → Rejected messages* |
 | `mqtt-capture.v1` | 3 | 1 hour | rule id | plain JSON: raw messages of a rule while capture is on | `mqtt` gateways | the admin's *Test & capture* panel |
@@ -95,6 +95,15 @@ Type `io.quack.control.changed.v1`. These are written to the `outbox` table **in
 
 Renaming a group, creating a key and editing styles emit no control event (an audit row only). Every admin mutation, including those, writes `audit_log` in the same transaction.
 
+### Failed commands
+
+Type `io.quack.command.failed.v1`, also on `control-events.v1`, published by a gateway (not through the outbox). An MQTT downlink is sent by the gateway owning the connection, while the user's browser socket can be on any gateway: when the downlink fails, this event tells every gateway, and the one holding the user's sockets sends them a `delivery_failed` [error frame](../04_api_reference/browser_api.md#error).
+
+```json
+{ "element_id": "98994c94-…", "device_id": "00000000-…", "user_id": "7", "code": "delivery_failed",
+  "reason": "MQTT downlink buffer full", "gateway_id": "gw-7f3a" }
+```
+
 ## device-config.v1
 
 Type `io.quack.device.config.v1`, one snapshot per device:
@@ -104,7 +113,8 @@ Type `io.quack.device.config.v1`, one snapshot per device:
   "device": { "id": "01a1159f-d3a3-728e-85f6-2092dd7c17b7", "name": "Boiler room" },
   "key": { "id": "01a1159f-…", "pem": "-----BEGIN PUBLIC KEY-----…", "algorithm": "RS256", "active": true },
   "elements": [
-    { "id": "01a1159f-d3a6-…", "name": "Water temperature", "points": 100, "rate": 2, "burst": null, "over_limit": "latest" }
+    { "id": "01a1159f-d3a6-…", "name": "Water temperature", "points": 100, "rate": 2, "burst": null, "over_limit": "latest",
+      "pipeline": { "version": 3, "steps": [{ "kind": "scale", "mul": 0.1 }] } }
   ],
   "version": 1791568123456789
 }
@@ -117,7 +127,7 @@ This topic is a **replicated cache**. Redpanda can't answer "get key X", but a c
 - **Deleted devices** get a tombstone (`null` value). `quack dev seed`, which truncates tables, writes tombstones for the devices it removed.
 - **Backfill:** `quack migrate` republishes every device (also available as `quack registry sync`), and so does `quack import-django` after an import.
 - **Reading:** a gateway reports not ready on `/readyz` until it has read the topic up to its end offsets at start (at most 30 s). A device not found in memory (created a moment ago) is read from Postgres once; "not found" is cached for 10 s.
-- **Size:** about 2–3 KB per device, so 100,000 devices take roughly 250 MB per gateway.
+- **Size:** about 2–3 KB per device without pipelines, so 100,000 devices take roughly 250 MB per gateway. [Element pipelines](./element_pipeline.md) travel in the snapshot too (up to 64 KiB each); a change that would make a device's snapshot larger than 900 KiB is refused, since Redpanda refuses records over 1 MiB.
 
 `control-events.v1` is unchanged: it still tells gateways *that* something changed (permissions, users, sockets to close), while `device-config.v1` carries *what* a device looks like now.
 

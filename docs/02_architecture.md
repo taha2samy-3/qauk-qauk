@@ -38,10 +38,10 @@ Everything server-side is one Go binary, `quack`:
 | Command | What it runs |
 |---|---|
 | `quack serve` | The HTTP server. The roles come from `QUACK_ROLES` (default `api,gateway`). |
-| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1`, `device-config.v1`, `mqtt-config.v1`), an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
+| &nbsp;&nbsp;role `api` | The REST API under `/api/v1/*`, the OpenAPI spec and docs (`/api/openapi.json`, `/api/docs`), session handling, the **outbox relay** (Postgres → `control-events.v1`, `device-config.v1`, `mqtt-config.v1`), the [alert engine](./05_core_concepts/webhooks_and_alerts.md) (a consumer group on `element-events.v1`) and the webhook delivery workers, an hourly purge of expired sessions, and the built web app from `QUACK_WEB_DIR` with SPA fallback. |
 | &nbsp;&nbsp;role `gateway` | The device transports (WebSocket `/device/node_red/`, [REST](./04_api_reference/device_rest_api.md) `/device/v1/*`, [gRPC](./04_api_reference/device_grpc_api.md) `quack.device.v1.DeviceService`) on one **device core**, the browser socket `/browser/simple/`, the in-memory **device registry**, in-memory fan-out, per-element history ring buffers, presence leases and the sweeper, and the bus consumers. |
 | &nbsp;&nbsp;role `mqtt` | Needs `gateway`. Connects as an MQTT 5 **client** (a subscriber, never a broker) to the brokers configured in the admin. Each connection has `replicas` slots; every live `mqtt` gateway computes the same **weighted rendezvous hash (HRW)** over the members in `gateway_members` and opens the slots it owns. Messages go through the source pipeline (an optional JavaScript decoder plus a field map) and then the same **device core** as the other transports, so grants, limits and CloudEvents are identical (`quackvia=mqtt/<connection>`). See [MQTT connections](./10_mqtt.md). |
-| `quack ingest` | The history writer. It consumes `element-events.v1` in a consumer group and appends to the [history store](./05_core_concepts/history.md) (events, numeric points and rollups). It publishes each element's newest value to `element-state.v1`, and dead-letters unstorable events to `element-events.dlq.v1`. It serves `/healthz` and `/metrics` on `QUACK_HTTP_ADDR`. |
+| `quack ingest` | The history writer. It consumes `element-events.v1` in a consumer group and appends to the [history store](./05_core_concepts/history.md) (events, numeric points and rollups). It publishes each element's newest value to `element-state.v1`, and dead-letters unstorable events to `element-events.dlq.v1`. It serves its [probes](#health-probes) and `/metrics` on `QUACK_HTTP_ADDR`. |
 | `quack migrate` | Applies the core Postgres migrations and the history store's schema and retention, all embedded in the binary, creates the Redpanda topics if they are missing, and republishes every device to `device-config.v1`. Safe to run repeatedly. |
 | `quack registry sync` | Republishes every device's snapshot to `device-config.v1` (after restoring a database, say). |
 | `quack history copy` | Copies stored history into another backend, to move between [history drivers](./05_core_concepts/history.md#switching-backends). |
@@ -272,59 +272,53 @@ Presence answers one question: "is this device connected to any gateway?" It mus
 | Produce buffer | 200,000 records / 64 MiB | Over 75 %, publishing waits up to 2 s for Redpanda to catch up (back-pressure on the device's socket or request) instead of dropping. Only a longer outage fills it and drops (`quack_bus_produce_errors_total`). |
 | Browser frames | `QUACK_BROWSER_MSG_RATE` (100/s, burst 100) | Excess frames get an `error` frame with `rate_limited`. |
 | Keep-alive | WebSocket ping every 30 s | No pong within 15 s closes the socket with **1001**. |
-| Shutdown | SIGINT / SIGTERM | Phased Graceful Drain (F1): `/readyz` immediately signals 503, pauses `QUACK_DRAIN_PROPAGATION_WAIT` (3s) for Ingress/Endpoints propagation, closes WebSockets over `QUACK_DRAIN_DURATION` (25s) with randomized jitter (1012 Service Restart), and drains in-flight HTTP for up to `QUACK_SHUTDOWN_TIMEOUT` (10s). |
+| Shutdown | SIGINT / SIGTERM | `/readyz` turns `503`, new clients are refused, and open ones are closed spread over `QUACK_DRAIN_DURATION` (1012, service restart) after `QUACK_DRAIN_PROPAGATION_WAIT`; then in-flight requests finish. See [Graceful shutdown](#graceful-shutdown). |
 
-### Kubernetes Health Probes and Graceful Drain (F1)
+### Health probes
 
-High-density WebSocket gateways (managing tens of thousands of persistent client and browser connections) require an orchestrated lifecycle in Kubernetes to prevent connection drops and thundering herd / reconnect storms during rolling deployments or KEDA autoscaling.
+| Probe | Endpoint | `quack serve` answers `200` when | Draining |
+|---|---|---|---|
+| Liveness | `/livez` (`/healthz`) | the process runs; nothing else is checked, so a database or Redpanda outage never restarts pods | `200` |
+| Startup | `/startupz` | the database answers (2 s) and, on a gateway, the device configuration is loaded and the MQTT transport (with the `mqtt` role) is ready | — |
+| Readiness | `/readyz` | not draining; on an **api** server, the database answers (1 s); on a gateway, its configuration is loaded | `503` |
 
-#### 1. Probe Endpoints (`quack serve`)
+Gateways serve devices and browsers from their in-memory configuration, so only the api role checks the database for readiness: a database blip doesn't take every gateway out of rotation at once. The ingester (`quack ingest`) answers the same paths; its `/readyz` is `200` while it consumes.
 
-| Probe | Endpoint | Purpose | Checks | Behavior |
-|---|---|---|---|---|
-| **Liveness** | `/livez`, `/healthz` | Checks if process is deadlocked or corrupted. | Internal heartbeat / scheduler viability. | Returns `200 OK` (independent of database latency to avoid cascade restarts). Remains 200 during drain. |
-| **Startup** | `/startupz` | Delays liveness/readiness evaluation during bootstrap. | Database pingable, device registry replay complete, and MQTT slots assigned. | Returns `200 OK` once ready; `503` while replaying compacted Kafka topics. |
-| **Readiness** | `/readyz` | Controls whether Kubernetes sends traffic to this pod. | Database pingable, gateway ready, producer healthy, and **not draining**. | Returns `200 OK` when ready. **Immediately returns `503` upon SIGTERM / Drain**, removing the pod from endpoints before sockets disconnect. |
+### Graceful shutdown
 
-#### 2. Phased Graceful Drain Lifecycle
+On `SIGTERM` (or `SIGINT`), `quack serve` stops in this order (`cmd/quack/shutdown.go`):
+
+1. **Stop taking work.** `/readyz` turns `503`. The gateway refuses new device and browser sockets and gRPC streams, and REST long-polls (`GET /device/v1/sync`) answer at once with `Connection: close`, so the next request goes to another instance.
+2. **Wait** `QUACK_DRAIN_PROPAGATION_WAIT` (3 s) for load balancers to stop routing here.
+3. **Drain.** The open sockets and gRPC streams are closed in random order over `QUACK_DRAIN_DURATION` (25 s), WebSockets with close code `1012` (service restart), so clients reconnect to the other instances gradually instead of all at once. The drain ends as soon as no client is left.
+4. **Finish requests.** The HTTP server stops; in-flight requests (REST publishes, gRPC unary calls) get up to `QUACK_SHUTDOWN_TIMEOUT` (10 s), so a message a device was told is accepted is produced.
+5. **Stop the loops**: bus consumers, MQTT connections, the outbox relay, webhook workers and the alert engine. The server waits up to 15 s for them. The `mqtt` role leaves the member list (the other gateways take over its MQTT connections), messages held by `over_limit: latest` are published, and webhook requests in flight are recorded.
+6. **Flush** the Redpanda producer (at most 10 s; records are produced with a context that the shutdown doesn't cancel), then close the database pool.
+
+A second signal aborts: the remaining sockets are closed at once and the waits are cut short.
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant K8s as Kubernetes / Ingress
-  participant HTTP as HTTP Server (/readyz)
-  participant GW as Gateway (WebSockets)
-  participant Peers as Peer Gateway Pods
-
-  Note over K8s,Peers: Normal Operation (Traffic Balanced)
-  K8s->>HTTP: GET /readyz -> 200 OK
-  
-  Note over K8s,Peers: SIGTERM Received (Deployment or KEDA Scale-Down)
-  K8s->>GW: SIGTERM / SIGINT
-  GW->>GW: Enter Draining Mode (draining = true)
-  
-  Note over K8s,HTTP: Phase 1: Ingress Cut-off
-  K8s->>HTTP: GET /readyz -> 503 Service Unavailable ("server draining")
-  K8s->>K8s: Remove pod from Service Endpoints & Ingress routing
-  
-  Note over GW,HTTP: Phase 2: Ingress Propagation Wait
-  GW->>GW: Wait QUACK_DRAIN_PROPAGATION_WAIT (default 3s)
-  
-  Note over GW,Peers: Phase 3: Staggered Socket Drain (Jittered Disconnects)
-  loop Evenly distributed over QUACK_DRAIN_DURATION (default 25s)
-    GW->>GW: Close WebSocket with code 1012 (StatusServiceRestart)
-    GW->>Peers: Clients reconnect smoothly across remaining pods
+  participant LB as Load balancer
+  participant S as quack serve
+  participant C as Clients
+  participant P as Other instances
+  LB->>S: GET /readyz → 200
+  Note over S: SIGTERM
+  S->>S: draining: refuse new sockets, streams, long-polls
+  LB->>S: GET /readyz → 503
+  LB->>LB: stop routing here
+  Note over S: wait QUACK_DRAIN_PROPAGATION_WAIT
+  loop spread over QUACK_DRAIN_DURATION (ends when none is left)
+    S->>C: close (1012 service restart)
+    C->>P: reconnect
   end
-  
-  Note over HTTP,GW: Phase 4 & 5: In-flight HTTP Drain & Teardown
-  HTTP->>HTTP: Drain in-flight HTTP requests (QUACK_SHUTDOWN_TIMEOUT default 10s)
-  GW->>GW: Flush bus producer & close DB pool
-  GW-->>K8s: Process exits cleanly (0)
+  Note over S: in-flight HTTP (QUACK_SHUTDOWN_TIMEOUT), stop loops (≤ 15 s), flush producer (≤ 10 s)
+  S-->>LB: exit 0
 ```
 
-#### 3. Kubernetes Deployment Recommendations
-
-The container termination grace period must be greater than the sum of all drain phases (`QUACK_DRAIN_PROPAGATION_WAIT` + `QUACK_DRAIN_DURATION` + `QUACK_SHUTDOWN_TIMEOUT` = 3s + 25s + 10s = 38s):
+In the worst case the steps take `QUACK_DRAIN_PROPAGATION_WAIT + QUACK_DRAIN_DURATION + QUACK_SHUTDOWN_TIMEOUT + 15 s + 10 s` (63 s with the defaults); usually much less, since the drain ends with the last client and the loops stop quickly. Give the container more than that. The compose file uses a 5 s drain, no propagation wait and a 45 s grace period.
 
 ```yaml
 apiVersion: apps/v1
@@ -334,33 +328,20 @@ metadata:
 spec:
   template:
     spec:
-      terminationGracePeriodSeconds: 45
+      terminationGracePeriodSeconds: 70
       containers:
         - name: quack
           image: quack:latest
-          env:
-            - name: QUACK_DRAIN_PROPAGATION_WAIT
-              value: "3s"
-            - name: QUACK_DRAIN_DURATION
-              value: "25s"
-            - name: QUACK_SHUTDOWN_TIMEOUT
-              value: "10s"
           startupProbe:
-            httpGet:
-              path: /startupz
-              port: 8080
+            httpGet: { path: /startupz, port: 8080 }
             failureThreshold: 30
             periodSeconds: 2
           livenessProbe:
-            httpGet:
-              path: /livez
-              port: 8080
+            httpGet: { path: /livez, port: 8080 }
             periodSeconds: 10
             timeoutSeconds: 3
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8080
+            httpGet: { path: /readyz, port: 8080 }
             periodSeconds: 3
             timeoutSeconds: 2
 ```
