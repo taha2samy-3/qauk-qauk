@@ -237,10 +237,10 @@ export function GroupsPage() {
     <Page>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-groups.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Groups</span>
-          </div>
+          </span>
         }
         description="Collections of users that share element permissions."
         actions={

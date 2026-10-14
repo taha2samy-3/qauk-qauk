@@ -1,23 +1,25 @@
 import { execFileSync } from 'node:child_process'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test'
 import { ADMIN, deleteDashboardsNamed, login, useTheme } from './helpers'
 
 const MOSQUITTO = process.env.MOSQUITTO_CONTAINER ?? 'quack-mosquitto-1'
 const DIR = 'e2e/screenshots'
 
-function mqttPub(topic: string, ...payload: string[]) {
-  execFileSync('docker', [
-    'exec',
-    MOSQUITTO,
-    'mosquitto_pub',
-    '-V',
-    'mqttv5',
-    '-q',
-    '1',
-    '-t',
-    topic,
-    ...payload,
-  ])
+/** Publishes payload as is (bytes through stdin: -m would send text). */
+function mqttPub(topic: string, payload: string | Uint8Array) {
+  execFileSync('docker', ['exec', '-i', MOSQUITTO, 'mosquitto_pub', '-V', 'mqttv5', '-q', '1', '-t', topic, '-s'], {
+    input: typeof payload === 'string' ? Buffer.from(payload) : Buffer.from(payload),
+  })
+}
+
+/** The newest stored value of an element. */
+async function latestValue(api: APIRequestContext, elementId: string): Promise<number | null> {
+  const r = await api.get(`/api/v1/elements/${elementId}/history`, {
+    params: { step: 'raw', newest: 'true', limit: '1' },
+  })
+  if (!r.ok()) return null
+  const body = (await r.json()) as { events?: { value: number | null }[] | null }
+  return body.events?.at(-1)?.value ?? null
 }
 
 async function snap(page: Page, name: string, wait = 1000) {
@@ -31,12 +33,15 @@ const LORA_DASH = 'LoRaWAN Smart Agriculture'
 let scadaDashId = ''
 let loraDashId = ''
 let decoderId = ''
+const scadaElemMap: Record<string, string> = {}
+const loraElemMap: Record<string, string> = {}
 
 test.describe.configure({ mode: 'serial' })
 
-test.beforeAll(async ({ baseURL, playwright }) => {
-  await deleteDashboardsNamed(baseURL!, [SCADA_DASH, LORA_DASH])
-  const api = await playwright.request.newContext({ baseURL })
+/** Removes what this spec creates (left over from an earlier run, or after this one). */
+async function cleanup(baseURL: string) {
+  await deleteDashboardsNamed(baseURL, [SCADA_DASH, LORA_DASH])
+  const api = await request.newContext({ baseURL })
   try {
     await api.post('/api/v1/auth/login', { data: ADMIN })
 
@@ -87,7 +92,10 @@ test.beforeAll(async ({ baseURL, playwright }) => {
   } finally {
     await api.dispose()
   }
-})
+}
+
+test.beforeAll(async ({ baseURL }) => cleanup(baseURL!))
+test.afterAll(async ({ baseURL }) => cleanup(baseURL!))
 
 test('seed SCADA and LoRaWAN devices, rules, and decoders', async ({ playwright, baseURL }) => {
   const api = await playwright.request.newContext({ baseURL })
@@ -170,7 +178,6 @@ function encodeDownlink(input) {
       { name: 'Pump VFD Frequency', details: { unit: 'Hz', minValue: 0, maxValue: 60 } },
       { name: 'Main Isolation Valve', details: { title: 'Main Discharge Isolation Valve' } },
     ]
-    const scadaElemMap: Record<string, string> = {}
     for (const el of scadaElementsDef) {
       const r = await api.post('/api/v1/admin/elements', {
         data: {
@@ -199,7 +206,6 @@ function encodeDownlink(input) {
       { name: 'Sensor Battery', details: { unit: 'V', minValue: 2.5, maxValue: 4.2 } },
       { name: 'Irrigation Solenoid', details: { title: 'Drip Line Solenoid Valve' } },
     ]
-    const loraElemMap: Record<string, string> = {}
     for (const el of loraElementsDef) {
       const r = await api.post('/api/v1/admin/elements', {
         data: {
@@ -417,38 +423,38 @@ test('publish real SCADA and LoRaWAN packets and snapshot dashboards', async ({ 
   await useTheme(page, 'light')
   await login(page, ADMIN)
 
-  // Give gateway 2s to process mqtt-config.v1 snapshot and subscribe on broker
-  await page.waitForTimeout(2000)
+  // Give the gateway time to load the new MQTT config and subscribe
+  await page.waitForTimeout(3000)
 
-  // Publish multiple real SCADA packets to build history
+  // Real SCADA JSON packets, to build history
   for (let i = 0; i < 6; i++) {
-    const flow = 342.5 + i * 4.8
-    const tank = 81.0 + i * 1.2
-    const press = 5.2 + i * 0.15
     mqttPub(
       'scada/plc/scada-pump-station/telemetry',
-      '-m',
       JSON.stringify({
-        flow_m3h: flow,
-        tank_pct: tank,
-        pressure_bar: press,
+        flow_m3h: 342.5 + i * 4.8,
+        tank_pct: 81.0 + i * 1.2,
+        pressure_bar: 5.2 + i * 0.15,
         vfd_hz: 49.5,
         valve_open: true,
-      })
+      }),
     )
   }
 
-  // Publish real binary LoRaWAN frames (5 bytes)
-  // 0x2c = 44% moisture, 0xc4 = 196 (19.6°C), 0x02 0x80 = 640 µS/cm EC, 0x23 = 3.6V + valve ON
+  // Real 5-byte LoRaWAN frames: moisture %, (temp+100)×10, EC big-endian,
+  // battery bits 7..1 and the valve in bit 0. The last one is
+  // 0x2e 0xf9 0x02 0x80 0x23 → 46 %, 14.9 °C, 640 µS/cm, 4.7 V, valve open.
   for (let i = 0; i < 5; i++) {
-    const moist = 42 + i
-    const tempHex = (190 + i).toString(16)
-    mqttPub(
-      'v3/agriculture-app/devices/eui-70b3d57ed0054321/up',
-      '-m',
-      `hex:${moist.toString(16)}${tempHex}02802301`
-    )
+    mqttPub('v3/agriculture-app/devices/eui-70b3d57ed0054321/up', new Uint8Array([42 + i, 245 + i, 0x02, 0x80, 0x23]))
   }
+
+  // The values went through the uplink rules and the decoder into history
+  const latest = (id: string | undefined) => () => latestValue(page.request, id!)
+  await expect.poll(latest(scadaElemMap['Discharge Flow Rate']), { timeout: 20_000 }).toBeCloseTo(366.5, 6)
+  await expect.poll(latest(scadaElemMap['Reservoir Level'])).toBeCloseTo(87, 6)
+  await expect.poll(latest(loraElemMap['Soil Moisture']), { timeout: 20_000 }).toBe(46)
+  await expect.poll(latest(loraElemMap['Soil Temperature'])).toBeCloseTo(14.9, 6)
+  await expect.poll(latest(loraElemMap['Electrical Conductivity'])).toBe(640)
+  await expect.poll(latest(loraElemMap['Sensor Battery'])).toBeCloseTo(4.7, 6)
 
   // 1. Snapshot SCADA Dashboard
   await page.goto(`/dashboards/${scadaDashId}`)

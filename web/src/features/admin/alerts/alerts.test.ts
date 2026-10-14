@@ -1,43 +1,49 @@
 import { describe, expect, it } from 'vitest'
-import { alertKeys, type AlertCondition, type AlertSeverity, type ElementAlertRule } from './api'
+import { NEW_RULE, alertKeys, describeResolve, describeRule, ruleBody, ruleForm, type ElementAlertRule } from './api'
 
-describe('Alert Rules API and Helpers', () => {
-  it('generates correct query key for element alerts', () => {
-    const key = alertKeys.elementAlerts('elem-123')
-    expect(key).toEqual(['admin', 'alerts', 'elem-123'])
+const rule: ElementAlertRule = {
+  id: 'rule-xyz',
+  element_id: 'elem-123',
+  name: 'Out of range',
+  condition: 'outside_range',
+  threshold: 15,
+  threshold_max: 35,
+  hysteresis: 1,
+  severity: 'critical',
+  message: 'Temperature is outside the normal range',
+  enabled: false,
+  firing: false,
+  created_at: '2026-10-10T12:00:00Z',
+  updated_at: '2026-10-10T12:00:00Z',
+}
+
+describe('alert rules', () => {
+  it('keys by element', () => {
+    expect(alertKeys.elementAlerts('elem-123')).toEqual(['admin', 'alerts', 'elem-123'])
   })
 
-  it('validates alert condition definitions', () => {
-    const conditions: AlertCondition[] = ['above', 'below', 'outside_range', 'equals']
-    expect(conditions).toHaveLength(4)
+  it('an edit sends the rule id and keeps it disabled', () => {
+    const { body } = ruleBody(ruleForm(rule))
+    expect(body).toMatchObject({ id: 'rule-xyz', threshold: 15, threshold_max: 35, hysteresis: 1, enabled: false })
   })
 
-  it('verifies alert severity levels', () => {
-    const severities: AlertSeverity[] = ['info', 'warning', 'critical']
-    expect(severities).toContain('info')
-    expect(severities).toContain('warning')
-    expect(severities).toContain('critical')
+  it('refuses what the server refuses', () => {
+    const f = { ...NEW_RULE, name: 'x', threshold: '10' }
+    expect(ruleBody({ ...f, name: ' ' }).error).toMatch(/Name/)
+    expect(ruleBody({ ...f, threshold: '' }).error).toMatch(/threshold/)
+    expect(ruleBody({ ...f, hysteresis: '-1' }).error).toMatch(/hysteresis/)
+    const range = { ...f, condition: 'outside_range' as const }
+    expect(ruleBody(range).error).toMatch(/maximum/)
+    expect(ruleBody({ ...range, thresholdMax: '5' }).error).toMatch(/greater/)
+    expect(ruleBody({ ...range, thresholdMax: '30', hysteresis: '10' }).error).toMatch(/half the range/)
+    // threshold_max only goes with outside_range
+    expect(ruleBody({ ...f, thresholdMax: '30' }).body!.threshold_max).toBeUndefined()
   })
 
-  it('constructs well-formed element alert rule structure', () => {
-    const rule: ElementAlertRule = {
-      id: 'rule-xyz',
-      element_id: 'elem-123',
-      name: 'High temperature alert',
-      condition: 'outside_range',
-      threshold: 15.0,
-      threshold_max: 35.0,
-      hysteresis: 1.0,
-      severity: 'critical',
-      message: 'Temperature is outside normal operating range',
-      enabled: true,
-      created_at: '2026-10-10T12:00:00Z',
-      updated_at: '2026-10-10T12:00:00Z',
-    }
-
-    expect(rule.condition).toBe('outside_range')
-    expect(rule.threshold).toBeLessThan(rule.threshold_max!)
-    expect(rule.hysteresis).toBeGreaterThan(0)
-    expect(rule.severity).toBe('critical')
+  it('describes when a rule fires and resolves', () => {
+    expect(describeRule(rule)).toBe('value < 15 or > 35')
+    expect(describeResolve(rule)).toBe('resolves within 16–34')
+    expect(describeResolve({ condition: 'above', threshold: 30, hysteresis: 0.1 + 0.2 })).toBe('resolves at ≤ 29.7')
+    expect(describeResolve({ condition: 'below', threshold: 5, hysteresis: 0 })).toBeNull()
   })
 })

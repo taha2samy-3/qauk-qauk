@@ -590,10 +590,10 @@ export function ElementsPage() {
     <Page wide>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-element.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Elements</span>
-          </div>
+          </span>
         }
         description="Values and controls exposed by devices."
         actions={

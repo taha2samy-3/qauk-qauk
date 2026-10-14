@@ -11,9 +11,9 @@ import { Hint } from '@/components/ui/tooltip'
 import { toastError } from '@/lib/forms'
 import { useAdminMutation } from '../api'
 import { RowActions } from '../FormDialog'
-import { useWebhooks, webhookApi, webhookKeys, type WebhookEndpoint, type WebhookSeverity } from './api'
+import { useWebhooks, webhookApi, webhookKeys, type WebhookEndpoint, type WebhookSaved } from './api'
 import { WebhookDeliveriesDrawer } from './WebhookDeliveriesDrawer'
-import { WebhookDialog } from './WebhookDialog'
+import { WebhookDialog, WebhookSecretDialog } from './WebhookDialog'
 
 export function WebhooksPage() {
   const webhooks = useWebhooks()
@@ -21,8 +21,9 @@ export function WebhooksPage() {
   const [editing, setEditing] = useState<WebhookEndpoint | null>(null)
   const [deliveriesEndpoint, setDeliveriesEndpoint] = useState<WebhookEndpoint | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
+  const [revealed, setRevealed] = useState<WebhookSaved | null>(null)
 
-  const del = useAdminMutation(webhookApi.delete, [webhookKeys.list()])
+  const del = useAdminMutation(webhookApi.delete, [webhookKeys.all])
   const confirm = useConfirm()
 
   const handleTest = async (ep: WebhookEndpoint) => {
@@ -30,13 +31,14 @@ export function WebhooksPage() {
     try {
       const res = await webhookApi.test({ id: ep.id, severity: 'info' })
       if (res.success) {
-        toast.success(`Webhook test succeeded! (HTTP ${res.status_code}, ${res.latency_ms}ms)`)
+        toast.success(`Test delivered to ${ep.name} (HTTP ${res.status_code}, ${res.latency_ms} ms)`)
       } else {
-        toast.error(`Webhook test failed: ${res.error || `HTTP ${res.status_code}`}`)
+        toast.error(`Test to ${ep.name} failed: ${res.error || `HTTP ${res.status_code}`}`, {
+          description: res.response ? res.response.slice(0, 300) : undefined,
+        })
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Network error'
-      toast.error(`Webhook test error: ${msg}`)
+    } catch (err) {
+      toastError('Could not send the test', err)
     } finally {
       setTestingId(null)
     }
@@ -59,7 +61,7 @@ export function WebhooksPage() {
     }
   }
 
-  const severityBadge = (s: WebhookSeverity) => {
+  const severityBadge = (s: string) => {
     switch (s) {
       case 'info':
         return <span key={s} className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-sky-500/10 text-sky-600">Info</span>
@@ -67,6 +69,8 @@ export function WebhooksPage() {
         return <span key={s} className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-600">Warning</span>
       case 'critical':
         return <span key={s} className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-rose-500/10 text-rose-600">Critical</span>
+      default:
+        return null
     }
   }
 
@@ -84,6 +88,7 @@ export function WebhooksPage() {
           </div>
           <span className="font-mono text-xs text-muted-foreground truncate max-w-sm mt-0.5" title={w.url}>
             {w.url}
+            {w.format === 'telegram' && w.options.chat_id && <> · chat {w.options.chat_id}</>}
           </span>
         </div>
       ),
@@ -102,13 +107,16 @@ export function WebhooksPage() {
       header: 'Status',
       sortValue: (w) => (w.enabled ? 1 : 0),
       cell: (w) => (
-        w.enabled ? (
-          <Badge variant="outline" className="text-emerald-500 border-emerald-500/30 bg-emerald-500/5">
-            Active
-          </Badge>
-        ) : (
-          <Badge variant="secondary">Disabled</Badge>
-        )
+        <div className="flex flex-col items-start gap-0.5">
+          {w.enabled ? (
+            <Badge variant="outline" className="text-emerald-500 border-emerald-500/30 bg-emerald-500/5">
+              Active
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Disabled</Badge>
+          )}
+          {!w.secret_set && <span className="text-[11px] text-muted-foreground">unsigned</span>}
+        </div>
       ),
     },
     {
@@ -229,7 +237,12 @@ export function WebhooksPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         endpoint={editing}
+        onSaved={(saved) => {
+          toast.success(editing ? 'Webhook saved' : 'Webhook created')
+          if (saved.secret) setRevealed(saved)
+        }}
       />
+      <WebhookSecretDialog saved={revealed} onClose={() => setRevealed(null)} />
 
       <WebhookDeliveriesDrawer
         open={!!deliveriesEndpoint}

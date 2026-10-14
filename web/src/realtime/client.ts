@@ -323,9 +323,6 @@ export class RealtimeClient {
       return
     }
     this.ws = ws
-    if (typeof window !== 'undefined') {
-      ;(window as unknown as { __quack_ws__?: WebSocket }).__quack_ws__ = ws
-    }
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.attempt = 0

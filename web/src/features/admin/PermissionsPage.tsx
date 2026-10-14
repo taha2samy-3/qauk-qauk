@@ -399,10 +399,10 @@ export function PermissionsPage() {
     <Page wide>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-permissions.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Permissions</span>
-          </div>
+          </span>
         }
         description="Who can read (R) or read & control (RC) each element. The highest of a user’s direct and group permissions applies."
         actions={

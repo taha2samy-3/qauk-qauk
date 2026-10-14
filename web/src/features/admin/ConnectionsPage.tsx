@@ -93,10 +93,10 @@ export function ConnectionsPage() {
     <Page wide>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-connections.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Connections</span>
-          </div>
+          </span>
         }
         description="Audit log of device WebSocket sessions."
         actions={

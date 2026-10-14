@@ -1,96 +1,88 @@
 import { useState } from 'react'
+import { Copy, Plus, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { FormDialog } from '../FormDialog'
 import { useAdminMutation } from '../api'
-import { webhookApi, webhookKeys, type WebhookEndpoint, type WebhookFormat, type WebhookSeverity } from './api'
+import {
+  SEVERITIES,
+  formValues,
+  webhookApi,
+  webhookBody,
+  webhookKeys,
+  type WebhookEndpoint,
+  type WebhookFormat,
+  type WebhookFormValues,
+  type WebhookSaved,
+  type WebhookSeverity,
+} from './api'
 
-const FORMATS: { value: WebhookFormat; label: string; desc: string }[] = [
-  { value: 'standard', label: 'Standard Webhook (HMAC-SHA256)', desc: 'CloudEvents 1.0 JSON + Standard Webhooks headers' },
-  { value: 'slack', label: 'Slack', desc: 'Incoming webhook formatted with Slack Block Kit' },
-  { value: 'discord', label: 'Discord', desc: 'Discord webhook with rich embed cards' },
-  { value: 'teams', label: 'Microsoft Teams', desc: 'Adaptive Cards 1.5 format for Teams Workflows' },
-  { value: 'telegram', label: 'Telegram Bot', desc: 'Telegram Bot API sendMessage formatted payload' },
-  { value: 'custom', label: 'Custom Template', desc: 'Custom body template and headers' },
+const FORMATS: { value: WebhookFormat; label: string }[] = [
+  { value: 'standard', label: 'Standard (CloudEvents JSON)' },
+  { value: 'slack', label: 'Slack' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'teams', label: 'Microsoft Teams' },
+  { value: 'telegram', label: 'Telegram bot' },
+  { value: 'custom', label: 'Custom template' },
 ]
+
+const URL_HINT: Record<WebhookFormat, string> = {
+  standard: 'Your receiver’s https URL.',
+  slack: 'The incoming webhook URL (https://hooks.slack.com/services/…).',
+  discord: 'The channel webhook URL (https://discord.com/api/webhooks/…).',
+  teams: 'The Workflows webhook URL of the channel.',
+  telegram: 'https://api.telegram.org/bot<token>/sendMessage',
+  custom: 'Your receiver’s https URL.',
+}
 
 function WebhookForm({
   endpoint,
   open,
   onOpenChange,
+  onSaved,
 }: {
   endpoint: WebhookEndpoint | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSaved: (saved: WebhookSaved) => void
 }) {
-  const [name, setName] = useState(endpoint?.name ?? '')
-  const [url, setUrl] = useState(endpoint?.url ?? '')
-  const [format, setFormat] = useState<WebhookFormat>(endpoint?.format ?? 'standard')
-  const [secret, setSecret] = useState(endpoint?.secret ?? '')
-  const [severities, setSeverities] = useState<WebhookSeverity[]>(endpoint?.severities ?? ['info', 'warning', 'critical'])
-  const [headersStr, setHeadersStr] = useState(JSON.stringify(endpoint?.headers ?? {}, null, 2))
-  const [customTemplate, setCustomTemplate] = useState(endpoint?.custom_template ?? '')
-  const [enabled, setEnabled] = useState(endpoint?.enabled ?? true)
+  const [v, setV] = useState<WebhookFormValues>(() => formValues(endpoint))
   const [error, setError] = useState<string>()
+  const set = (u: Partial<WebhookFormValues>) => setV((cur) => ({ ...cur, ...u }))
 
-  const create = useAdminMutation(webhookApi.create, [webhookKeys.list()])
-  const update = useAdminMutation(webhookApi.update, [webhookKeys.list()])
+  const create = useAdminMutation(webhookApi.create, [webhookKeys.all])
+  const update = useAdminMutation(webhookApi.update, [webhookKeys.all])
 
-  const toggleSeverity = (sev: WebhookSeverity) => {
-    if (severities.includes(sev)) {
-      if (severities.length === 1) return
-      setSeverities(severities.filter((s) => s !== sev))
-    } else {
-      setSeverities([...severities, sev])
-    }
-  }
+  const toggleSeverity = (sev: WebhookSeverity) =>
+    set({ severities: v.severities.includes(sev) ? v.severities.filter((s) => s !== sev) : [...v.severities, sev] })
+  const setHeader = (i: number, u: Partial<WebhookFormValues['headers'][number]>) =>
+    set({ headers: v.headers.map((h, j) => (j === i ? { ...h, ...u } : h)) })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return setError('Name is required')
-    if (!url.trim()) return setError('URL is required')
-
-    let parsedHeaders = {}
-    if (headersStr.trim()) {
-      try {
-        parsedHeaders = JSON.parse(headersStr) as Record<string, string>
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return setError(`Invalid Headers JSON: ${msg}`)
-      }
-    }
-
+    const { body, error: problem } = webhookBody(v, !!endpoint)
+    if (problem !== undefined) return setError(problem)
+    setError(undefined)
     try {
-      if (endpoint) {
-        await update.mutateAsync({
-          id: endpoint.id,
-          name,
-          url,
-          format,
-          secret: secret || endpoint.secret,
-          severities,
-          headers: parsedHeaders as Record<string, string>,
-          custom_template: format === 'custom' ? customTemplate : undefined,
-          enabled,
-        })
-      } else {
-        await create.mutateAsync({
-          name,
-          url,
-          format,
-          secret: secret || undefined,
-          severities,
-          headers: parsedHeaders as Record<string, string>,
-          custom_template: format === 'custom' ? customTemplate : undefined,
-          enabled,
-        })
-      }
+      const saved = endpoint
+        ? await update.mutateAsync({ id: endpoint.id, ...body })
+        : await create.mutateAsync(body)
       onOpenChange(false)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save webhook endpoint'
-      setError(msg)
+      onSaved(saved)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the webhook')
     }
   }
 
@@ -98,20 +90,20 @@ function WebhookForm({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={endpoint ? 'Edit Webhook Endpoint' : 'New Webhook Endpoint'}
-      description="Configure target endpoint, platform format, and subscribed severity levels."
+      title={endpoint ? `Edit ${endpoint.name}` : 'New webhook'}
+      description="Where alert notifications go, in which format, and for which severities."
       submitting={create.isPending || update.isPending}
       formError={error}
-      submitLabel={endpoint ? 'Save Changes' : 'Create Webhook'}
+      submitLabel={endpoint ? 'Save changes' : 'Create webhook'}
       className="sm:max-w-xl"
       onSubmit={handleSubmit}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" htmlFor="wh-name" required>
-          <Input id="wh-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Slack Incident Channel" />
+          <Input id="wh-name" value={v.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Ops Slack" />
         </Field>
         <Field label="Format" htmlFor="wh-format">
-          <Select value={format} onValueChange={(v) => setFormat(v as WebhookFormat)}>
+          <Select value={v.format} onValueChange={(f) => set({ format: f as WebhookFormat })}>
             <SelectTrigger id="wh-format">
               <SelectValue />
             </SelectTrigger>
@@ -126,81 +118,155 @@ function WebhookForm({
         </Field>
       </div>
 
-      <Field label="Endpoint URL" htmlFor="wh-url" required description="Must be an accessible HTTP or HTTPS URL">
-        <Input id="wh-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+      <Field
+        label="URL"
+        htmlFor="wh-url"
+        required={!endpoint}
+        description={
+          <>
+            {URL_HINT[v.format]} It can hold a token, so it is stored encrypted and never shown again; an{' '}
+            <code>env:NAME</code> or <code>file:/path</code> reference keeps it out of the database.
+          </>
+        }
+      >
+        <Input
+          id="wh-url"
+          className="font-mono text-xs"
+          value={v.url}
+          onChange={(e) => set({ url: e.target.value })}
+          placeholder={endpoint ? `${endpoint.url} (unchanged)` : 'https://…'}
+          autoComplete="off"
+        />
       </Field>
 
-      <div>
-        <label className="text-sm font-medium mb-1.5 block">Subscribed Severities</label>
-        <div className="flex gap-4">
-          {(['info', 'warning', 'critical'] as WebhookSeverity[]).map((s) => {
-            const checked = severities.includes(s)
-            return (
-              <label key={s} className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleSeverity(s)}
-                  className="rounded border-input text-primary focus:ring-primary"
-                />
-                <span className="capitalize">{s}</span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
-
-      {format === 'standard' && (
-        <Field
-          label="Signing Secret"
-          htmlFor="wh-secret"
-          description={endpoint ? 'Leave blank to retain current secret' : 'Auto-generated with whsec_ prefix if blank'}
-        >
-          <Input
-            id="wh-secret"
-            className="font-mono text-xs"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder="whsec_..."
-          />
+      {v.format === 'telegram' && (
+        <Field label="Chat ID" htmlFor="wh-chat" required description="The chat, group or channel the bot posts to, e.g. -1001234567890.">
+          <Input id="wh-chat" className="font-mono text-xs" value={v.chatId} onChange={(e) => set({ chatId: e.target.value })} />
         </Field>
       )}
 
-      {format === 'custom' && (
+      <fieldset>
+        <legend className="text-sm font-medium mb-1.5">Severities</legend>
+        <div className="flex gap-4">
+          {SEVERITIES.map((s) => (
+            <label key={s} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={v.severities.includes(s)}
+                onChange={() => toggleSeverity(s)}
+                className="rounded border-input text-primary focus:ring-primary"
+              />
+              <span className="capitalize">{s}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <Field
+        label="Signing secret"
+        htmlFor="wh-secret"
+        description={
+          endpoint
+            ? endpoint.secret_set
+              ? 'Every request is signed (Standard Webhooks headers). Leave empty to keep the secret, paste one, or generate a new one.'
+              : 'No secret: requests aren’t signed. Paste one or generate one.'
+            : 'Every request is signed (Standard Webhooks headers). Leave empty to generate one; it is shown once after saving.'
+        }
+      >
+        <div className="flex gap-2">
+          <Input
+            id="wh-secret"
+            className="font-mono text-xs"
+            value={v.newSecret ? '' : v.secret}
+            disabled={v.newSecret}
+            onChange={(e) => set({ secret: e.target.value })}
+            placeholder={v.newSecret ? 'A new secret is generated on save' : 'whsec_… or env:NAME'}
+            autoComplete="off"
+          />
+          {endpoint && (
+            <label className="flex shrink-0 items-center gap-1.5 text-xs cursor-pointer select-none">
+              <input type="checkbox" checked={v.newSecret} onChange={(e) => set({ newSecret: e.target.checked })} />
+              Generate new
+            </label>
+          )}
+        </div>
+      </Field>
+
+      {v.format === 'custom' && (
         <Field
-          label="Custom Template"
+          label="Template"
           htmlFor="wh-template"
-          description="Go text/template syntax with {{.Title}}, {{.Message}}, {{.Severity}}, {{.Value}}"
+          required
+          description={
+            <>
+              Go template; the output must be valid JSON. Use <code>{'{{json .Title}}'}</code> for each value so it is
+              quoted and escaped. Fields: .Title .Message .Severity .State .Value .ElementName .DeviceName .Timestamp
+            </>
+          }
         >
           <Textarea
             id="wh-template"
             rows={4}
             className="font-mono text-xs"
-            value={customTemplate}
-            onChange={(e) => setCustomTemplate(e.target.value)}
-            placeholder='{"alert": "{{.Title}}", "level": "{{.Severity}}"}'
+            value={v.customTemplate}
+            onChange={(e) => set({ customTemplate: e.target.value })}
+            placeholder='{"alert": {{json .Title}}, "level": {{json .Severity}}}'
           />
         </Field>
       )}
 
-      <Field label="Custom Headers (JSON)" htmlFor="wh-headers" description='Optional static headers: {"Authorization": "Bearer ..."}'>
-        <Textarea
-          id="wh-headers"
-          rows={2}
-          className="font-mono text-xs"
-          value={headersStr}
-          onChange={(e) => setHeadersStr(e.target.value)}
-        />
-      </Field>
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium mb-1">Extra headers</legend>
+        {v.headers.map((h, i) => (
+          <div key={i} className="flex gap-2">
+            <Input
+              aria-label="Header name"
+              className="font-mono text-xs"
+              value={h.name}
+              disabled={h.stored}
+              placeholder="Authorization"
+              onChange={(e) => setHeader(i, { name: e.target.value })}
+            />
+            <Input
+              aria-label={`Value of ${h.name || 'the header'}`}
+              className="font-mono text-xs"
+              value={h.value}
+              placeholder={h.stored ? '(unchanged)' : 'Bearer … or env:NAME'}
+              onChange={(e) => setHeader(i, { value: e.target.value })}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Remove ${h.name || 'header'}`}
+              onClick={() => set({ headers: v.headers.filter((_, j) => j !== i) })}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            onClick={() => set({ headers: [...v.headers, { name: '', value: '', stored: false }] })}
+          >
+            <Plus className="size-3.5" /> Add header
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-xs">Values are stored encrypted and never shown again.</p>
+      </fieldset>
 
       <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
         <input
           type="checkbox"
-          checked={enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
+          checked={v.enabled}
+          onChange={(e) => set({ enabled: e.target.checked })}
           className="rounded border-input text-primary focus:ring-primary"
         />
-        <span>Enable this webhook endpoint</span>
+        <span>Enabled</span>
       </label>
     </FormDialog>
   )
@@ -210,11 +276,49 @@ export function WebhookDialog({
   endpoint,
   open,
   onOpenChange,
+  onSaved,
 }: {
   endpoint: WebhookEndpoint | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSaved: (saved: WebhookSaved) => void
 }) {
   if (!open) return null
-  return <WebhookForm key={endpoint?.id ?? 'new'} endpoint={endpoint} open={open} onOpenChange={onOpenChange} />
+  return (
+    <WebhookForm key={endpoint?.id ?? 'new'} endpoint={endpoint} open={open} onOpenChange={onOpenChange} onSaved={onSaved} />
+  )
+}
+
+/** Shows a just-generated signing secret: the only time it is readable. */
+export function WebhookSecretDialog({ saved, onClose }: { saved: WebhookSaved | null; onClose: () => void }) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(saved?.secret ?? '')
+      toast.success('Secret copied')
+    } catch {
+      toast.error('Could not copy; select the text and copy it')
+    }
+  }
+  return (
+    <Dialog open={!!saved?.secret} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Signing secret for {saved?.name}</DialogTitle>
+          <DialogDescription>
+            Copy it now into your receiver: it isn’t shown again. Receivers verify the webhook-signature header with it
+            (Standard Webhooks).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-2">
+          <code className="bg-muted flex-1 break-all rounded-md px-2.5 py-2 font-mono text-xs select-all">{saved?.secret}</code>
+          <Button type="button" variant="outline" size="icon" aria-label="Copy the secret" onClick={() => void copy()}>
+            <Copy className="size-4" />
+          </Button>
+        </div>
+        <DialogFooter>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }

@@ -134,10 +134,10 @@ export function DevicesPage() {
     <Page wide>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-device.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Devices</span>
-          </div>
+          </span>
         }
         description="Devices behind the elements you can access, with live status and readings."
         actions={

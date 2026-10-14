@@ -127,8 +127,10 @@ test('a dashboard command reaches the MQTT device and comes back', async ({ page
   await page.goto(`/dashboards/${dashboardId}`)
   const sw = widget(page, 'Compressor').getByTestId('switch-widget')
   const toggle = widget(page, 'Compressor').getByRole('switch')
-  const start = await sw.getAttribute('data-state')
-  for (const want of start === 'on' ? ['off', 'on'] : ['on']) {
+  await expect(sw).toHaveAttribute('data-state', /^(on|off)$/)
+  const start = (await sw.getAttribute('data-state'))!
+  // there and back, so the compressor ends as it started
+  for (const want of start === 'on' ? ['off', 'on'] : ['on', 'off']) {
     await toggle.click()
     await expect(sw, `compressor -> ${want}`).toHaveAttribute('data-state', want, { timeout: 15_000 })
     await expect(sw).toHaveAttribute('data-pending', 'false')
@@ -136,38 +138,42 @@ test('a dashboard command reaches the MQTT device and comes back', async ({ page
 })
 
 test('failed downlink reverts optimistic UI and shows delivery_failed toast', async ({ page }) => {
+  // The command never leaves the browser: the socket route answers it with the
+  // error a broker outage produces. Nothing races the reply, and the real
+  // compressor keeps its state.
+  let answered = 0
+  await page.routeWebSocket(/\/browser\//, (ws) => {
+    const server = ws.connectToServer()
+    ws.onMessage((raw) => {
+      const f = typeof raw === 'string' ? (JSON.parse(raw) as { type?: string; element_id?: string }) : null
+      if (f?.type === 'message_element') {
+        answered++
+        ws.send(
+          JSON.stringify({
+            type: 'error',
+            error_code: 'delivery_failed',
+            description: 'MQTT broker unreachable after retries',
+            element_id: f.element_id,
+          }),
+        )
+        return
+      }
+      server.send(raw)
+    })
+  })
   await useTheme(page, 'light')
   await login(page, ADMIN)
   await page.goto(`/dashboards/${dashboardId}`)
-  const compWidget = widget(page, 'Compressor')
-  const sw = compWidget.getByTestId('switch-widget')
-  const toggle = compWidget.getByRole('switch')
-  await expect(sw).toBeVisible()
+  const sw = widget(page, 'Compressor').getByTestId('switch-widget')
+  await expect(sw).toHaveAttribute('data-state', /^(on|off)$/)
+  const before = await sw.getAttribute('data-state')
 
-  const elements = (await (await page.request.get('/api/v1/me/elements')).json()) as { id: string; name: string }[]
-  const compEl = elements.find((x) => x.name === 'Compressor')!
+  await widget(page, 'Compressor').getByRole('switch').click()
+  await expect.poll(() => answered).toBe(1)
 
-  // Click switch to initiate optimistic state
-  await toggle.click()
-
-  // Inject delivery_failed WebSocket frame
-  await page.evaluate((elId) => {
-    const frame = JSON.stringify({
-      type: 'error',
-      error_code: 'delivery_failed',
-      description: 'MQTT broker unreachable after retries',
-      element_id: elId,
-    })
-    const ws = (window as unknown as { __quack_ws__?: WebSocket }).__quack_ws__
-    if (ws && ws.onmessage) {
-      ws.onmessage(new MessageEvent('message', { data: frame }))
-    }
-  }, compEl.id)
-
-  // Verify optimistic UI immediately reverts pending state
+  // the optimistic state reverts, and the error shows
   await expect(sw).toHaveAttribute('data-pending', 'false')
-
-  // Verify the error toast appears
+  await expect(sw).toHaveAttribute('data-state', before!)
   const toastEl = page.locator('[data-sonner-toast]').filter({ hasText: 'MQTT broker unreachable after retries' })
   await expect(toastEl).toBeVisible({ timeout: 5000 })
   await snap(page, 'mqtt-downlink-delivery-failed-toast')

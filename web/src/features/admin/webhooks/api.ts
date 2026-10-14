@@ -1,71 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
-import { ApiError } from '@/api/problem'
+import { api, unwrap } from '@/api/client'
 import { qk } from '@/api/queries'
+import type { Schemas } from '@/api/types'
 
 export type WebhookFormat = 'standard' | 'slack' | 'discord' | 'teams' | 'telegram' | 'custom'
 export type WebhookSeverity = 'info' | 'warning' | 'critical'
+export const SEVERITIES: WebhookSeverity[] = ['info', 'warning', 'critical']
 
-export interface WebhookEndpoint {
-  id: string
-  name: string
-  url: string
-  format: WebhookFormat
-  secret: string
-  severities: WebhookSeverity[]
-  headers: Record<string, string>
-  custom_template?: string
-  enabled: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface WebhookDelivery {
-  id: string
-  endpoint_id: string
-  event_id: string
-  event_type: string
-  severity: WebhookSeverity
-  payload: unknown
-  status: 'pending' | 'delivering' | 'delivered' | 'retrying' | 'failed'
-  attempts: number
-  max_attempts: number
-  last_status_code?: number
-  last_error?: string
-  latency_ms?: number
-  next_retry_at: string
-  created_at: string
-  delivered_at?: string
-}
-
-export interface WebhookTestResult {
-  status_code: number
-  response: string
-  latency_ms: number
-  success: boolean
-  error?: string
-}
-
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-    credentials: 'same-origin',
-  })
-  if (!res.ok) {
-    let errBody: ConstructorParameters<typeof ApiError>[1]
-    try {
-      errBody = (await res.json()) as ConstructorParameters<typeof ApiError>[1]
-    } catch {
-      // ignore json parse error
-    }
-    throw new ApiError(res.status, errBody, res.statusText)
-  }
-  if (res.status === 204) return undefined as T
-  return res.json()
-}
+/** An endpoint as the API shows it: the URL redacted (or its reference), header names only, no secret. */
+export type WebhookEndpoint = Schemas['WebhookView']
+/** What an admin sends. On update, absent fields and an empty url or secret keep the stored value. */
+export type WebhookInput = Schemas['WebhookBody']
+/** A created or updated endpoint, with the signing secret when one was just generated (shown once). */
+export type WebhookSaved = Schemas['WebhookCreatedOutBody']
+export type WebhookDelivery = Schemas['WebhookDelivery']
+export type WebhookTestResult = Schemas['WebhookTestOutBody']
 
 export const webhookKeys = {
   all: qk.admin('webhooks'),
@@ -75,29 +24,95 @@ export const webhookKeys = {
 }
 
 export const webhookApi = {
-  list: () => request<WebhookEndpoint[]>('/api/v1/admin/webhooks'),
-  get: (id: string) => request<WebhookEndpoint>(`/api/v1/admin/webhooks/${id}`),
-  create: (data: Partial<WebhookEndpoint>) =>
-    request<WebhookEndpoint>('/api/v1/admin/webhooks', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  update: ({ id, ...data }: Partial<WebhookEndpoint> & { id: string }) =>
-    request<WebhookEndpoint>(`/api/v1/admin/webhooks/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  delete: (id: string) =>
-    request<void>(`/api/v1/admin/webhooks/${id}`, {
-      method: 'DELETE',
-    }),
+  list: () => unwrap(api.GET('/api/v1/admin/webhooks')).then((d) => d ?? []),
+  get: (id: string) => unwrap(api.GET('/api/v1/admin/webhooks/{id}', { params: { path: { id } } })),
+  create: (body: WebhookInput) => unwrap(api.POST('/api/v1/admin/webhooks', { body })),
+  update: ({ id, ...body }: WebhookInput & { id: string }) =>
+    unwrap(api.PUT('/api/v1/admin/webhooks/{id}', { params: { path: { id } }, body })),
+  delete: (id: string) => unwrap(api.DELETE('/api/v1/admin/webhooks/{id}', { params: { path: { id } } })),
   test: ({ id, severity }: { id: string; severity?: WebhookSeverity }) =>
-    request<WebhookTestResult>(`/api/v1/admin/webhooks/${id}/test`, {
-      method: 'POST',
-      body: JSON.stringify({ severity: severity ?? 'info' }),
-    }),
+    unwrap(
+      api.POST('/api/v1/admin/webhooks/{id}/test', {
+        params: { path: { id } },
+        body: { severity: severity ?? 'info' },
+      }),
+    ),
   deliveries: ({ id, limit = 50 }: { id: string; limit?: number }) =>
-    request<WebhookDelivery[]>(`/api/v1/admin/webhooks/${id}/deliveries?limit=${limit}`),
+    unwrap(
+      api.GET('/api/v1/admin/webhooks/{id}/deliveries', { params: { path: { id }, query: { limit } } }),
+    ).then((d) => d ?? []),
+}
+
+/** One header row in the form; on an existing endpoint an empty value keeps the stored one. */
+export interface HeaderRow {
+  name: string
+  value: string
+  /** The endpoint already has this header (its value is never shown). */
+  stored: boolean
+}
+
+export interface WebhookFormValues {
+  name: string
+  url: string
+  format: WebhookFormat
+  severities: WebhookSeverity[]
+  secret: string
+  newSecret: boolean
+  headers: HeaderRow[]
+  customTemplate: string
+  chatId: string
+  enabled: boolean
+}
+
+const isRef = (v: string) => v.startsWith('env:') || v.startsWith('file:')
+
+/** The form's starting values: secret values are never filled in, references are. */
+export function formValues(ep: WebhookEndpoint | null): WebhookFormValues {
+  return {
+    name: ep?.name ?? '',
+    url: ep && isRef(ep.url) ? ep.url : '',
+    format: (ep?.format as WebhookFormat | undefined) ?? 'standard',
+    severities: (ep?.severities as WebhookSeverity[] | null | undefined) ?? [...SEVERITIES],
+    secret: ep?.secret_ref ?? '',
+    newSecret: false,
+    headers: (ep?.header_names ?? []).map((name) => ({ name, value: '', stored: true })),
+    customTemplate: ep?.custom_template ?? '',
+    chatId: ep?.options.chat_id ?? '',
+    enabled: ep?.enabled ?? true,
+  }
+}
+
+/** The request body for the form, or the first problem to fix. */
+export function webhookBody(
+  v: WebhookFormValues,
+  editing: boolean,
+): { body: WebhookInput; error?: undefined } | { body?: undefined; error: string } {
+  if (!v.name.trim()) return { error: 'Name is required' }
+  if (!editing && !v.url.trim()) return { error: 'URL is required' }
+  if (v.severities.length === 0) return { error: 'Pick at least one severity' }
+  if (v.format === 'telegram' && !v.chatId.trim()) return { error: 'Telegram needs a chat ID' }
+  if (v.format === 'custom' && !v.customTemplate.trim()) return { error: 'The custom format needs a template' }
+  const headers: Record<string, string> = {}
+  for (const h of v.headers) {
+    const name = h.name.trim()
+    if (!name) continue
+    if (name in headers) return { error: `Header ${name} is listed twice` }
+    if (!h.value && !h.stored) return { error: `Header ${name} needs a value` }
+    headers[name] = h.value
+  }
+  const body: WebhookInput = {
+    name: v.name.trim(),
+    format: v.format,
+    severities: v.severities,
+    headers,
+    enabled: v.enabled,
+    options: v.format === 'telegram' ? { chat_id: v.chatId.trim() } : {},
+    custom_template: v.format === 'custom' ? v.customTemplate : '',
+  }
+  if (v.url.trim()) body.url = v.url.trim()
+  if (v.newSecret) body.new_secret = true
+  else if (v.secret.trim()) body.secret = v.secret.trim()
+  return { body }
 }
 
 export const useWebhooks = () =>

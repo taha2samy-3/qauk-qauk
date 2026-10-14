@@ -267,10 +267,10 @@ export function UsersPage() {
     <Page>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-users.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Users</span>
-          </div>
+          </span>
         }
         description="People who can sign in to Quack Quack."
         actions={

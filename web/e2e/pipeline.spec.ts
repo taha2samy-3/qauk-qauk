@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     // Filter to Soil moisture
     await page.getByPlaceholder('Search elements…').fill('Soil moisture')
-    const row = page.getByRole('row').filter({ hasText: 'Soil moisture' })
+    const row = page.getByRole('row').filter({ has: page.getByText('Soil moisture', { exact: true }) })
     await expect(row).toBeVisible()
     await expect(row.getByText(/steps · v/)).toBeVisible()
     await row.getByRole('button', { name: 'Pipeline' }).click()
@@ -27,7 +27,7 @@ for (const theme of ['light', 'dark'] as const) {
     // The PipelineSheet is now open
     await expect(page.getByRole('dialog')).toBeVisible()
     await expect(page.getByText('Pipeline · Soil moisture')).toBeVisible()
-    await expect(page.getByText('scale')).toBeVisible()
+    await expect(page.getByRole('dialog').getByText('scale', { exact: true })).toBeVisible()
 
     // Switch to Preview tab
     await page.getByRole('tab', { name: /Preview/ }).click()

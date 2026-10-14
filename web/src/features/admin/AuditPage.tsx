@@ -85,10 +85,10 @@ export function AuditPage() {
     <Page wide>
       <PageHeader
         title={
-          <div className="flex items-center gap-3">
+          <span className="flex items-center gap-3">
             <img src="/brand/logo-audit.svg" alt="" className="size-7 rounded-lg shadow-xs" />
             <span>Audit log</span>
-          </div>
+          </span>
         }
         description="Administrative changes, newest first."
       />

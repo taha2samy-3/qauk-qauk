@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { RelativeTime } from '@/components/RelativeTime'
 import { Spinner } from '@/components/ui/spinner'
 import { useWebhookDeliveries, type WebhookEndpoint, type WebhookDelivery } from './api'
 
@@ -39,9 +40,13 @@ export function WebhookDeliveriesDrawer({
       case 'failed':
         return (
           <Badge variant="outline" className="text-rose-500 border-rose-500/30 gap-1 bg-rose-500/5">
-            <AlertCircle className="size-3" /> Failed
+            <AlertCircle className="size-3" /> Failed after {d.attempts} {d.attempts === 1 ? 'attempt' : 'attempts'}
           </Badge>
         )
+      case 'pending':
+        return <Badge variant="secondary">Queued</Badge>
+      case 'delivering':
+        return <Badge variant="secondary">Sending…</Badge>
       default:
         return <Badge variant="secondary">{d.status}</Badge>
     }
@@ -106,6 +111,12 @@ export function WebhookDeliveriesDrawer({
                     <span>•</span>
                     <span className="capitalize">{d.severity}</span>
                   </div>
+
+                  {d.status === 'retrying' && (
+                    <div className="text-xs text-muted-foreground">
+                      Next attempt <RelativeTime value={d.next_retry_at} />
+                    </div>
+                  )}
 
                   {d.last_error && (
                     <div className="text-xs font-mono text-rose-500 bg-rose-500/10 p-2 rounded">
