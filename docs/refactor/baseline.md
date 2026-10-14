@@ -88,26 +88,23 @@ QUACK_IT_BENCH=1 go test -tags integration -run TestTransportBench -v ./integrat
 
 (from `server/`; `QUACK_IT_BENCH_OUT=file.md` saves the table).
 
-## Element pipeline benchmarks (2026-10-10)
+## Element pipeline benchmarks
 
-Measured on the same developer machine (Intel Core i7-7820HQ CPU @ 2.90GHz, 8 threads, Linux x86_64), testing in-memory pipeline execution overhead and end-to-end device → browser performance:
+Measured 2026-10-14 on the same developer machine (Intel Core i7-7820HQ @ 2.90 GHz, 8 threads, Linux x86_64), median of 3 runs. One message through `Pipeline.ApplyWithContext`, in memory:
 
-| Benchmark | Latency / op | Allocations | Budget | Notes |
-|---|---|---|---|---|
-| **No pipeline** | 122 ns | 0 allocs/op (0 B) | — | Direct passthrough |
-| **5 built-in steps** (scale, round, clamp, deadband, unit) | 4.27 µs | 11 allocs/op (1.37 KB) | < 5 µs | Pure Go closures, in-memory |
-| **Script step** (Goja JS runtime) | 16.98 µs | 49 allocs/op (4.76 KB) | < 20 ms | Sandboxed JS transformation |
+| Benchmark | Time / message | Memory | Notes |
+|---|---|---|---|
+| No pipeline | ~5 ns | 0 B, 0 allocs | the nil check every element without a pipeline pays |
+| 5 built-in steps (scale, unit, round, clamp, deadband passing) | ~1.6 µs | 1,376 B, 12 allocs | copy-on-write message, Go closures |
+| Script step (`m.value * 2`) | ~8.7 µs | 6,242 B, 69 allocs | a fresh sandboxed goja runtime per message |
+| Script step: dew point from temperature and humidity | ~15.7 µs | 9,204 B, 128 allocs | a realistic script |
 
-### End-to-end impact on device → browser path
-
-- **Latency:** The 5 built-in steps add ~4.3 µs to processing time, which is negligible compared to the ~6.3 ms cross-instance Redpanda median latency (p50 / p99 remain ~6.3 ms / 9.7 ms). A script step adds ~17 µs, maintaining sub-10 ms p99 latency end-to-end.
-- **Throughput:** Built-in steps comfortably sustain >100,000 messages/s per gateway core. JavaScript sandboxed steps sustain ~45,000–55,000 messages/s per core before saturation.
-- **Deadband savings:** In the demo (e.g. *Cold room temperature* deadband `abs: 0.2`), quiet sensor telemetry is dropped before reaching Redpanda, saving ~70–85 % of network bandwidth, rate limit capacity, and history store write IOPS while preserving full precision on significant state changes.
+Even a script step is three orders of magnitude below the ~6.3 ms cross-instance latency measured above, so pipelines don't change the device → browser numbers in a way these benchmarks can show. End-to-end throughput with pipelines, and how much traffic a deadband saves in practice, haven't been measured.
 
 Reproduce with:
 
 ```sh
-go test -bench=. -benchmem ./internal/elementpipe
+go test -run '^$' -bench . -benchmem -count 3 ./internal/elementpipe
 ```
 
 
