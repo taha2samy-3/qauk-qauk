@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-usr">
+  <title id="t-usr">Quack Quack - Users &amp; Operators</title>
+  <defs>
+    <linearGradient id="qq-usr-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="0.45" stop-color="#3730A3"/>
+      <stop offset="0.8" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="qq-usr-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-usr-bg)"/>
+
+  <!-- Halo / Access Field Arcs at Top -->
+  <path d="M22 14 A 14 14 0 0 1 42 14" fill="none" stroke="#C7D2FE" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Operator Silhouette Body & Shoulders -->
+  <!-- Shoulders / Torso -->
+  <path d="M16 48 C 16 39.5, 22.5 36, 32 36 C 41.5 36, 48 39.5, 48 48 C 48 51, 46 51, 32 51 C 18 51, 16 51, 16 48 Z" fill="#FFFFFF" filter="url(#qq-usr-shadow)"/>
+  
+  <!-- Operator Head -->
+  <circle cx="32" cy="24" r="9.5" fill="#FFFFFF" filter="url(#qq-usr-shadow)"/>
+
+  <!-- Tech Operator Visor / Cyber Glass (Electric Cyan) -->
+  <path d="M25 23 C 25 20.5, 39 20.5, 39 23 C 39 25.5, 25 25.5, 25 23 Z" fill="#0284C7"/>
+  <circle cx="28" cy="23" r="1" fill="#FFFFFF"/>
+  <circle cx="36" cy="23" r="1" fill="#38BDF8"/>
+
+  <!-- Collar / ID Neckline Accent -->
+  <path d="M28 36 L32 41 L36 36" fill="none" stroke="#6366F1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Gold Verified Security Seal Badge (Quack Amber) -->
+  <circle cx="45" cy="43" r="6" fill="#FBBF24" filter="url(#qq-usr-shadow)"/>
+  <circle cx="45" cy="43" r="4.2" fill="#D97706"/>
+  <!-- Checkmark in badge -->
+  <path d="M43 43 L44.5 44.5 L47.5 41.5" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

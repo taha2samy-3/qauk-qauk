@@ -15,6 +15,7 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/db"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
@@ -25,13 +26,19 @@ type Service struct {
 	// AllowInsecureTLS permits MQTT connections without TLS verification or
 	// passwords over plain TCP (QUACK_ALLOW_INSECURE_TLS, development only).
 	AllowInsecureTLS bool
+	// Secrets seals webhook secrets (QUACK_SECRETS_KEY); never nil.
+	Secrets *secrets.Box
+	// WebhookAllowPrivate lets webhooks target private addresses and plain
+	// http (QUACK_WEBHOOK_ALLOW_PRIVATE, development only).
+	WebhookAllowPrivate bool
 }
 
 // DefaultElementRateMax matches QUACK_ELEMENT_MSG_RATE_MAX's default.
 const DefaultElementRateMax = 1000
 
 func New(pool *pgxpool.Pool) *Service {
-	return &Service{Pool: pool, ElementRateMax: DefaultElementRateMax}
+	box, _ := secrets.NewBox("")
+	return &Service{Pool: pool, ElementRateMax: DefaultElementRateMax, Secrets: box}
 }
 
 // Actor identifies who performs a mutation (for the audit log).
@@ -53,6 +60,11 @@ type ValidationError struct {
 func (e *ValidationError) Error() string { return fmt.Sprintf("%s: %s", e.Field, e.Msg) }
 
 func invalid(field, msg string) error { return &ValidationError{Field: field, Msg: msg} }
+
+// ConflictError is a change that clashes with existing data (HTTP 409).
+type ConflictError struct{ Msg string }
+
+func (e *ConflictError) Error() string { return e.Msg }
 
 func IsValidation(err error) (*ValidationError, bool) {
 	var v *ValidationError
@@ -95,6 +107,12 @@ func record(ctx context.Context, tx pgx.Tx, a Actor, action, entity, entityID st
 	return nil
 }
 
+// maxSnapshotBytes bounds one device-config.v1 record. Redpanda refuses
+// records over 1 MiB by default, and the outbox relay would then retry the
+// same batch forever, holding up every later change: refuse the change
+// instead (the device's pipelines are what can make a snapshot this big).
+const maxSnapshotBytes = 900 << 10
+
 // publishDevices enqueues a fresh device-config snapshot for each device, or
 // a tombstone for one that no longer exists, in the caller's transaction.
 // LockDevices serializes snapshot writers per device (see store.LockDevices).
@@ -120,6 +138,9 @@ func publishDevices(ctx context.Context, tx pgx.Tx, ids ...uuid.UUID) error {
 			}
 			if payload, err = json.Marshal(ev); err != nil {
 				return err
+			}
+			if len(payload) > maxSnapshotBytes {
+				return invalid("device", fmt.Sprintf("the device's configuration would be %d KiB, over the %d KiB limit; make its element pipelines smaller", len(payload)>>10, maxSnapshotBytes>>10))
 			}
 		}
 		if err := store.EnqueueOutbox(ctx, tx, events.TopicDeviceConfig, id.String(), payload); err != nil {

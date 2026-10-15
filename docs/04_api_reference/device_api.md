@@ -44,6 +44,8 @@ If authentication fails, the upgrade is refused with **HTTP 403** `Device authen
 
 The token is only checked during the handshake. An open socket stays open after the token expires; use a fresh token when you reconnect.
 
+While an instance shuts down, it answers the upgrade with **HTTP 503** `server draining`: retry after a short random delay, and the load balancer sends you to another instance.
+
 Examples: [Node.js with `jose`](../03_getting_started.md#device-example-in-javascript-jose), [Node-RED](../03_getting_started.md#node-red). For Node-RED, the [`node-red-contrib-quackquack` nodes](../09_node_red.md) handle tokens, reconnects and element names for you.
 
 ## Listing elements
@@ -110,7 +112,19 @@ Every numeric attribute of a message is stored as its own series, with 1-minute 
 - a `message` with a NUL character (`\u0000`) or an unpaired UTF-16 surrogate, which history stores can't keep (`quack_dropped_total{reason="unstorable"}`)
 - an element that does not belong to this device, or has been deleted
 - frames over the device's limit (`QUACK_DEVICE_MSG_RATE`, default 500/s for all of a device's sockets), or over the element's limit when the element is set to `drop` (default 50/s, set per element; see [Rate limits](../05_core_concepts/rate_limits.md)). An element set to `latest` keeps the newest held value and sends it when the limit allows.
+- messages filtered by an [element pipeline](../05_core_concepts/element_pipeline.md) (such as `deadband`, `drop_if`, or a script returning `null`). Filtered messages do not consume rate limit tokens.
 - binary frames
+
+**Pipeline errors:** if an element pipeline step fails (a script exception or timeout, a value of the wrong type, a value not in a `map` table), the socket stays open, the message is not published, a record goes to `element-pipeline.dlq.v1` (the message cut to 4 KiB), and the device gets an error frame:
+
+```json
+{
+  "type": "error",
+  "error_code": "pipeline_failed",
+  "description": "script: TypeError: cannot read property 'x' of undefined",
+  "element_id": "98994c94-71b8-53b0-85f3-d1c6483978de"
+}
+```
 
 ## Commands: server to device
 
@@ -131,6 +145,8 @@ A device socket receives every message for its elements that it did **not** send
 | Another socket of the **same device** (telemetry) | the device UUID, a JSON **string** | the device name |
 
 `last_edit_at` is the server time in RFC 3339 UTC with milliseconds. The server never echoes a frame back to the socket that sent it.
+
+**Command inversion.** If the element has an [element pipeline](../05_core_concepts/element_pipeline.md#_4-commands-the-pipeline-in-reverse), the steps that apply to commands (`scale`, `unit`, a one-to-one `map`, a script with `untransform`) run in reverse before the command reaches the device; `round`, `clamp` and the filters are skipped. For example, if telemetry scales raw rpm `0–3000` to `0–100 %`, a slider command of `50 %` reaches the device as `{"value": 1500}`. Dashboards and history keep engineering units. A command the reverse can't convert is refused (the user sees the error) and never reaches the device unconverted.
 
 **Actuator pattern.** Apply the command, then send the new state back as telemetry (`{"element_id": ..., "message": {"value": 1}}`). Dashboards treat that echo as confirmation; the switch widget waits for it.
 
@@ -153,6 +169,7 @@ A device socket receives every message for its elements that it did **not** send
 | 1000 | `key changed` | The device's key was edited or deleted | Reconnect (with backoff) |
 | 1001 | `ping timeout` / `server shutting down` | No pong within 15 s of a ping (sent every 30 s), or the server is restarting | Reconnect with backoff |
 | 1009 | | A frame was larger than 64 KiB | Send smaller frames |
+| 1012 | `server restarting` | The instance is shutting down; clients are closed spread over a few seconds ([why](../02_architecture.md#graceful-shutdown)) | Reconnect with a little random delay; the load balancer sends you to another instance |
 | 1013 | `slow consumer` | More than 2048 frames were queued for this socket | Read faster, then reconnect |
 | 4000 | `device deleted`, `device key removed`, `device key changed` | Access was revoked | Don't retry blindly; the next handshake will probably get 403 |
 

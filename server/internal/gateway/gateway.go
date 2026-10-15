@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -47,12 +48,15 @@ type Gateway struct {
 	coalesce *coalescer
 	dedupe   *dedupeCache
 	rest     *restPresence
-	mqtt     *mqtt.Transport
+	mqtt     atomic.Pointer[mqtt.Transport] // set by Run with the mqtt role
 	cmds     commandHooks
 
-	ctx    context.Context // lifetime of the gateway; parent of every socket
-	ctrlCh chan *events.Event
-	seq    atomic.Uint64
+	ctx      context.Context // lifetime of the gateway; parent of every socket
+	ctrlCh   chan *events.Event
+	seq      atomic.Uint64
+	draining atomic.Bool
+	drainCh  chan struct{} // closed by StartDrain: long-polls and streams end
+	drainMu  sync.Once
 }
 
 // New builds a gateway; ctx bounds the lifetime of every socket it accepts.
@@ -65,6 +69,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 		origins:  NewOriginPolicy(cfg.AllowedOrigins),
 		ctx:      ctx,
 		ctrlCh:   make(chan *events.Event, 1024),
+		drainCh:  make(chan struct{}),
 	}
 	g.registry = registry.New(registryLoader(pool), g.log)
 	g.limits, _ = ratelimit.Open(cfg.RateLimitDriver) // validated by config.Load
@@ -83,10 +88,29 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, producer *
 }
 
 // Ready reports whether the device registry has caught up with its topic
-// (and, with the mqtt role, the MQTT config and members are known).
+// (and, with the mqtt role, the MQTT config and members are known), and the
+// gateway is not in draining mode.
 func (g *Gateway) Ready() bool {
-	return g.registry.IsReady() && (g.mqtt == nil || g.mqtt.Ready())
+	return !g.draining.Load() && g.Initialized()
 }
+
+// Initialized reports whether the gateway has completed initial synchronization,
+// regardless of whether it is currently draining.
+func (g *Gateway) Initialized() bool {
+	t := g.mqtt.Load()
+	return g.registry.IsReady() && (t == nil || t.Ready())
+}
+
+// IsDraining reports whether the gateway has entered shutdown drain mode.
+func (g *Gateway) IsDraining() bool {
+	return g.draining.Load()
+}
+
+// produceCtx is the context records are produced with. It isn't cancelled
+// when the gateway stops: franz-go fails a buffered record whose context ends,
+// and a message a device was told is accepted must still reach the bus (the
+// producer's Close flushes it, within a bound).
+func (g *Gateway) produceCtx() context.Context { return context.WithoutCancel(g.ctx) }
 
 func (g *Gateway) nextConnID() string { return fmt.Sprintf("c-%06d", g.seq.Add(1)) }
 
@@ -112,6 +136,9 @@ func (g *Gateway) Run(ctx context.Context) error {
 	if mqttDone != nil {
 		<-mqttDone
 	}
+	// messages held over their element's rate (over_limit=latest) were
+	// acknowledged as coalesced: publish them before the producer closes
+	g.coalesce.flushAll()
 	return err
 }
 
@@ -139,7 +166,7 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 		if err != nil {
 			return
 		}
-		dev, br := renderMessage(&m, ev.Time)
+		dev, br := renderMessage(&m, ev.Time, g.pipelineOf(m.DeviceID, m.ElementID))
 		g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
 		g.notifyCommand(&m, id, ev.Time.Time)
 	case events.TypeDevicePresence:
@@ -148,6 +175,11 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 			return
 		}
 		g.hub.PresenceChanged(p.DeviceID, p.Connected)
+	case events.TypeCommandFailed:
+		var f events.CommandFailed
+		if err := ev.DecodeData(&f); err == nil {
+			g.hub.SendUserError(f.UserID, f.Code, f.Reason, f.ElementID)
+		}
 	case events.TypeControlChanged:
 		select {
 		case g.ctrlCh <- ev:
@@ -160,11 +192,11 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 // first (fast path), then publish to the bus for other gateways and the
 // ingester. It returns the event id.
 func (g *Gateway) publishElement(m *events.ElementMessage, localOrigin string) string {
-	return g.publishElementDone(m, localOrigin, nil)
+	return g.publishElementDone(m, localOrigin, nil, 0)
 }
 
 // publishElementDone is publishElement with a durability callback (nil: none).
-func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error)) string {
+func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin string, done func(error), pipelineVersion int) string {
 	ev, err := events.New(events.TypeElementMessage, events.GatewaySource(g.cfg.GatewayID), m.ElementID.String(), m)
 	if err != nil {
 		g.log.Error("gateway: build event", "err", err)
@@ -176,16 +208,32 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 	if strings.HasPrefix(localOrigin, viaMQTT) {
 		ev.QuackVia = localOrigin
 	}
-	dev, br := renderMessage(m, ev.Time)
+	if pipelineVersion > 0 {
+		ev.QuackPipeline = &pipelineVersion
+	}
+	dev, br := renderMessage(m, ev.Time, g.pipelineOf(m.DeviceID, m.ElementID))
 	id := uuid.MustParse(ev.ID)
 	g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
 	g.notifyCommand(m, id, ev.Time.Time)
 	if done != nil {
-		g.producer.PublishDurable(g.ctx, events.TopicElementEvents, ev, done)
+		g.producer.PublishDurable(g.produceCtx(), events.TopicElementEvents, ev, done)
 	} else {
-		g.producer.Publish(g.ctx, events.TopicElementEvents, ev)
+		g.producer.Publish(g.produceCtx(), events.TopicElementEvents, ev)
 	}
 	return ev.ID
+}
+
+// pipelineOf returns an element's pipeline with the names its steps see.
+func (g *Gateway) pipelineOf(deviceID, elementID uuid.UUID) pipelineContext {
+	dev, ok := g.registry.Lookup(deviceID)
+	if !ok {
+		return pipelineContext{}
+	}
+	el, ok := dev.Element(elementID)
+	if !ok {
+		return pipelineContext{}
+	}
+	return pipelineContext{pipe: el.Pipeline, element: el.Name, device: dev.Name}
 }
 
 // Device returns a device's snapshot from the in-memory registry.

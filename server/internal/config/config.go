@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+
+	"github.com/taha2samy/quackquack/server/internal/secrets"
 )
 
 type Config struct {
@@ -24,6 +26,9 @@ type Config struct {
 	// IngestGroup is the Redpanda consumer group of the ingester. Every
 	// environment writing to a different database needs its own group.
 	IngestGroup string `env:"QUACK_INGEST_GROUP" envDefault:"quack-ingest"`
+	// AlertGroup is the consumer group of the alert engine (api role). Like
+	// IngestGroup, environments sharing a cluster need their own.
+	AlertGroup string `env:"QUACK_ALERT_GROUP" envDefault:"quack-alerts"`
 
 	HTTPAddr string `env:"QUACK_HTTP_ADDR" envDefault:":8080"`
 	// Roles enabled in `quack serve`: api, gateway.
@@ -51,6 +56,17 @@ type Config struct {
 	// AllowInsecureTLS permits MQTT connections without TLS verification, or
 	// with passwords over plain TCP. Development only.
 	AllowInsecureTLS bool `env:"QUACK_ALLOW_INSECURE_TLS"`
+	// SecretsKey (base64 of 32 bytes) encrypts webhook secrets at rest.
+	// Without it they are stored as written (a warning is logged); env: and
+	// file: references are never stored resolved either way.
+	SecretsKey string `env:"QUACK_SECRETS_KEY"`
+	// WebhookAllowPrivate lets webhooks reach private, loopback and
+	// link-local addresses and plain http (development only).
+	WebhookAllowPrivate bool `env:"QUACK_WEBHOOK_ALLOW_PRIVATE"`
+	// WebhookWorkers is how many deliveries one api server sends at a time.
+	WebhookWorkers int `env:"QUACK_WEBHOOK_WORKERS" envDefault:"4"`
+	// WebhookRetention is how long delivered and failed deliveries are kept.
+	WebhookRetention time.Duration `env:"QUACK_WEBHOOK_RETENTION" envDefault:"720h"`
 	// MQTTWeight is this gateway's share of MQTT connections (HRW weight).
 	MQTTWeight float64 `env:"QUACK_MQTT_WEIGHT" envDefault:"1"`
 	// MQTTConnectionMsgRate bounds the element values one MQTT connection
@@ -86,6 +102,11 @@ type Config struct {
 	// WebDir is the built frontend (web/dist) served at "/"; empty disables it.
 	WebDir   string `env:"QUACK_WEB_DIR"`
 	LogLevel string `env:"QUACK_LOG_LEVEL" envDefault:"info"`
+
+	// Graceful drain & shutdown (F1)
+	DrainDuration        time.Duration `env:"QUACK_DRAIN_DURATION" envDefault:"25s"`
+	DrainPropagationWait time.Duration `env:"QUACK_DRAIN_PROPAGATION_WAIT" envDefault:"3s"`
+	ShutdownTimeout      time.Duration `env:"QUACK_SHUTDOWN_TIMEOUT" envDefault:"10s"`
 }
 
 func Load() (*Config, error) {
@@ -95,6 +116,9 @@ func Load() (*Config, error) {
 	}
 	if c.RateLimitDriver != "local" {
 		return nil, fmt.Errorf("config: QUACK_RATELIMIT_DRIVER=%q is not supported (supported: local)", c.RateLimitDriver)
+	}
+	if _, err := secrets.NewBox(c.SecretsKey); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 	if c.HasRole("mqtt") && !c.HasRole("gateway") {
 		return nil, fmt.Errorf("config: the mqtt role runs inside the gateway: use QUACK_ROLES=gateway,mqtt (a separate deployment is the future split plan)")

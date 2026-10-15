@@ -219,6 +219,66 @@ func (p Path) Get(v any) (any, bool) {
 	return cur, true
 }
 
+// Set returns v with the value at p replaced by x. v is never modified: the
+// objects and arrays on the way are copied. A missing last key is added; a
+// missing intermediate key, an index out of range or a type mismatch fails.
+func (p Path) Set(v, x any) (any, bool) {
+	if len(p) == 0 {
+		return x, true
+	}
+	st := p[0]
+	if st.isIdx {
+		a, ok := v.([]any)
+		if !ok || st.index >= len(a) {
+			return nil, false
+		}
+		child, ok := p[1:].Set(a[st.index], x)
+		if !ok {
+			return nil, false
+		}
+		out := append([]any(nil), a...)
+		out[st.index] = child
+		return out, true
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	var cur any
+	if len(p) > 1 {
+		if cur, ok = m[st.key]; !ok {
+			return nil, false
+		}
+	}
+	child, ok := p[1:].Set(cur, x)
+	if !ok {
+		return nil, false
+	}
+	out := make(map[string]any, len(m)+1)
+	for k, e := range m {
+		out[k] = e
+	}
+	out[st.key] = child
+	return out, true
+}
+
+// String is a canonical spelling of the path (two spellings of the same path
+// give the same string).
+func (p Path) String() string {
+	var b strings.Builder
+	for i, st := range p {
+		switch {
+		case st.isIdx:
+			fmt.Fprintf(&b, "[%d]", st.index)
+		case i > 0:
+			fmt.Fprintf(&b, "[%q]", st.key)
+		default:
+			fmt.Fprintf(&b, "%q", st.key)
+		}
+	}
+	return b.String()
+}
+
 // --- downlink topics ---
 
 var placeholders = []string{"{device}", "{element}", "{user}"}

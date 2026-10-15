@@ -118,6 +118,9 @@ type Element struct {
 	MsgRate   *float64 `db:"msg_rate" json:"msg_rate" doc:"Messages per second; null = server default"`
 	MsgBurst  *int     `db:"msg_burst" json:"msg_burst" doc:"Bucket size; null = same as the rate"`
 	OverLimit string   `db:"over_limit" json:"over_limit" enum:"drop,latest" doc:"drop: discard extra messages; latest: keep the newest and send it when the bucket refills"`
+
+	PipelineVersion *int `db:"pipeline_version" json:"pipeline_version,omitempty" doc:"Current pipeline version if configured"`
+	PipelineSteps   *int `db:"pipeline_steps" json:"pipeline_steps,omitempty" doc:"Number of steps in the pipeline"`
 }
 
 type Style struct {

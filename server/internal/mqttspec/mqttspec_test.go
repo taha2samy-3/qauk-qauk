@@ -133,3 +133,43 @@ func TestAuthAndSecrets(t *testing.T) {
 		t.Fatalf("non-reference must fail without echoing the value: %v", err)
 	}
 }
+
+func TestPathSetCopiesOnWrite(t *testing.T) {
+	in := map[string]any{"a": map[string]any{"b": 1.0, "c": []any{1.0, 2.0}}, "z": "keep"}
+	p, _ := ParsePath("a.c[1]")
+	out, ok := p.Set(in, 9.0)
+	if !ok {
+		t.Fatal("set failed")
+	}
+	if got, _ := p.Get(out); got != 9.0 {
+		t.Fatalf("got %v", got)
+	}
+	if got, _ := p.Get(in); got != 2.0 {
+		t.Fatalf("input modified: %v", in)
+	}
+	if out.(map[string]any)["z"] != "keep" {
+		t.Fatal("other keys lost")
+	}
+	add, _ := ParsePath("a.new")
+	if out, ok := add.Set(in, true); !ok || out.(map[string]any)["a"].(map[string]any)["new"] != true {
+		t.Fatalf("adding a last key: %v %v", out, ok)
+	}
+	for _, bad := range []string{"missing.x", "a.c[5]", "z.x"} {
+		bp, _ := ParsePath(bad)
+		if _, ok := bp.Set(in, 1.0); ok {
+			t.Errorf("%s: want failure", bad)
+		}
+	}
+}
+
+func TestPathStringIsCanonical(t *testing.T) {
+	a, _ := ParsePath(`sensor.t`)
+	b, _ := ParsePath(`["sensor"]["t"]`)
+	if a.String() != b.String() {
+		t.Fatalf("%s != %s", a, b)
+	}
+	c, _ := ParsePath(`sensor.u`)
+	if a.String() == c.String() {
+		t.Fatal("different paths must differ")
+	}
+}

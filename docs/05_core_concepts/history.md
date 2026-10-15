@@ -1,5 +1,9 @@
 # History storage
 
+<p align="center">
+  <img src="/brand/logo-analytics.svg" alt="Quack Quack Telemetry and Analytics" width="80" height="80" />
+</p>
+
 Every element message (device telemetry and dashboard commands) is stored, so charts can show the past and dashboards open with values already in place. The store is a **pluggable time-series backend**, separate from the Postgres database that holds users, devices, elements, permissions and dashboards.
 
 | Driver | What it is | When to pick it |

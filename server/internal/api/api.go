@@ -15,6 +15,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/history"
+	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
@@ -32,6 +33,10 @@ type API struct {
 func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
 	svc := service.New(pool)
 	svc.AllowInsecureTLS = cfg.AllowInsecureTLS
+	svc.WebhookAllowPrivate = cfg.WebhookAllowPrivate
+	if box, err := secrets.NewBox(cfg.SecretsKey); err == nil { // checked by config.Load
+		svc.Secrets = box
+	}
 	if cfg.ElementMsgRateMax > 0 {
 		svc.ElementRateMax = cfg.ElementMsgRateMax
 	}
@@ -90,6 +95,10 @@ func (a *API) fail(err error) error {
 	if v, ok := service.IsValidation(err); ok {
 		return huma.Error422UnprocessableEntity(v.Error(), &huma.ErrorDetail{Location: "body." + v.Field, Message: v.Msg})
 	}
+	var ce *service.ConflictError
+	if errors.As(err, &ce) {
+		return huma.Error409Conflict(ce.Msg)
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return huma.Error404NotFound("not found")
@@ -109,6 +118,9 @@ func (a *API) Register(api huma.API) {
 	a.registerAdminOps(api)
 	a.registerDashboards(api)
 	a.registerAdminMQTT(api)
+	a.registerAdminPipeline(api)
+	a.registerAdminWebhooks(api)
+	a.registerAdminAlerts(api)
 }
 
 func Config() huma.Config {

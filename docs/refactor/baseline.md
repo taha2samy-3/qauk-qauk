@@ -88,3 +88,23 @@ QUACK_IT_BENCH=1 go test -tags integration -run TestTransportBench -v ./integrat
 
 (from `server/`; `QUACK_IT_BENCH_OUT=file.md` saves the table).
 
+## Element pipeline benchmarks
+
+Measured 2026-10-14 on the same developer machine (Intel Core i7-7820HQ @ 2.90 GHz, 8 threads, Linux x86_64), median of 3 runs. One message through `Pipeline.ApplyWithContext`, in memory:
+
+| Benchmark | Time / message | Memory | Notes |
+|---|---|---|---|
+| No pipeline | ~5 ns | 0 B, 0 allocs | the nil check every element without a pipeline pays |
+| 5 built-in steps (scale, unit, round, clamp, deadband passing) | ~1.6 µs | 1,376 B, 12 allocs | copy-on-write message, Go closures |
+| Script step (`m.value * 2`) | ~8.7 µs | 6,242 B, 69 allocs | a fresh sandboxed goja runtime per message |
+| Script step: dew point from temperature and humidity | ~15.7 µs | 9,204 B, 128 allocs | a realistic script |
+
+Even a script step is three orders of magnitude below the ~6.3 ms cross-instance latency measured above, so pipelines don't change the device → browser numbers in a way these benchmarks can show. End-to-end throughput with pipelines, and how much traffic a deadband saves in practice, haven't been measured.
+
+Reproduce with:
+
+```sh
+go test -run '^$' -bench . -benchmem -count 3 ./internal/elementpipe
+```
+
+

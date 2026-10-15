@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -22,22 +23,61 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/history"
 )
 
-func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway.Gateway, log *slog.Logger) http.Handler {
+// Lifecycle is the server-wide state the probes report, for every role.
+type Lifecycle struct{ draining atomic.Bool }
+
+// StartDraining makes /readyz answer 503 from now on.
+func (l *Lifecycle) StartDraining() { l.draining.Store(true) }
+
+// Draining reports whether the server is shutting down.
+func (l *Lifecycle) Draining() bool { return l != nil && l.draining.Load() }
+
+func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway.Gateway, lc *Lifecycle, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	// No RealIP: X-Forwarded-For is client-controlled unless a trusted proxy strips it,
 	// and the login rate limiter keys on the peer address.
 	r.Use(middleware.Recoverer)
 
+	// Liveness probes: /livez (standard Kubernetes) and /healthz (legacy)
+	r.Get("/livez", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
-	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+
+	// Startup probe: /startupz verifies initial dependencies without failing during heavy initialization
+	r.Get("/startupz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := pool.Ping(ctx); err != nil {
-			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		if pool != nil {
+			if err := pool.Ping(ctx); err != nil {
+				http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		if gw != nil && !gw.Initialized() {
+			http.Error(w, "gateway initializing", http.StatusServiceUnavailable)
 			return
 		}
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	// Readiness probe: /readyz returns 503 while draining (every role) or
+	// when what this server's roles need is unavailable. Gateways serve from
+	// their in-memory registry, so only the api role checks the database: a
+	// database blip doesn't take every gateway out of rotation at once.
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if lc.Draining() || (gw != nil && gw.IsDraining()) {
+			http.Error(w, "server draining", http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+		defer cancel()
+		if pool != nil && cfg.HasRole("api") {
+			if err := pool.Ping(ctx); err != nil {
+				http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
 		if gw != nil && !gw.Ready() {
-			http.Error(w, "device registry loading", http.StatusServiceUnavailable)
+			http.Error(w, "gateway not ready", http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte("ok"))

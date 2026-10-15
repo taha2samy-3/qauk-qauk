@@ -10,6 +10,12 @@ Two stores, both migrated by `quack migrate`:
 | `00001_core.sql` | Identity, devices, permissions, presence, connections, outbox, audit log |
 | `00003_dashboards.sql` | `dashboards` |
 | `00005_element_limits.sql` | Per-element rate limits (`elements.msg_rate`, `msg_burst`, `over_limit`); `outbox.payload` nullable for tombstones |
+| `00006_mqtt.sql` | MQTT connections, uplinks, downlinks, decoders |
+| `00007_mqtt_cluster.sql` | MQTT clustering, status and gateway members |
+| `00008_element_pipelines.sql` | Element pipelines and version history (`element_pipelines`, `element_pipeline_versions`) |
+| `00009_webhooks.sql` | Webhook endpoints and deliveries (`webhook_endpoints`, `webhook_deliveries`) |
+| `00010_element_alerts.sql` | Per-element alert rules with thresholds, hysteresis and severities (`element_alert_rules`) |
+| `00011_alerts_webhooks_hardening.sql` | Alert state (`element_alert_state`), webhook `options`, delivery leases (`locked_until`), 8 attempts by default, one delivery per endpoint and event |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -79,6 +85,20 @@ erDiagram
     text name
     jsonb details
   }
+  element_pipelines {
+    uuid element_id PK, FK
+    integer version
+    jsonb steps "step list"
+    text updated_by
+    timestamptz updated_at
+  }
+  element_pipeline_versions {
+    uuid element_id PK, FK
+    integer version PK
+    jsonb steps
+    text updated_by
+    timestamptz updated_at
+  }
   element_permissions {
     bigserial id PK
     uuid element_id FK
@@ -147,10 +167,15 @@ erDiagram
   jwt_public_keys |o--o{ devices : "assigned to"
   devices ||--o{ elements : owns
   elements ||--o{ element_styles : ""
+  elements ||--o| element_pipelines : "active pipeline"
+  elements ||--o{ element_pipeline_versions : "version history"
+  elements ||--o{ element_alert_rules : "alert rules"
+  element_alert_rules ||--o| element_alert_state : "firing?"
   elements ||--o{ element_permissions : ""
   users |o--o{ element_permissions : "direct grant"
   groups |o--o{ element_permissions : "group grant"
   users ||--o{ dashboards : owns
+  webhook_endpoints ||--o{ webhook_deliveries : "attempts"
   devices ||..o{ device_presence : "live leases"
   devices ||..o{ device_connections : "connection audit"
   elements ||..o{ element_event : "history store (no FK)"
@@ -161,7 +186,8 @@ erDiagram
 
 - Deleting a **user** cascades to their sessions, memberships, direct grants and dashboards.
 - Deleting a **group** cascades to its memberships and grants.
-- Deleting a **device** cascades to its elements, and from there to styles and grants.
+- Deleting a **device** cascades to its elements, and from there to styles, grants, pipelines, pipeline versions, and alert rules (and their state).
+- Deleting a **webhook endpoint** cascades to its delivery logs.
 - Deleting a **key** sets `devices.public_key_id` to `NULL`, so those devices can no longer connect.
 - `device_connections`, `device_presence` and `audit_log` keep their rows. The history store keeps a deleted element's events until retention drops them (it has no foreign keys into Postgres).
 
@@ -310,3 +336,23 @@ Migrations `00006_mqtt.sql` and `00007_mqtt_cluster.sql`. The tables are the sou
 | `decoders`, `decoder_versions` | JavaScript decoders and every saved version of each. |
 | `mqtt_connection_status` | Per connection and slot: the owning `gateway_id`, `connected`, the last MQTT reason code and error, and counters. Written by the owning gateway. |
 | `gateway_members` | Live gateways: `roles`, `weight` (`QUACK_MQTT_WEIGHT`) and `last_seen`, refreshed with the presence heartbeat. Members seen within `QUACK_PRESENCE_TTL` share the MQTT slots. |
+
+## Element pipelines
+
+Migration `00008_element_pipelines.sql`. These tables store the per-element in-memory transformation pipelines configured through **Admin → Elements → Pipeline**. See [Element pipeline](../05_core_concepts/element_pipeline.md).
+
+| Table | Holds |
+|---|---|
+| `element_pipelines` | The active pipeline per element: `element_id` (PK, cascades on element delete), `version` (one more than the highest version saved, so numbers never repeat; removing a pipeline saves an empty version), `steps` (JSONB array of pipeline step configurations), `updated_by` (actor username or id), and `updated_at`. Changes update the element's parent device snapshot in `device-config.v1` via the outbox. |
+| `element_pipeline_versions` | Immutable version history for pipelines: `(element_id, version)` PK, `steps`, `updated_by`, and `updated_at`. Used to view history and rollback pipelines to any prior version. |
+
+## Alerts and webhooks
+
+Migrations `00009_webhooks.sql`, `00010_element_alerts.sql` and `00011_alerts_webhooks_hardening.sql`. See [Alerts and webhooks](../05_core_concepts/webhooks_and_alerts.md).
+
+| Table | Holds |
+|---|---|
+| `element_alert_rules` | Per element: `name`, `condition` (`above`, `below`, `outside_range`, `equals`), `threshold`, `threshold_max`, `hysteresis`, `severity`, `message`, `enabled`. Cascades on element delete. |
+| `element_alert_state` | Per rule: `firing`, `last_value`, `changed_at`. Changed only in the transaction that queues the notifications of that change, and only if it still holds the value read, so a restart neither repeats an alert nor loses a recovery. |
+| `webhook_endpoints` | `name`, `url`, `format`, `secret`, `severities`, `headers`, `custom_template`, `options` (Telegram's `chat_id`), `enabled`. `url`, `secret` and header values are stored encrypted (`enc:v1:…`, with `QUACK_SECRETS_KEY`), as `env:`/`file:` references, or as written when no key is set. |
+| `webhook_deliveries` | One per endpoint and notification (unique `(endpoint_id, event_id)`): `payload`, `status` (`pending`, `delivering`, `retrying`, `delivered`, `failed`), `attempts` / `max_attempts` (8), `last_status_code`, `last_error`, `latency_ms`, `next_retry_at`, `locked_until` (the lease of the worker sending it), `delivered_at`. Delivered and failed rows are purged after `QUACK_WEBHOOK_RETENTION`. Cascades on endpoint delete. |

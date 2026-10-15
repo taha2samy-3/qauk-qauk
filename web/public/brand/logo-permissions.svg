@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-perm">
+  <title id="t-perm">Quack Quack - Access Permissions &amp; Security</title>
+  <defs>
+    <linearGradient id="qq-perm-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#064E3B"/>
+      <stop offset="0.4" stop-color="#047857"/>
+      <stop offset="0.8" stop-color="#059669"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="qq-perm-gold" x1="26" y1="26" x2="38" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <filter id="qq-perm-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-perm-bg)"/>
+
+  <!-- Concentric Security Clearance Boundary -->
+  <circle cx="32" cy="32" r="23" fill="none" stroke="#6EE7B7" stroke-width="1.6" stroke-dasharray="3 2" opacity="0.4"/>
+
+  <!-- Shackle of the Padlock above Shield -->
+  <path d="M24 24 V 18 C 24 13.5, 40 13.5, 40 18 V 24" fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" filter="url(#qq-perm-shadow)"/>
+
+  <!-- Hero Security Shield -->
+  <path d="M16 23 C 26 21, 38 21, 48 23 C 48 37, 39 46, 32 50 C 25 46, 16 37, 16 23 Z" fill="#FFFFFF" filter="url(#qq-perm-shadow)"/>
+
+  <!-- Inner Cyber Core of Shield (Deep Emerald) -->
+  <path d="M20 26 C 27 24.5, 37 24.5, 44 26 C 44 37, 37 43.5, 32 46.5 C 27 43.5, 20 37, 20 26 Z" fill="#064E3B"/>
+
+  <!-- Golden Access Keyhole (Amber Gold) -->
+  <circle cx="32" cy="33" r="4.5" fill="url(#qq-perm-gold)"/>
+  <polygon points="30,33 34,33 35.5,41 28.5,41" fill="url(#qq-perm-gold)"/>
+  
+  <!-- Precision Key Notch -->
+  <circle cx="32" cy="33" r="1.8" fill="#78350F"/>
+
+  <!-- Read/Control Clearance Stars (Quack Amber & White) -->
+  <circle cx="25" cy="30" r="1.5" fill="#34D399"/>
+  <circle cx="39" cy="30" r="1.5" fill="#34D399"/>
+</svg>

@@ -27,8 +27,9 @@ import (
 )
 
 type fakePub struct {
-	mu  sync.Mutex
-	evs []*events.Event
+	mu   sync.Mutex
+	evs  []*events.Event
+	recs []*kgo.Record
 }
 
 func (f *fakePub) Publish(_ context.Context, _ string, ev *events.Event) {
@@ -42,7 +43,17 @@ func (f *fakePub) PublishDurable(ctx context.Context, topic string, ev *events.E
 	done(nil)
 }
 
-func (f *fakePub) PublishRecord(context.Context, *kgo.Record) {}
+func (f *fakePub) PublishRecord(_ context.Context, r *kgo.Record) {
+	f.mu.Lock()
+	f.recs = append(f.recs, r)
+	f.mu.Unlock()
+}
+
+func (f *fakePub) records() []*kgo.Record {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*kgo.Record(nil), f.recs...)
+}
 
 func (f *fakePub) messages(t *testing.T) []events.ElementMessage {
 	t.Helper()
@@ -63,6 +74,14 @@ func (f *fakePub) count() int {
 	return len(f.evs)
 }
 
+func (f *fakePub) events() []*events.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*events.Event, len(f.evs))
+	copy(out, f.evs)
+	return out
+}
+
 // testGateway is a gateway without database or bus: devices come from the
 // registry, events go to a fake publisher.
 func testGateway(t *testing.T) (*Gateway, *fakePub) {
@@ -79,6 +98,7 @@ func testGateway(t *testing.T) (*Gateway, *fakePub) {
 			return events.DeviceConfig{}, registry.ErrNotFound
 		}, log)}
 	g.coalesce = newCoalescer(g)
+	g.drainCh = make(chan struct{})
 	g.verifier = &authn.DeviceVerifier{MaxLifetime: cfg.DeviceJWTMaxLifetime, Leeway: 30 * time.Second, Load: g.loadDeviceKey}
 	return g, pub
 }

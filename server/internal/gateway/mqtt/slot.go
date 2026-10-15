@@ -48,7 +48,7 @@ type slot struct {
 	lastErr    string
 	reason     *int
 
-	received, published, rejected atomic.Int64
+	received, published, filtered, rejected atomic.Int64
 }
 
 func newSlot(t *Transport, k slotKey, c *connConfig) *slot {
@@ -391,13 +391,17 @@ func (s *slot) handle(ctx context.Context, pr paho.PublishReceived) {
 			}
 			pending.Add(1)
 			err := s.t.o.Core.Publish(Publication{ConnectionID: s.key.conn, DeviceID: devID, Element: v.Element,
-				Message: v.Message, TS: v.TS}, func(err error) {
-				if err != nil {
+				Message: v.Message, TS: v.TS}, func(o Outcome, err error) {
+				switch {
+				case err != nil:
 					addReason("bus: " + err.Error())
 					metrics.MQTTRejected.WithLabelValues("bus").Inc()
-				} else {
+				case o == Published:
 					s.published.Add(1)
 					metrics.MQTTValues.WithLabelValues(s.key.conn).Inc()
+				case o == Filtered:
+					s.filtered.Add(1)
+					metrics.MQTTFiltered.WithLabelValues(s.key.conn).Inc()
 				}
 				finish()
 			})
@@ -458,7 +462,7 @@ func (s *slot) report(ctx context.Context) {
 	}
 	s.mu.Lock()
 	st := Status{ConnectionID: s.key.conn, Slot: s.key.n, Connected: s.connected, ReasonCode: s.reason, LastError: s.lastErr,
-		Counters: map[string]int64{"received": s.received.Load(), "published": s.published.Load(), "rejected": s.rejected.Load()}}
+		Counters: map[string]int64{"received": s.received.Load(), "published": s.published.Load(), "filtered": s.filtered.Load(), "rejected": s.rejected.Load()}}
 	s.mu.Unlock()
 	if errs := s.cfg.Load().errors; len(errs) > 0 && st.LastError == "" {
 		st.LastError = errs[0]

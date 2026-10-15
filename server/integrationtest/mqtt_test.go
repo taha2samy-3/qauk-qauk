@@ -5,6 +5,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/url"
@@ -156,7 +157,7 @@ func setupMQTT(t *testing.T, prefix string, conn events.MQTTConnection, elements
 	}
 	f.conn = c
 	t.Cleanup(func() { _ = svc().DeleteMQTTConnection(context.Background(), service.SystemActor, c.ID) })
-	if err := s.GrantMQTTDevice(ctx, service.SystemActor, c.ID, f.device.ID, f.ext); err != nil {
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, c.ID, f.device.ID, f.ext, false); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -648,5 +649,120 @@ func TestMQTTAdminAPI(t *testing.T) {
 	r := c.do("GET", "/api/v1/admin/mqtt/connections/"+conn.ID, nil)
 	if r.Status != 200 || strings.Contains(string(r.Body), "plaintext") {
 		t.Fatalf("get connection: %d %s", r.Status, r.Body)
+	}
+}
+
+// TestUpsertMQTTGrantCollisionAndConcurrency: re-granting a device under a new
+// external id works; taking another device's external id is a conflict unless
+// replace moves it (audited); concurrent grants never fail with a database
+// error.
+func TestUpsertMQTTGrantCollisionAndConcurrency(t *testing.T) {
+	ctx := context.Background()
+	s := svc()
+
+	conn, err := s.CreateMQTTConnection(ctx, service.SystemActor, events.MQTTConnection{
+		Name:      "test-grant-collision",
+		BrokerURL: fmt.Sprintf("mqtt://%s:1883", mqttHost),
+		Enabled:   true,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	t.Cleanup(func() { _ = s.DeleteMQTTConnection(ctx, service.SystemActor, conn.ID) })
+
+	devA, err := s.CreateDevice(ctx, service.SystemActor, service.DeviceInput{Name: "grant-dev-a-" + uuid.NewString()[:6]})
+	if err != nil {
+		t.Fatalf("create devA: %v", err)
+	}
+	devB, err := s.CreateDevice(ctx, service.SystemActor, service.DeviceInput{Name: "grant-dev-b-" + uuid.NewString()[:6]})
+	if err != nil {
+		t.Fatalf("create devB: %v", err)
+	}
+
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-1", false); err != nil {
+		t.Fatalf("initial grant devA -> ext-1: %v", err)
+	}
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devA.ID, "ext-2", false); err != nil {
+		t.Fatalf("update grant devA -> ext-2: %v", err)
+	}
+	// devB can't silently take devA's external id
+	var ce *service.ConflictError
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devB.ID, "ext-2", false); !errors.As(err, &ce) {
+		t.Fatalf("taking ext-2 without replace must be a conflict, got %v", err)
+	}
+	if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, devB.ID, "ext-2", true); err != nil {
+		t.Fatalf("replace ext-2 to devB: %v", err)
+	}
+	grants, err := store.ListMQTTGrantedDevices(ctx, pool, conn.ID)
+	if err != nil {
+		t.Fatalf("list grants: %v", err)
+	}
+	foundB := false
+	for _, g := range grants {
+		if g.DeviceID == devB.ID && g.ExternalID == "ext-2" {
+			foundB = true
+		}
+		if g.DeviceID == devA.ID {
+			t.Fatalf("devA lost its grant when ext-2 moved: %+v", grants)
+		}
+	}
+	if !foundB {
+		t.Fatalf("devB should have ext-2: %+v", grants)
+	}
+	var revokes int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = 'revoke' AND entity_id = $1
+		AND data->>'device_id' = $2`, conn.ID, devA.ID.String()).Scan(&revokes); err != nil || revokes != 1 {
+		t.Fatalf("the implicit revoke of devA must be audited: %d %v", revokes, err)
+	}
+
+	// 4. Concurrently grant the same external IDs to devA and devB
+	var wg sync.WaitGroup
+	errCh := make(chan error, 30)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			targetDev := devA.ID
+			extID := "ext-shared-1"
+			if idx%2 == 1 {
+				targetDev = devB.ID
+				extID = "ext-shared-2"
+			}
+			if idx%3 == 0 {
+				extID = "ext-shared-race"
+			}
+			if err := s.GrantMQTTDevice(ctx, service.SystemActor, conn.ID, targetDev, extID, true); err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatalf("concurrent grant failed: %v", err)
+	}
+
+	// 5. Direct store.UpsertMQTTGrant concurrent invocation
+	var storeWg sync.WaitGroup
+	storeErrCh := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		storeWg.Add(1)
+		go func(idx int) {
+			defer storeWg.Done()
+			dev := devA.ID
+			if idx%2 == 1 {
+				dev = devB.ID
+			}
+			if err := store.UpsertMQTTGrant(ctx, pool, conn.ID, dev, "direct-ext"); err != nil {
+				storeErrCh <- err
+			}
+		}(i)
+	}
+	storeWg.Wait()
+	close(storeErrCh)
+
+	for err := range storeErrCh {
+		t.Fatalf("direct store concurrent upsert failed: %v", err)
 	}
 }

@@ -11,11 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/taha2samy/quackquack/server/internal/alert"
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/db"
@@ -28,8 +31,10 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/ingest"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/outbox"
+	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
+	"github.com/taha2samy/quackquack/server/internal/webhook"
 )
 
 const usage = `quack - Quack Quack backend
@@ -210,21 +215,55 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	defer producer.Close()
 	producer.OnError = func(topic string, _ error) { metrics.BusProduceErrors.WithLabelValues(topic).Inc() }
 
-	errc := make(chan error, 4)
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
+	// background loops; shutdown waits for them before the producer and the
+	// pool close
+	var bg sync.WaitGroup
+	errc := make(chan error, 8)
+	start := func(name string, run func(context.Context) error) {
+		bg.Add(1)
+		go func() {
+			defer bg.Done()
+			err := run(runCtx)
+			if runCtx.Err() == nil { // stopped on its own
+				if err == nil {
+					err = errors.New("stopped")
+				}
+				errc <- fmt.Errorf("%s: %w", name, err)
+			}
+		}()
+	}
 	var gw *gateway.Gateway
 	if cfg.HasRole("gateway") {
-		gw = gateway.New(ctx, cfg, pool, producer, hist, log)
-		go func() { errc <- gw.Run(ctx) }()
+		gw = gateway.New(runCtx, cfg, pool, producer, hist, log)
+		start("gateway", gw.Run)
 	}
 	if cfg.HasRole("api") {
 		relay := &outbox.Relay{Pool: pool, Producer: producer, Log: log, Published: func(n int) { metrics.OutboxPublished.Add(float64(n)) }}
-		go func() { errc <- relay.Run(ctx) }()
-		go purgeSessions(ctx, pool, log)
+		start("outbox relay", relay.Run)
+		bg.Add(3)
+		go func() { defer bg.Done(); purgeSessions(runCtx, pool, log) }()
+		box, err := secrets.NewBox(cfg.SecretsKey) // checked by config.Load
+		if err != nil {
+			return err
+		}
+		if !box.Encrypts() {
+			log.Warn("QUACK_SECRETS_KEY is not set: webhook secrets are stored as written (prefer env:/file: references, or set the key)")
+		}
+		dispatcher := &webhook.Worker{DB: pool, Dispatcher: webhook.NewDispatcher(box, cfg.WebhookAllowPrivate),
+			Workers: cfg.WebhookWorkers, Log: log.With("component", "webhooks")}
+		go func() { defer bg.Done(); dispatcher.Run(runCtx) }()
+		go func() { defer bg.Done(); webhook.Purge(runCtx, pool, cfg.WebhookRetention, log) }()
+		engine := &alert.Engine{Pool: pool, Brokers: cfg.KafkaBrokers, Group: bus.TopicName(cfg.AlertGroup), Log: log.With("component", "alerts")}
+		start("alert engine", engine.Run)
 	}
 
+	lc := &httpserver.Lifecycle{}
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpserver.New(cfg, pool, hist, gw, log),
+		Handler:           httpserver.New(cfg, pool, hist, gw, lc, log),
 		ReadHeaderTimeout: 10 * time.Second,
 		// HTTP/2 without TLS (h2c) so gRPC works behind a TLS-terminating proxy.
 		Protocols: protocols(),
@@ -238,14 +277,37 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	select {
 	case <-ctx.Done():
+		log.Info("shutdown signal received; starting graceful shutdown")
 	case err = <-errc:
-		if err != nil {
-			log.Error("component failed", "err", err)
-		}
+		log.Error("component failed; shutting down", "err", err)
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
+	// a second signal aborts the drain and the waits
+	abort, stopAbort := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopAbort()
+	httpTimeout := cfg.ShutdownTimeout
+	if httpTimeout <= 0 {
+		httpTimeout = 10 * time.Second
+	}
+	plan := shutdownPlan{
+		PropagationWait: cfg.DrainPropagationWait,
+		HTTPTimeout:     httpTimeout,
+		WaitTimeout:     15 * time.Second,
+		StartDraining: func() {
+			lc.StartDraining()
+			if gw != nil {
+				gw.StartDrain()
+			}
+		},
+		StopHTTP:  srv.Shutdown,
+		CancelRun: cancelRun,
+		WaitRun:   func(ctx context.Context) { waitGroup(ctx, &bg) },
+		Log:       log,
+	}
+	if gw != nil {
+		plan.DrainSockets = gw.Drain
+	}
+	plan.run(abort)
+	log.Info("graceful shutdown complete")
 	return err
 }
 
@@ -282,12 +344,24 @@ func runIngest(ctx context.Context, cfg *config.Config, log *slog.Logger) error 
 		return err
 	}
 	defer producer.Close()
+	var running atomic.Bool // the consumer is up (readiness); off once stopping
 	go func() {
+		ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }
 		mux := http.NewServeMux()
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+		mux.HandleFunc("/healthz", ok)
+		mux.HandleFunc("/livez", ok)
+		mux.HandleFunc("/startupz", ok)
+		mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+			if !running.Load() || ctx.Err() != nil {
+				http.Error(w, "not consuming", http.StatusServiceUnavailable)
+				return
+			}
+			ok(w, r)
+		})
 		mux.Handle("/metrics", httpserverMetrics())
 		_ = (&http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}).ListenAndServe()
 	}()
+	running.Store(true)
 	log.Info("ingester started", "group", cfg.IngestGroup, "history", cfg.HistoryDriver)
 	return (&ingest.Ingester{Group: cfg.IngestGroup, Store: hist, Brokers: cfg.KafkaBrokers, Publisher: producer, Log: log}).Run(ctx)
 }

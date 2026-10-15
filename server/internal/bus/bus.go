@@ -36,8 +36,9 @@ var Topics = []TopicSpec{
 	// Tombstones of deleted devices are kept a day so slow readers still see them.
 	{Name: events.TopicDeviceConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
 	{Name: events.TopicMQTTConfig, Partitions: 3, Configs: map[string]*string{"cleanup.policy": ptr("compact"), "delete.retention.ms": ptr("86400000")}},
-	{Name: events.TopicMQTTDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}},  // 30 days
-	{Name: events.TopicMQTTCapture, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("3600000")}}, // 1 hour
+	{Name: events.TopicMQTTDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}},            // 30 days
+	{Name: events.TopicElementPipelineDLQ, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("2592000000")}}, // 30 days
+	{Name: events.TopicMQTTCapture, Partitions: 3, Configs: map[string]*string{"retention.ms": ptr("3600000")}},           // 1 hour
 }
 
 // topicPrefix namespaces every topic name on the cluster (QUACK_TOPIC_PREFIX),
@@ -250,8 +251,18 @@ func (p *Producer) PublishSync(ctx context.Context, recs ...*kgo.Record) error {
 	return p.cl.ProduceSync(ctx, recs...).FirstErr()
 }
 
-func (p *Producer) Close() {
-	_ = p.cl.Flush(context.Background())
+// Close flushes buffered records for at most CloseTimeout, then closes.
+func (p *Producer) Close() { p.CloseWithin(CloseTimeout) }
+
+// CloseTimeout bounds the flush when a producer closes.
+const CloseTimeout = 10 * time.Second
+
+// CloseWithin flushes buffered records for at most d (records still buffered
+// then fail), then closes.
+func (p *Producer) CloseWithin(d time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	_ = p.cl.Flush(ctx)
 	p.cl.Close()
 }
 
@@ -296,11 +307,22 @@ type GroupConsumer struct {
 }
 
 func NewGroupConsumer(brokers []string, group string, topics ...string) (*GroupConsumer, error) {
+	return newGroupConsumer(brokers, group, kgo.NewOffset().AtStart(), topics)
+}
+
+// NewLatestGroupConsumer is NewGroupConsumer for a group that, the first time
+// (no committed offsets), starts at the end: it reacts to new events instead
+// of replaying the topic's retention.
+func NewLatestGroupConsumer(brokers []string, group string, topics ...string) (*GroupConsumer, error) {
+	return newGroupConsumer(brokers, group, kgo.NewOffset().AtEnd(), topics)
+}
+
+func newGroupConsumer(brokers []string, group string, reset kgo.Offset, topics []string) (*GroupConsumer, error) {
 	cl, err := kgo.NewClient(debugLogger(),
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(group),
 		kgo.ConsumeTopics(topicNames(topics)...),
-		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.ConsumeResetOffset(reset),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
 		kgo.FetchMaxWait(200*time.Millisecond),

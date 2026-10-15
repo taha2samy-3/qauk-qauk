@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-keys">
+  <title id="t-keys">Quack Quack - Cryptographic Keys</title>
+  <defs>
+    <linearGradient id="qq-keys-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.4" stop-color="#1E1B4B"/>
+      <stop offset="0.75" stop-color="#3730A3"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="qq-keys-gold" x1="16" y1="16" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.5" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="qq-keys-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-keys-bg)"/>
+
+  <!-- Secondary Public Key Ring (Silver/Cyan, angled) -->
+  <circle cx="26" cy="24" r="10" fill="none" stroke="#BAE6FD" stroke-width="3" opacity="0.6"/>
+
+  <!-- Primary Cryptographic Key (45-degree angled gold skeleton key) -->
+  <g filter="url(#qq-keys-shadow)">
+    <!-- Key Bow (Ring) -->
+    <circle cx="23" cy="23" r="11" fill="none" stroke="url(#qq-keys-gold)" stroke-width="4.5"/>
+    <circle cx="23" cy="23" r="4.5" fill="#FFFFFF"/>
+    <circle cx="23" cy="23" r="2" fill="#1E1B4B"/>
+
+    <!-- Key Shaft -->
+    <line x1="31" y1="31" x2="48" y2="48" stroke="url(#qq-keys-gold)" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- Bit 1 (ECDSA signature notch) -->
+    <line x1="43" y1="43" x2="47" y2="39" stroke="url(#qq-keys-gold)" stroke-width="4" stroke-linecap="round"/>
+    
+    <!-- Bit 2 (End security tooth) -->
+    <line x1="48" y1="48" x2="52" y2="44" stroke="url(#qq-keys-gold)" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Digital Bit Pulse Sparks -->
+  <circle cx="48" cy="18" r="2" fill="#38BDF8"/>
+  <circle cx="16" cy="46" r="2" fill="#FBBF24"/>
+</svg>

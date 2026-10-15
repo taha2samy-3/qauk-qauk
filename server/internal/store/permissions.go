@@ -78,7 +78,9 @@ func ListUserElements(ctx context.Context, db DBTX, userID int64) ([]UserElement
 			WHERE ep.user_id = $1 OR ep.group_id IN (SELECT group_id FROM user_groups WHERE user_id = $1)
 			GROUP BY ep.element_id)
 		SELECT e.id, e.device_id, e.name, e.points, e.description, e.details, e.created_at,
-			e.msg_rate, e.msg_burst, e.over_limit, p.permission,
+			e.msg_rate, e.msg_burst, e.over_limit,
+			NULL::int AS pipeline_version, NULL::int AS pipeline_steps, -- admin-only detail
+			p.permission,
 			COALESCE((SELECT jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'details', s.details) ORDER BY s.id)
 				FROM element_styles s WHERE s.element_id = e.id), '[]'::jsonb) AS styles
 		FROM perms p JOIN elements e ON e.id = p.element_id

@@ -14,6 +14,11 @@ export const adminKeys = {
   devices: qk.admin('devices'),
   elements: (deviceId?: string) => qk.admin('elements', deviceId ?? null),
   styles: (elementId: string) => qk.admin('styles', elementId),
+  /** Every elements list (all devices or one); for invalidation. */
+  allElements: qk.admin('elements'),
+  pipeline: (elementId: string) => qk.admin('pipeline', elementId),
+  pipelineUnits: qk.admin('pipeline-units'),
+  pipelineValidate: (steps: string) => qk.admin('pipeline-validate', steps),
   permissions: (f?: { element_id?: string; user_id?: number; group_id?: number }) =>
     qk.admin('permissions', f ?? {}),
   connections: (f?: { device_id?: string; limit?: number }) => qk.admin('connections', f ?? {}),
@@ -47,6 +52,19 @@ export const useStyles = (elementId: string | undefined) =>
     queryFn: () =>
       list(api.GET('/api/v1/admin/elements/{id}/styles', { params: { path: { id: elementId! } } })),
     enabled: !!elementId,
+  })
+export const useElementPipeline = (elementId: string | undefined) =>
+  useQuery({
+    queryKey: adminKeys.pipeline(elementId ?? ''),
+    queryFn: () =>
+      unwrap(api.GET('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId! } } })),
+    enabled: !!elementId,
+  })
+export const usePipelineUnits = () =>
+  useQuery({
+    queryKey: adminKeys.pipelineUnits,
+    queryFn: () => list(api.GET('/api/v1/admin/pipelines/units')),
+    staleTime: Infinity,
   })
 export const usePermissions = (f: { element_id?: string; user_id?: number; group_id?: number }) =>
   useQuery({
@@ -131,4 +149,18 @@ export const adminApi = {
   setPermission: (body: B['PermissionSetInBody']) => unwrap(api.PUT('/api/v1/admin/permissions', { body })),
   deletePermission: (id: number) =>
     unwrap(api.DELETE('/api/v1/admin/permissions/{id}', { params: { path: { id } } })),
+
+  getPipeline: (elementId: string) =>
+    unwrap(api.GET('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  savePipeline: ({ elementId, ...body }: B['PipelineStepsBody'] & { elementId: string }) =>
+    unwrap(api.PUT('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } }, body })),
+  rollbackPipeline: ({ elementId, ...body }: B['PipelineRollbackInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/rollback', { params: { path: { id: elementId } }, body })),
+  deletePipeline: (elementId: string) =>
+    unwrap(api.DELETE('/api/v1/admin/elements/{id}/pipeline', { params: { path: { id: elementId } } })),
+  previewPipeline: ({ elementId, ...body }: B['PipelineStepsBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/preview', { params: { path: { id: elementId } }, body })),
+  testPipeline: ({ elementId, ...body }: B['PipelineTestInBody'] & { elementId: string }) =>
+    unwrap(api.POST('/api/v1/admin/elements/{id}/pipeline/test', { params: { path: { id: elementId } }, body })),
+  validatePipeline: (body: B['PipelineStepsBody']) => unwrap(api.POST('/api/v1/admin/pipelines/validate', { body })),
 }

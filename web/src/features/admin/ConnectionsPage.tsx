@@ -92,7 +92,12 @@ export function ConnectionsPage() {
   return (
     <Page wide>
       <PageHeader
-        title="Connections"
+        title={
+          <span className="flex items-center gap-3">
+            <img src="/brand/logo-connections.svg" alt="" className="size-7 rounded-lg shadow-xs" />
+            <span>Connections</span>
+          </span>
+        }
         description="Audit log of device WebSocket sessions."
         actions={
           <Button variant="outline" onClick={() => void conns.refetch()} disabled={conns.isFetching}>

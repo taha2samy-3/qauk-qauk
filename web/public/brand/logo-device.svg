@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-dev">
+  <title id="t-dev">Quack Quack - IoT Device</title>
+  <defs>
+    <linearGradient id="qq-dev-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="0.4" stop-color="#312E81"/>
+      <stop offset="0.8" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="qq-dev-chip" x1="18" y1="18" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2E8F0"/>
+    </linearGradient>
+    <filter id="qq-dev-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-dev-bg)"/>
+  
+  <!-- Antenna Radio Waves at Top (Quack wireless broadcast) -->
+  <path d="M26 10 A 8 8 0 0 1 38 10" fill="none" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M22 6 A 14 14 0 0 1 42 6" fill="none" stroke="#BAE6FD" stroke-width="1.8" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Microcontroller Pin Connectors (Gold/Amber) -->
+  <!-- Top Pins -->
+  <rect x="24" y="13" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <rect x="30" y="13" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <rect x="36" y="13" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <!-- Bottom Pins -->
+  <rect x="24" y="47" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <rect x="30" y="47" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <rect x="36" y="47" width="3" height="4" rx="1" fill="#FBBF24"/>
+  <!-- Left Pins -->
+  <rect x="12" y="24" width="4" height="3" rx="1" fill="#FBBF24"/>
+  <rect x="12" y="30" width="4" height="3" rx="1" fill="#FBBF24"/>
+  <rect x="12" y="36" width="4" height="3" rx="1" fill="#FBBF24"/>
+  <!-- Right Pins -->
+  <rect x="48" y="24" width="4" height="3" rx="1" fill="#FBBF24"/>
+  <rect x="48" y="30" width="4" height="3" rx="1" fill="#FBBF24"/>
+  <rect x="48" y="36" width="4" height="3" rx="1" fill="#FBBF24"/>
+
+  <!-- Hero Microcontroller Body (White Silicone/Ceramic Package) -->
+  <rect x="15" y="16" width="34" height="32" rx="6" fill="url(#qq-dev-chip)" filter="url(#qq-dev-shadow)"/>
+
+  <!-- Integrated Circuit Core Die (Navy) -->
+  <rect x="21" y="22" width="22" height="20" rx="3.5" fill="#1E1B4B"/>
+
+  <!-- PCB Circuit Paths & Copper Nodes inside Chip -->
+  <circle cx="32" cy="32" r="4.2" fill="#4F46E5"/>
+  <circle cx="32" cy="32" r="1.8" fill="#FBBF24"/>
+  
+  <path d="M25 26 H29 V29" fill="none" stroke="#38BDF8" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M39 26 H35 V29" fill="none" stroke="#38BDF8" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M25 38 H29 V35" fill="none" stroke="#34D399" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M39 38 H35 V35" fill="none" stroke="#34D399" stroke-width="1.4" stroke-linecap="round"/>
+
+  <!-- Live Status LED (Emerald Green Beacon) -->
+  <circle cx="43" cy="19.5" r="1.6" fill="#10B981"/>
+</svg>

@@ -134,6 +134,8 @@ The element's device connected (its first socket on any gateway) or disconnected
 | `invalid_format` | The frame is not valid JSON (`description`: `invalid JSON message`), `element_id` is missing (`'element_id'`), `message` is missing in `message_element` (`'message'`), or `message` contains a NUL character or an unpaired surrogate (`'message' message contains …`) | for `message` problems |
 | `unknown_type` | `type` is missing or unknown (`Unknown message type: <type>`, or `None` when missing) | no |
 | `rate_limited` | More than `QUACK_BROWSER_MSG_RATE` frames per second (default 100, burst 100). The frame was discarded. | no |
+| `delivery_failed` | An MQTT downlink failed (for example the broker stayed unreachable, or the broker refused the topic or payload). The gateway owning the MQTT connection reports it over `control-events.v1` (`io.quack.command.failed.v1`), so it reaches your socket whichever gateway it is on. | yes |
+| `pipeline_failed` | `message_element` with a value the element's [pipeline](../05_core_concepts/element_pipeline.md#_4-commands-the-pipeline-in-reverse) can't convert for the device (for example a value not in a `map` table, or a script's `untransform` failing). The command was not sent. | yes |
 
 Errors never close the socket, and they never contain server internals.
 
@@ -143,6 +145,7 @@ Errors never close the socket, and they never contain server internals.
 |---|---|---|
 | 1001 | `ping timeout` / `server shutting down` | No pong within 15 s (pings every 30 s), or the server is restarting. Reconnect and re-subscribe. |
 | 1009 | | A frame was larger than 64 KiB |
+| 1012 | `server restarting` | The instance is shutting down; sockets are closed spread over a few seconds. Reconnect (after a short random delay) and re-subscribe. |
 | 1013 | `slow consumer` | More than 2048 frames were queued. Reconnect. |
 | 4000 | `session revoked` | Your account was deactivated or deleted, or your password was changed. Log in again. |
 

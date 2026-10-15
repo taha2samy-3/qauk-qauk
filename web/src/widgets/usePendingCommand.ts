@@ -37,10 +37,17 @@ export function usePendingCommand(elementId: string, rt: UseElementResult, label
   // A rejected command (error frame) or losing the subscription ends the wait.
   useEffect(() => {
     if (pending === undefined) return
-    const rejected = rt.error !== errorAtSend.current && rt.error?.code === 'unauthorized'
-    if (rejected || rt.status !== 'subscribed') {
+    const isCmdError =
+      rt.error !== errorAtSend.current &&
+      (rt.error?.code === 'delivery_failed' ||
+        rt.error?.code === 'unauthorized' ||
+        rt.error?.code === 'permission_denied' ||
+        rt.error?.code === 'rate_limited')
+    if (isCmdError || rt.status !== 'subscribed') {
       clear()
-      if (rejected && rt.error) toast.error(`${label}: ${rt.error.description}`)
+      if (isCmdError && rt.error) {
+        toast.error(`${label}: ${rt.error.description || 'Command delivery failed'}`)
+      }
     }
   }, [rt.error, rt.status, pending, clear, label])
 

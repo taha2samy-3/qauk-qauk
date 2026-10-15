@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-audit">
+  <title id="t-audit">Quack Quack - Audit Log Ledger</title>
+  <defs>
+    <linearGradient id="qq-audit-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.4" stop-color="#1E293B"/>
+      <stop offset="0.8" stop-color="#0284C7"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="qq-audit-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-audit-bg)"/>
+
+  <!-- Immutable Ledger Sheet (White Card) -->
+  <rect x="15" y="14" width="34" height="40" rx="5" fill="#FFFFFF" filter="url(#qq-audit-shadow)"/>
+
+  <!-- Ledger Record Lines -->
+  <!-- Header Bar (Navy) -->
+  <rect x="20" y="19" width="16" height="3" rx="1.5" fill="#1E293B"/>
+  <rect x="38" y="19" width="6" height="3" rx="1.5" fill="#0284C7"/>
+
+  <!-- Line 1: Action (Timestamp + Event) -->
+  <circle cx="21.5" cy="28.5" r="2" fill="#10B981"/>
+  <rect x="26" y="27" width="18" height="2.8" rx="1.4" fill="#94A3B8"/>
+
+  <!-- Line 2: Grant / Mutation Event (Amber Accent) -->
+  <circle cx="21.5" cy="35.5" r="2" fill="#FBBF24"/>
+  <rect x="26" y="34" width="14" height="2.8" rx="1.4" fill="#94A3B8"/>
+
+  <!-- Line 3: System Event -->
+  <circle cx="21.5" cy="42.5" r="2" fill="#38BDF8"/>
+  <rect x="26" y="41" width="12" height="2.8" rx="1.4" fill="#94A3B8"/>
+
+  <!-- Inspector Magnifying Glass Lens / Clock Seal (Foreground Right) -->
+  <g filter="url(#qq-audit-shadow)">
+    <!-- Lens Rim (Amber Gold / Navy) -->
+    <circle cx="41" cy="41" r="10.5" fill="#FFFFFF"/>
+    <circle cx="41" cy="41" r="8" fill="#F8FAFC"/>
+    <circle cx="41" cy="41" r="8" fill="none" stroke="#FBBF24" stroke-width="2.5"/>
+
+    <!-- Clock / Verification Crosshairs inside Lens -->
+    <!-- Center Pivot -->
+    <circle cx="41" cy="41" r="1.5" fill="#1E1B4B"/>
+    <!-- Hour Hand -->
+    <line x1="41" y1="41" x2="41" y2="36" stroke="#1E1B4B" stroke-width="1.8" stroke-linecap="round"/>
+    <!-- Minute Hand -->
+    <line x1="41" y1="41" x2="45" y2="41" stroke="#0284C7" stroke-width="1.8" stroke-linecap="round"/>
+
+    <!-- Lens Handle -->
+    <line x1="47.5" y1="47.5" x2="54" y2="54" stroke="#D97706" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+</svg>

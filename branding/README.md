@@ -13,6 +13,8 @@ copies.
 | `logo-mark-mono-dark.svg` / `logo-mark-mono-light.svg` | One-color marks for print, stamps and embossing. |
 | `favicon-32.png`, `apple-touch-icon.png` (180 px), `icon-512.png` | Raster icons (PWA, iOS home screen). |
 | `social-card.svg` / `social-card.png` (1280×640) | GitHub social preview and the docs `og:image`. |
+| `logo-alerts.svg` | Specialized mark for Alerts & Webhook Channels. |
+| `logo-alerts-wordmark.svg` | Horizontal wordmark for Alerts & Notification Channels. |
 
 **Colors**
 

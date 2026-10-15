@@ -43,7 +43,16 @@
           "points": {"type": "integer", "minimum": 0, "maximum": 1000},
           "rate": {"type": ["number", "null"], "exclusiveMinimum": 0},
           "burst": {"type": ["integer", "null"], "minimum": 1},
-          "over_limit": {"enum": ["drop", "latest"]}
+          "over_limit": {"enum": ["drop", "latest"]},
+          "pipeline": {
+            "type": ["object", "null"],
+            "required": ["version", "steps"],
+            "additionalProperties": false,
+            "properties": {
+              "version": {"type": "integer", "minimum": 1},
+              "steps": {"type": "array"}
+            }
+          }
         }
       }
     },

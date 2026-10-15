@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-chart">
+  <title id="t-chart">Quack Quack - Telemetry &amp; Analytics</title>
+  <defs>
+    <linearGradient id="qq-chart-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="0.5" stop-color="#312E81"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="qq-chart-area" x1="0" y1="36" x2="0" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#0284C7" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-chart-bg)"/>
+  
+  <!-- Duck body & head -->
+  <path d="M16.5 35.5C14.2 41.2 11 43.6 6.6 43.2C7.4 49.8 12.2 53.5 19 53.5H32.5C37.4 53.5 40.5 50.6 40.5 46.6C40.5 41.4 35.4 37.7 29 36.2Z" fill="#FFFFFF"/>
+  <circle cx="22.5" cy="27.5" r="11" fill="#FFFFFF"/>
+  <path d="M31.5 25.6C36.4 24.4 41.4 25 44.2 28.1C41.6 31.6 36.6 32.6 31.5 31.4Z" fill="#FBBF24"/>
+  <circle cx="25.4" cy="24.4" r="2.3" fill="#1E1B4B"/>
+  
+  <!-- Radio signal wave (quack) -->
+  <path d="M47 23.5A6 6 0 0 1 47 32" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+  
+  <!-- Live telemetry sparkline curve and area -->
+  <path d="M31 53.5 L36 47 L41 51 L47 43 L52 46 L57 37 L57 53.5 Z" fill="url(#qq-chart-area)"/>
+  <path d="M31 53.5 L36 47 L41 51 L47 43 L52 46 L57 37" fill="none" stroke="#38BDF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Peak data points -->
+  <circle cx="47" cy="43" r="2" fill="#FBBF24"/>
+  <circle cx="57" cy="37" r="2.4" fill="#38BDF8"/>
+  <circle cx="57" cy="37" r="1" fill="#FFFFFF"/>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t-grp">
+  <title id="t-grp">Quack Quack - Groups &amp; Teams</title>
+  <defs>
+    <linearGradient id="qq-grp-bg" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2E1065"/>
+      <stop offset="0.4" stop-color="#581C87"/>
+      <stop offset="0.75" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="qq-grp-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base Squircle -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#qq-grp-bg)"/>
+
+  <!-- Network Interconnection Ring between Members -->
+  <circle cx="32" cy="33" r="16" fill="none" stroke="#E9D5FF" stroke-width="1.6" stroke-dasharray="3 2" opacity="0.6"/>
+
+  <!-- Left Peer Member -->
+  <path d="M11 46 C 11 40, 16 38, 22 38 C 28 38, 33 40, 33 46 Z" fill="#DDD6FE" opacity="0.85"/>
+  <circle cx="22" cy="27" r="6" fill="#DDD6FE" opacity="0.85"/>
+
+  <!-- Right Peer Member -->
+  <path d="M31 46 C 31 40, 36 38, 42 38 C 48 38, 53 40, 53 46 Z" fill="#DDD6FE" opacity="0.85"/>
+  <circle cx="42" cy="27" r="6" fill="#DDD6FE" opacity="0.85"/>
+
+  <!-- Primary Foreground Leader / Center Node -->
+  <!-- Shoulders -->
+  <path d="M19 50 C 19 42.5, 25 39.5, 32 39.5 C 39 39.5, 45 42.5, 45 50 Z" fill="#FFFFFF" filter="url(#qq-grp-shadow)"/>
+  <!-- Head -->
+  <circle cx="32" cy="25" r="7.5" fill="#FFFFFF" filter="url(#qq-grp-shadow)"/>
+  <!-- Cyber Visor (Amber Beak Accent) -->
+  <rect x="27.5" y="24" width="9" height="3" rx="1.5" fill="#FBBF24"/>
+
+  <!-- Central Collaborative Hub Star / Shared Token at Bottom -->
+  <circle cx="32" cy="46" r="3.2" fill="#FBBF24" filter="url(#qq-grp-shadow)"/>
+  <circle cx="32" cy="46" r="1.3" fill="#78350F"/>
+</svg>

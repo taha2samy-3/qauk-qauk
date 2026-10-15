@@ -208,7 +208,7 @@ func TestLimits(t *testing.T) {
 	if _, rej := Process(r, Message{Payload: make([]byte, MaxInputBytes+1)}); !rej[0].Fatal {
 		t.Fatal("oversized payload must be refused")
 	}
-	big := mustCompile(t, `function decodeUplink(i) { return {data: {a: "x".repeat(70000)}}; }`)
+	big := mustCompile(t, `function decodeUplink(i) { var s = "0123456789abcdef"; for (var k = 0; k < 12; k++) s += s; return {data: {a: s + "!"}}; }`)
 	r2 := rule(t, events.MQTTUplink{Format: "json", Device: json.RawMessage(`{"fixed":"d"}`),
 		FieldMap: json.RawMessage(`[{"element":"A","value":"a"}]`)}, big)
 	vals, rej := Process(r2, Message{Payload: []byte(`{}`)})

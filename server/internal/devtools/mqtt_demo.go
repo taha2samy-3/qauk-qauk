@@ -72,7 +72,7 @@ func demoMQTT(ctx context.Context, pool *pgxpool.Pool, svc *service.Service, a s
 	if err != nil {
 		return err
 	}
-	if err := svc.GrantMQTTDevice(ctx, a, conn.ID, devID, dev.MQTTID); err != nil {
+	if err := svc.GrantMQTTDevice(ctx, a, conn.ID, devID, dev.MQTTID, false); err != nil {
 		return err
 	}
 	dec, err := svc.CreateDecoder(ctx, a, "Cold room battery frame", demoBatteryDecoder)
