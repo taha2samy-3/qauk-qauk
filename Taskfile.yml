@@ -51,7 +51,51 @@ tasks:
         ignore_error: true
       - cmd: pkill -f "web/node_modules/.bin/../vite/bin/vite.js|nodered/web.*vite"
         ignore_error: true
+      - cmd: pkill -f "mock/greenhouse.mjs|digital-twin-3d.*vite"
+        ignore_error: true
       - echo "stopped"
+
+  # --- the AURA·GROW 3D greenhouse twin (digital-twin-3d/) ---
+  twin:all:
+    desc: "Everything in one command: the platform (task start) and the 3D greenhouse twin with its simulated devices. Ctrl+C stops it all."
+    deps: [start, twin]
+  twin:
+    desc: "The 3D greenhouse twin on a running platform: provisions it (devices, elements, alert rules, API token, a dashboard), starts the simulated devices and serves the twin on http://127.0.0.1:5174"
+    deps: [twin:install]
+    cmds:
+      - task: twin:wait
+      - task: twin:setup
+      - task: twin:procs
+  twin:setup:
+    desc: Provision the greenhouse on the platform (idempotent)
+    dir: digital-twin-3d
+    cmds: [node mock/setup.mjs]
+  twin:mock:
+    desc: Run only the simulated greenhouse devices (scenarios on http://127.0.0.1:5175)
+    dir: digital-twin-3d
+    cmds: [node mock/greenhouse.mjs]
+  twin:web:
+    desc: Serve only the 3D twin (http://127.0.0.1:5174)
+    dir: digital-twin-3d
+    cmds: [pnpm exec vite --port 5174 --strictPort]
+  twin:procs:
+    internal: true
+    deps: [twin:mock, twin:web]
+  twin:install:
+    internal: true
+    dir: digital-twin-3d
+    status: [test -d node_modules/three, test -d node_modules/vite]
+    cmds: [pnpm install]
+  twin:wait:
+    internal: true
+    cmds:
+      - |
+        for i in $(seq 1 120); do
+          curl -fs -o /dev/null --max-time 1 http://127.0.0.1:8080/readyz && exit 0
+          [ "$i" = 1 ] && echo "waiting for the platform on :8080…"
+          sleep 1
+        done
+        echo "the platform isn't up on :8080: run 'task start' (or 'task twin:all')" >&2; exit 1
 
   start:procs:
     internal: true
