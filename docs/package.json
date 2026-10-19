@@ -9,9 +9,9 @@
     "preview": "vitepress preview --port 4174"
   },
   "devDependencies": {
-    "mermaid": "^12.1.0",
+    "mermaid": "^12.2.0",
     "vitepress": "^1.6.4",
     "vitepress-plugin-mermaid": "^2.0.17",
-    "vue": "^3.5.0"
+    "vue": "^3.5.44"
   }
 }
