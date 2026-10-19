@@ -12,6 +12,7 @@ import {
   UsersRound,
   Boxes,
   Webhook,
+  KeySquare,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,5 +38,6 @@ export const ADMIN_NAV: NavItem[] = [
   { to: '/admin/mqtt', label: 'MQTT', icon: RadioTower },
   { to: '/admin/presence', label: 'Presence', icon: Activity },
   { to: '/admin/webhooks', label: 'Webhooks', icon: Webhook },
+  { to: '/admin/api-tokens', label: 'API tokens', icon: KeySquare },
   { to: '/admin/audit', label: 'Audit log', icon: FileClock },
 ]

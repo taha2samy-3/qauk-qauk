@@ -64,11 +64,18 @@ func (g *Gateway) applyControl(ctx context.Context, c events.ControlChanged) {
 				g.reevaluate(ctx, b, *c.ElementID)
 			}
 		}
+		// streams follow grants (a group grant: every stream may be concerned)
+		for _, b := range g.streamClientsOf(c.UserID) {
+			g.refreshStream(ctx, b)
+		}
 	case events.KindGroupMembership:
 		if c.UserID != nil {
 			for _, b := range g.hub.UserClients(*c.UserID) {
 				for _, id := range b.Subscriptions() {
 					g.reevaluate(ctx, b, id)
+				}
+				if b.stream != nil {
+					g.refreshStream(ctx, b)
 				}
 			}
 		}
@@ -78,12 +85,19 @@ func (g *Gateway) applyControl(ctx context.Context, c events.ControlChanged) {
 			return
 		}
 		for _, b := range g.hub.UserClients(uid) {
-			if _, err := store.SessionUser(ctx, g.pool, b.sessionHash); err != nil {
+			if b.stream != nil && b.stream.token != nil {
+				if !g.recheckStreamToken(ctx, b) { // revoked token or deactivated machine user
+					continue
+				}
+			} else if _, err := store.SessionUser(ctx, g.pool, b.sessionHash); err != nil {
 				b.kill(closeRevoked, "session revoked")
 				continue
 			}
 			for _, id := range b.Subscriptions() {
 				g.reevaluate(ctx, b, id)
+			}
+			if b.stream != nil {
+				g.refreshStream(ctx, b)
 			}
 		}
 	}

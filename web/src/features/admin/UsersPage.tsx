@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Pencil, Plus, ShieldCheck, Trash2, Users } from 'lucide-react'
+import { Pencil, Plus, ShieldCheck, Trash2, Users, Bot } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
@@ -43,6 +43,7 @@ function UserDialog({
   onOpenChange: (o: boolean) => void
 }) {
   const creating = !user
+  const machine = user?.kind === 'service'
   const [formError, setFormError] = useState<string>()
   const form = useForm<Values>({
     resolver: zodResolver(schema(creating)),
@@ -99,21 +100,23 @@ function UserDialog({
           <Input id="u-email" type="email" aria-invalid={!!errors.email} {...form.register('email')} />
         </Field>
       </div>
-      <Field
-        label={creating ? 'Password' : 'New password'}
-        htmlFor="u-password"
-        error={errors.password?.message}
-        description={creating ? 'At least 8 characters.' : 'Leave empty to keep the current password.'}
-        required={creating}
-      >
-        <Input
-          id="u-password"
-          type="password"
-          autoComplete="new-password"
-          aria-invalid={!!errors.password}
-          {...form.register('password')}
-        />
-      </Field>
+      {!machine && (
+        <Field
+          label={creating ? 'Password' : 'New password'}
+          htmlFor="u-password"
+          error={errors.password?.message}
+          description={creating ? 'At least 8 characters.' : 'Leave empty to keep the current password.'}
+          required={creating}
+        >
+          <Input
+            id="u-password"
+            type="password"
+            autoComplete="new-password"
+            aria-invalid={!!errors.password}
+            {...form.register('password')}
+          />
+        </Field>
+      )}
       <div className="grid gap-2 rounded-lg border p-3">
         <Controller
           control={form.control}
@@ -128,19 +131,29 @@ function UserDialog({
             </label>
           )}
         />
-        <Controller
-          control={form.control}
-          name="is_admin"
-          render={({ field }) => (
-            <label className="flex items-center justify-between gap-4 text-sm">
-              <span>
-                <span className="font-medium">Administrator</span>
-                <span className="text-muted-foreground block text-xs">Full access to the admin section.</span>
-              </span>
-              <Switch checked={field.value} onCheckedChange={field.onChange} aria-label="Administrator" />
-            </label>
-          )}
-        />
+        {!machine && (
+          <Controller
+            control={form.control}
+            name="is_admin"
+            render={({ field }) => (
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  <span className="font-medium">Administrator</span>
+                  <span className="text-muted-foreground block text-xs">
+                    Full access to the admin section.
+                  </span>
+                </span>
+                <Switch checked={field.value} onCheckedChange={field.onChange} aria-label="Administrator" />
+              </label>
+            )}
+          />
+        )}
+        {machine && (
+          <p className="text-muted-foreground text-xs">
+            A machine user has no password and can&apos;t be an administrator: it signs in with API tokens
+            (Admin → API tokens).
+          </p>
+        )}
       </div>
     </FormDialog>
   )
@@ -179,7 +192,11 @@ export function UsersPage() {
       header: 'Role',
       sortValue: (u) => (u.is_admin ? 0 : 1),
       cell: (u) =>
-        u.is_admin ? (
+        u.kind === 'service' ? (
+          <Badge variant="outline">
+            <Bot /> Machine
+          </Badge>
+        ) : u.is_admin ? (
           <Badge variant="secondary">
             <ShieldCheck /> Admin
           </Badge>

@@ -10,6 +10,7 @@
     "element_id": {"type": "string", "format": "uuid"},
     "device_id": {"type": "string", "format": "uuid"},
     "source": {"enum": ["device", "user"]},
+    "track": {"type": "boolean", "description": "A user command whose delivery is reported (io.quack.command.status.v1); its event id is the command id"},
     "actor": {
       "type": "object",
       "required": ["id", "name"],

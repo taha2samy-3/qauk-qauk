@@ -8,7 +8,8 @@ Quack Quack exposes these interfaces. All of them are served by `quack serve` on
 | [Device REST API](./device_rest_api.md) | `/device/v1/*` | Devices that wake, send and sleep; scripts; serverless | The same device JWT |
 | [Device gRPC API](./device_grpc_api.md) | `/quack.device.v1.DeviceService/*` | gRPC clients, gateways with generated code | The same device JWT (metadata) |
 | [Browser WebSocket API](./browser_api.md) | `/browser/simple/` | The web app or any client acting as a user | `quack_session` cookie, plus an Origin check |
-| [REST API](./rest_api.md) | `/api/v1/*` | The web app, admin scripts, integrations | `quack_session` cookie; CSRF via cross-origin protection |
+| [REST API](./rest_api.md) | `/api/v1/*` | The web app, admin scripts, integrations | `quack_session` cookie (CSRF via cross-origin protection), or an [API token](./api_tokens.md) on the endpoints that accept one |
+| [Integration API](./integration_api.md) | `/api/v1/elements`, `/api/v1/alerts`, `/api/v1/elements/{id}/commands`, and the WebSocket `/api/v1/stream` | Your own dashboards, scripts, automations | An [API token](./api_tokens.md) (`Authorization: Bearer qk_…`), or a session |
 
 The live, always-current REST reference is at **`/api/docs`** (OpenAPI 3.1 at `/api/openapi.json`).
 

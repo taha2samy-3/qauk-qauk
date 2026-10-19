@@ -37,9 +37,19 @@ type Config struct {
 
 	// AllowedOrigins are full origins (scheme://host[:port]) trusted for browser
 	// WebSockets and cross-origin API writes. Same-host requests are always allowed.
-	AllowedOrigins []string      `env:"QUACK_ALLOWED_ORIGINS" envSeparator:","`
-	CookieSecure   bool          `env:"QUACK_COOKIE_SECURE" envDefault:"true"`
-	SessionTTL     time.Duration `env:"QUACK_SESSION_TTL" envDefault:"336h"`
+	AllowedOrigins []string `env:"QUACK_ALLOWED_ORIGINS" envSeparator:","`
+	// APICORSOrigins may call the API from browsers with API tokens (CORS,
+	// without credentials): full origins, or "*" for any.
+	APICORSOrigins []string `env:"QUACK_API_CORS_ORIGINS" envSeparator:","`
+	// APICommandRate bounds the commands one user or machine user sends
+	// through the REST API, per second per instance (burst: twice that); 0
+	// disables the limit.
+	APICommandRate float64 `env:"QUACK_API_COMMAND_RATE" envDefault:"10"`
+	// CommandRetention is how long tracked commands (integration API) and
+	// their status are kept.
+	CommandRetention time.Duration `env:"QUACK_COMMAND_RETENTION" envDefault:"168h"`
+	CookieSecure     bool          `env:"QUACK_COOKIE_SECURE" envDefault:"true"`
+	SessionTTL       time.Duration `env:"QUACK_SESSION_TTL" envDefault:"336h"`
 
 	// DeviceJWTMaxLifetime caps exp-iat (or exp-now when iat is absent) for device tokens.
 	DeviceJWTMaxLifetime time.Duration `env:"QUACK_DEVICE_JWT_MAX_LIFETIME" envDefault:"24h"`

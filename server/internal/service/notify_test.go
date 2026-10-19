@@ -17,6 +17,13 @@ func TestAlertRuleValidation(t *testing.T) {
 	if err := validateAlertRule(ok); err != nil {
 		t.Fatal(err)
 	}
+	for _, f := range []string{"value", "humidity", "gps.lat", "sensors[0].t"} {
+		in := ok
+		in.Field = f
+		if err := validateAlertRule(in); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
 	for name, in := range map[string]AlertRuleInput{
 		"no max":              {Name: "x", Condition: "outside_range", Threshold: 10, Severity: "info"},
 		"max below min":       {Name: "x", Condition: "outside_range", Threshold: 10, ThresholdMax: ptr(5.0), Severity: "info"},
@@ -26,6 +33,8 @@ func TestAlertRuleValidation(t *testing.T) {
 		"unknown severity":    {Name: "x", Condition: "above", Severity: "fatal"},
 		"max on above":        {Name: "x", Condition: "above", ThresholdMax: ptr(1.0), Severity: "info"},
 		"no name":             {Condition: "above", Severity: "info"},
+		"field with space":    {Name: "x", Field: "a b", Condition: "above", Severity: "info"},
+		"field with wildcard": {Name: "x", Field: "sensors[*].t", Condition: "above", Severity: "info"},
 	} {
 		if validateAlertRule(in) == nil {
 			t.Errorf("%s: must be refused", name)

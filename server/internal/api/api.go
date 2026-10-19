@@ -15,6 +15,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/history"
+	"github.com/taha2samy/quackquack/server/internal/ratelimit"
 	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
@@ -28,6 +29,8 @@ type API struct {
 	svc     *service.Service
 	log     *slog.Logger
 	limiter *loginLimiter
+	// commands bounds REST commands per caller (QUACK_API_COMMAND_RATE)
+	commands ratelimit.Limiter
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
@@ -41,7 +44,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.L
 		svc.ElementRateMax = cfg.ElementMsgRateMax
 	}
 	return &API{cfg: cfg, pool: pool, hist: hist, histSem: make(chan struct{}, max(cfg.HistoryMaxQueries, 1)),
-		svc: svc, log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
+		svc: svc, log: log, limiter: newLoginLimiter(10, 5*time.Minute), commands: ratelimit.NewLocal()}
 }
 
 type ctxKey int
@@ -50,12 +53,32 @@ const (
 	userKey ctxKey = iota
 	sessionKey
 	requestKey
+	tokenKey
 )
 
-// SessionMiddleware resolves the session cookie (if any) into the request context.
+// BearerToken returns the API token of a request ("Authorization: Bearer
+// qk_…"), if it carries one. Such a request is authenticated by the token
+// only: its cookies are ignored, so it needs no cross-origin (CSRF) check.
+func BearerToken(r *http.Request) (string, bool) {
+	tok, ok := authn.BearerToken(r.Header.Get("Authorization"))
+	if !ok || !service.IsAPIToken(tok) {
+		return "", false
+	}
+	return tok, true
+}
+
+// SessionMiddleware resolves the API token or else the session cookie (if
+// any) into the request context.
 func (a *API) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), requestKey, r)
+		if tok, ok := BearerToken(r); ok {
+			if p, err := store.TokenUser(ctx, a.pool, authn.HashToken(tok)); err == nil {
+				ctx = context.WithValue(ctx, tokenKey, p)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		if c, err := r.Cookie(authn.SessionCookie); err == nil && c.Value != "" {
 			hash := authn.HashToken(c.Value)
 			if u, err := store.SessionUser(ctx, a.pool, hash); err == nil {
@@ -67,11 +90,48 @@ func (a *API) SessionMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// currentUser is the logged-in user (a session). API tokens are refused:
+// an endpoint serves them only if it asks for them with caller.
 func currentUser(ctx context.Context) (store.User, error) {
 	if u, ok := ctx.Value(userKey).(store.User); ok {
 		return u, nil
 	}
-	return store.User{}, huma.Error401Unauthorized("authentication required")
+	if _, ok := ctx.Value(tokenKey).(store.TokenPrincipal); ok {
+		return store.User{}, huma.Error403Forbidden("this endpoint isn't available to API tokens")
+	}
+	return store.User{}, unauthorized(ctx)
+}
+
+// caller is who calls an endpoint open to API tokens: the logged-in user, or
+// a token's machine user if the token has the scope.
+func caller(ctx context.Context, scope string) (store.User, error) {
+	if u, ok := ctx.Value(userKey).(store.User); ok {
+		return u, nil
+	}
+	if p, ok := ctx.Value(tokenKey).(store.TokenPrincipal); ok {
+		if !p.Has(scope) {
+			return store.User{}, huma.Error403Forbidden("the API token lacks the " + scope + " scope")
+		}
+		return p.User, nil
+	}
+	return store.User{}, unauthorized(ctx)
+}
+
+// callerActor is how the caller appears in the audit log and on its commands.
+func callerActor(ctx context.Context, u store.User) service.Actor {
+	if p, ok := ctx.Value(tokenKey).(store.TokenPrincipal); ok {
+		return service.TokenActor(p)
+	}
+	return service.UserActor(u)
+}
+
+func unauthorized(ctx context.Context) error {
+	if r := requestFrom(ctx); r != nil {
+		if _, ok := BearerToken(r); ok {
+			return huma.Error401Unauthorized("invalid, expired or revoked API token")
+		}
+	}
+	return huma.Error401Unauthorized("authentication required")
 }
 
 func requireAdmin(ctx context.Context) (store.User, error) {
@@ -121,6 +181,8 @@ func (a *API) Register(api huma.API) {
 	a.registerAdminPipeline(api)
 	a.registerAdminWebhooks(api)
 	a.registerAdminAlerts(api)
+	a.registerAdminTokens(api)
+	a.registerIntegration(api)
 }
 
 func Config() huma.Config {

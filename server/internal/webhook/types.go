@@ -23,21 +23,24 @@ const (
 
 // NotificationEvent represents the canonical internal payload passed to webhooks.
 type NotificationEvent struct {
-	ID          uuid.UUID       `json:"id"`
-	Type        string          `json:"type"` // "io.quack.alert.threshold", "io.quack.test.notification"
-	Severity    Severity        `json:"severity"`
-	State       string          `json:"state,omitempty"` // alerts: firing or resolved
-	RuleID      *uuid.UUID      `json:"rule_id,omitempty"`
-	RuleName    string          `json:"rule_name,omitempty"`
-	Title       string          `json:"title"`
-	Message     string          `json:"message"`
-	DeviceID    *uuid.UUID      `json:"device_id,omitempty"`
-	DeviceName  string          `json:"device_name,omitempty"`
-	ElementID   *uuid.UUID      `json:"element_id,omitempty"`
-	ElementName string          `json:"element_name,omitempty"`
-	Value       any             `json:"value,omitempty"`
-	Timestamp   time.Time       `json:"timestamp"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	ID          uuid.UUID  `json:"id"`
+	Type        string     `json:"type"` // "io.quack.alert.threshold", "io.quack.test.notification"
+	Severity    Severity   `json:"severity"`
+	State       string     `json:"state,omitempty"` // alerts: firing or resolved
+	RuleID      *uuid.UUID `json:"rule_id,omitempty"`
+	RuleName    string     `json:"rule_name,omitempty"`
+	Title       string     `json:"title"`
+	Message     string     `json:"message"`
+	DeviceID    *uuid.UUID `json:"device_id,omitempty"`
+	DeviceName  string     `json:"device_name,omitempty"`
+	ElementID   *uuid.UUID `json:"element_id,omitempty"`
+	ElementName string     `json:"element_name,omitempty"`
+	// Field is the message attribute Value was read from (alerts): "value"
+	// for the element's value, else e.g. "humidity" or "gps.lat".
+	Field     string          `json:"field,omitempty"`
+	Value     any             `json:"value,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
 // Target is an endpoint with its secrets opened, ready to send to.

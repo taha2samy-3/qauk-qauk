@@ -137,6 +137,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/elements/{id}/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The numeric attributes of an element's newest stored messages, for picking what an alert rule watches */
+        get: operations["list-element-attributes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/elements/{id}/pipeline": {
         parameters: {
             query?: never;
@@ -318,6 +335,58 @@ export interface paths {
         head?: never;
         /** @description Any change forces devices using this key to reconnect. */
         patch: operations["update-key"];
+        trace?: never;
+    };
+    "/api/v1/admin/machine-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Machine users (accounts for integrations) with their API tokens */
+        get: operations["list-machine-users"];
+        put?: never;
+        /** Create a machine user: no password, never admin; grant it elements, then give it tokens */
+        post: operations["create-machine-user"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machine-users/{id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an API token for a machine user (the token is returned once) */
+        post: operations["create-api-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machine-users/{id}/tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an API token */
+        delete: operations["revoke-api-token"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/admin/mqtt/connections": {
@@ -770,6 +839,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert rules of the elements the caller may read, with whether each is firing (API tokens: alerts scope) */
+        get: operations["list-alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -838,6 +924,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/commands/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What became of a command the caller sent: accepted, delivered, failed or superseded (API tokens: control scope) */
+        get: operations["get-command"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dashboards": {
         parameters: {
             query?: never;
@@ -872,6 +975,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/elements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Elements the caller may read, with their device and, optionally, their newest value (API tokens: read scope) */
+        get: operations["list-visible-elements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/elements/{id}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a command to an element's device, like a dashboard (needs RC; API tokens: control scope) */
+        post: operations["send-command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/elements/{id}/history": {
         parameters: {
             query?: never;
@@ -879,8 +1016,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Historical values of an element (requires read permission) */
+        /** Historical values of an element (requires read permission; API tokens need the read scope) */
         get: operations["element-history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/elements/{id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An element's newest stored device message (API tokens: read scope) */
+        get: operations["element-latest"];
         put?: never;
         post?: never;
         delete?: never;
@@ -896,7 +1050,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Elements the current user can read, with effective permission, details and styles */
+        /** Elements the current user (or API token, read scope) can read, with effective permission, details and styles */
         get: operations["my-elements"];
         put?: never;
         post?: never;
@@ -910,12 +1064,71 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIToken: {
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** Format: date-time */
+            expires_at?: string;
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description The token's first characters, to recognize it */
+            prefix: string;
+            scopes: string[] | null;
+            /** Format: int64 */
+            user_id: number;
+        };
+        APITokenCreateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/APITokenCreateInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description Optional; the token stops working then
+             */
+            expires_at?: string;
+            /** @description What the token is for, e.g. wallboard */
+            name: string;
+            /** @description read: elements, values, history; control: commands (elements granted RC); alerts: alert events */
+            scopes: ("read" | "control" | "alerts")[] | null;
+        };
+        APITokenCreatedOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/APITokenCreatedOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** Format: date-time */
+            expires_at?: string;
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description The token's first characters, to recognize it */
+            prefix: string;
+            scopes: string[] | null;
+            /** @description The token, shown once: send it as Authorization: Bearer <token> */
+            token: string;
+            /** Format: int64 */
+            user_id: number;
+        };
         AlertRuleView: {
             condition: string;
             /** Format: date-time */
             created_at: string;
             element_id: string;
             enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
             firing: boolean;
             /** Format: double */
             hysteresis: number;
@@ -954,6 +1167,53 @@ export interface components {
             n: number;
             /** Format: date-time */
             t: string;
+        };
+        Command: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/Command.json
+             */
+            readonly $schema?: string;
+            actor: string;
+            command_id: string;
+            /** Format: date-time */
+            created_at: string;
+            element_id: string;
+            message: unknown;
+            reason?: string;
+            /** @enum {string} */
+            status: "accepted" | "delivered" | "failed" | "superseded";
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CommandAccepted: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/CommandAccepted.json
+             */
+            readonly $schema?: string;
+            /** @description The id of the element event the command became */
+            command_id: string;
+            element_id: string;
+            /**
+             * @description accepted: on its way to the device; GET /api/v1/commands/{id} and the stream tell what became of it
+             * @enum {string}
+             */
+            status: "accepted";
+            /** Format: date-time */
+            time: string;
+        };
+        CommandInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/CommandInBody.json
+             */
+            readonly $schema?: string;
+            /** @description The command, in the element's (engineering) units, e.g. {"value": 1} */
+            message: unknown;
         };
         Connection: {
             /** Format: date-time */
@@ -1107,6 +1367,8 @@ export interface components {
             created_at: string;
             element_id: string;
             enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
             /** Format: double */
             hysteresis: number;
             id: string;
@@ -1133,6 +1395,8 @@ export interface components {
              */
             condition: "above" | "below" | "outside_range" | "equals";
             enabled?: boolean;
+            /** @description The message attribute to watch, as history names it: temperature, gps.lat, sensors[0].t (default value, the element's value) */
+            field?: string;
             /**
              * Format: double
              * @description How far back past the threshold the value must go before the alert resolves
@@ -1159,6 +1423,20 @@ export interface components {
              * @description High end for outside_range (required there, greater than threshold)
              */
             threshold_max?: number;
+        };
+        ElementAttribute: {
+            /** @description As alert rules and history name it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
+            /**
+             * Format: date-time
+             * @description When that value was stored
+             */
+            time: string;
+            /**
+             * Format: double
+             * @description Its newest value
+             */
+            value: number;
         };
         ElementCreateInBody: {
             /**
@@ -1343,6 +1621,22 @@ export interface components {
             events?: components["schemas"]["HistoryEvent"][] | null;
             step: string;
         };
+        IntegrationElement: {
+            description: string;
+            /** @description Free-form widget settings (unit, range…) */
+            details: unknown;
+            device_id: string;
+            device_name: string;
+            id: string;
+            /** @description With latest=true: the newest stored device message, if any */
+            latest?: components["schemas"]["LatestValue"];
+            name: string;
+            /**
+             * @description R: read; RC: read and send commands
+             * @enum {string}
+             */
+            permission: "R" | "RC";
+        };
         Key: {
             /**
              * Format: uri
@@ -1380,6 +1674,27 @@ export interface components {
             readonly $schema?: string;
             is_active?: boolean;
             name?: string;
+        };
+        LatestOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/LatestOutBody.json
+             */
+            readonly $schema?: string;
+            element_id: string;
+            /** @description null when the element has no stored device message yet */
+            latest: components["schemas"]["LatestValue"];
+        };
+        LatestValue: {
+            message: unknown;
+            /** Format: date-time */
+            time: string;
+            /**
+             * Format: double
+             * @description The element's numeric value (message.value, a chart's y, or a bare number), if it has one
+             */
+            value?: number;
         };
         LoginInputBody: {
             /**
@@ -1660,6 +1975,33 @@ export interface components {
             /** @description MQTT topic filter, + and # allowed */
             topic_filter: string;
         };
+        MachineUser: {
+            /** Format: date-time */
+            created_at: string;
+            email: string;
+            /** Format: int64 */
+            id: number;
+            is_active: boolean;
+            is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
+            /** Format: date-time */
+            last_login_at: string | null;
+            tokens: components["schemas"]["APIToken"][] | null;
+            username: string;
+        };
+        MachineUserCreateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MachineUserCreateInBody.json
+             */
+            readonly $schema?: string;
+            /** @description Who to contact about it */
+            email?: string;
+            /** @description The account's username, e.g. greenhouse-dashboard */
+            name: string;
+        };
         MeBody: {
             /**
              * Format: uri
@@ -1675,6 +2017,8 @@ export interface components {
             id: number;
             is_active: boolean;
             is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
             /** Format: date-time */
             last_login_at: string | null;
             username: string;
@@ -1910,6 +2254,8 @@ export interface components {
             id: number;
             is_active: boolean;
             is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
             /** Format: date-time */
             last_login_at: string | null;
             username: string;
@@ -1977,6 +2323,41 @@ export interface components {
             is_admin?: boolean;
             password?: string;
             username?: string;
+        };
+        VisibleAlert: {
+            /**
+             * Format: date-time
+             * @description When it last started firing or resolved
+             */
+            changed_at?: string;
+            condition: string;
+            /** Format: date-time */
+            created_at: string;
+            device_id: string;
+            device_name: string;
+            element_id: string;
+            element_name: string;
+            enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
+            firing: boolean;
+            /** Format: double */
+            hysteresis: number;
+            id: string;
+            /**
+             * Format: double
+             * @description The value of the last change of state
+             */
+            last_value?: number;
+            message: string;
+            name: string;
+            severity: string;
+            /** Format: double */
+            threshold: number;
+            /** Format: double */
+            threshold_max?: number;
+            /** Format: date-time */
+            updated_at: string;
         };
         WebhookBody: {
             /**
@@ -2598,6 +2979,37 @@ export interface operations {
             };
         };
     };
+    "list-element-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementAttribute"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-element-pipeline": {
         parameters: {
             query?: never;
@@ -3195,6 +3607,133 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Key"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-machine-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineUser"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-machine-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MachineUserCreateInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-api-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["APITokenCreateInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APITokenCreatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "revoke-api-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -4472,6 +5011,38 @@ export interface operations {
             };
         };
     };
+    "list-alerts": {
+        parameters: {
+            query?: {
+                /** @description firing: the enabled rules firing now; all: every rule */
+                state?: "firing" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisibleAlert"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     login: {
         parameters: {
             query?: never;
@@ -4582,6 +5153,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Command"];
+                };
             };
             /** @description Error */
             default: {
@@ -4751,6 +5353,73 @@ export interface operations {
             };
         };
     };
+    "list-visible-elements": {
+        parameters: {
+            query?: {
+                /** @description Include each element's newest stored device message */
+                latest?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationElement"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "send-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommandInBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandAccepted"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "element-history": {
         parameters: {
             query?: {
@@ -4782,6 +5451,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "element-latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestOutBody"];
                 };
             };
             /** @description Error */

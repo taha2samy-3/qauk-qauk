@@ -102,6 +102,13 @@ tasks:
     env:
       QUACK_ROLES: '{{if .MQTT}}api,gateway,mqtt{{else}}api,gateway{{end}}'
       QUACK_ALLOW_INSECURE_TLS: '{{if .MQTT}}true{{end}}'
+      # one local instance: Ctrl+C stops in a few seconds
+      QUACK_DRAIN_PROPAGATION_WAIT: 0s
+      QUACK_DRAIN_DURATION: 2s
+      # webhooks may target local test receivers (never in production)
+      QUACK_WEBHOOK_ALLOW_PRIVATE: "true"
+      # a fixed development key (base64 of 32 bytes); production sets its own
+      QUACK_SECRETS_KEY: '{{.QUACK_SECRETS_KEY | default "ZGV2LW9ubHktcXVhY2stc2VjcmV0cy1rZXktMDAwMDA="}}'
     cmds: ["{{.BIN}} serve"]
   ingest:
     desc: Run the history ingester locally (metrics on :9100)

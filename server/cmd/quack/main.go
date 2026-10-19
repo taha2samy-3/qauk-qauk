@@ -244,7 +244,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		relay := &outbox.Relay{Pool: pool, Producer: producer, Log: log, Published: func(n int) { metrics.OutboxPublished.Add(float64(n)) }}
 		start("outbox relay", relay.Run)
 		bg.Add(3)
-		go func() { defer bg.Done(); purgeSessions(runCtx, pool, log) }()
+		go func() { defer bg.Done(); purgeSessions(runCtx, pool, cfg.CommandRetention, log) }()
 		box, err := secrets.NewBox(cfg.SecretsKey) // checked by config.Load
 		if err != nil {
 			return err
@@ -318,12 +318,15 @@ func protocols() *http.Protocols {
 	return p
 }
 
-func purgeSessions(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) {
+func purgeSessions(ctx context.Context, pool *pgxpool.Pool, commandRetention time.Duration, log *slog.Logger) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
 		if n, err := store.PurgeExpiredSessions(ctx, pool); err == nil && n > 0 {
 			log.Info("purged expired sessions", "count", n)
+		}
+		if n, err := store.PurgeCommands(ctx, pool, commandRetention); err == nil && n > 0 {
+			log.Info("purged old commands", "count", n)
 		}
 		select {
 		case <-ctx.Done():

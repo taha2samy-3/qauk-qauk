@@ -6,7 +6,13 @@ import (
 	"time"
 )
 
-const userCols = `id, username, email, password_hash, is_active, is_admin, created_at, last_login_at`
+const userCols = `id, username, email, password_hash, is_active, is_admin, kind, created_at, last_login_at`
+
+// Kinds of users.
+const (
+	UserHuman   = "human"
+	UserService = "service" // a machine user: API tokens, no login
+)
 
 func GetUserByUsername(ctx context.Context, db DBTX, username string) (User, error) {
 	return one[User](db.Query(ctx, `SELECT `+userCols+` FROM users WHERE username = $1`, username))
@@ -21,8 +27,11 @@ func ListUsers(ctx context.Context, db DBTX) ([]User, error) {
 }
 
 func InsertUser(ctx context.Context, db DBTX, u User) (User, error) {
-	return one[User](db.Query(ctx, `INSERT INTO users (username, email, password_hash, is_active, is_admin)
-		VALUES ($1, $2, $3, $4, $5) RETURNING `+userCols, u.Username, u.Email, u.PasswordHash, u.IsActive, u.IsAdmin))
+	if u.Kind == "" {
+		u.Kind = UserHuman
+	}
+	return one[User](db.Query(ctx, `INSERT INTO users (username, email, password_hash, is_active, is_admin, kind)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING `+userCols, u.Username, u.Email, u.PasswordHash, u.IsActive, u.IsAdmin, u.Kind))
 }
 
 func UpdateUser(ctx context.Context, db DBTX, u User) (User, error) {
@@ -55,7 +64,7 @@ func SessionUser(ctx context.Context, db DBTX, hash []byte) (User, error) {
 	return one[User](db.Query(ctx, `UPDATE sessions s SET last_seen_at = now()
 		FROM users u
 		WHERE s.token_hash = $1 AND s.expires_at > now() AND u.id = s.user_id AND u.is_active
-		RETURNING u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.created_at, u.last_login_at`, hash))
+		RETURNING u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.kind, u.created_at, u.last_login_at`, hash))
 }
 
 func DeleteSession(ctx context.Context, db DBTX, hash []byte) error {
@@ -117,7 +126,7 @@ func RemoveGroupMember(ctx context.Context, db DBTX, groupID, userID int64) erro
 }
 
 func ListGroupMembers(ctx context.Context, db DBTX, groupID int64) ([]User, error) {
-	return many[User](db.Query(ctx, `SELECT u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.created_at, u.last_login_at
+	return many[User](db.Query(ctx, `SELECT u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.kind, u.created_at, u.last_login_at
 		FROM users u JOIN user_groups ug ON ug.user_id = u.id WHERE ug.group_id = $1 ORDER BY u.id`, groupID))
 }
 

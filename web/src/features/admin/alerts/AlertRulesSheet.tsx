@@ -29,10 +29,12 @@ import {
   ruleBody,
   ruleForm,
   useElementAlerts,
+  useElementAttributes,
   type AlertCondition,
   type AlertRuleForm,
   type AlertSeverity,
   type ElementAlertRule,
+  type ElementAttribute,
 } from './api'
 
 const CONDITIONS: { value: AlertCondition; label: string }[] = [
@@ -87,6 +89,7 @@ export function AlertRulesSheet({
 
 function AlertRules({ element }: { element: AdminElement }) {
   const { data: rules = [], isLoading } = useElementAlerts(element.id)
+  const attributes = useElementAttributes(element.id)
   const keys = [alertKeys.elementAlerts(element.id)]
   const save = useAdminMutation(alertApi.save, keys)
   const del = useAdminMutation(alertApi.delete, keys)
@@ -150,8 +153,9 @@ function AlertRules({ element }: { element: AdminElement }) {
           <SheetTitle>Alert rules · {element.name}</SheetTitle>
         </div>
         <SheetDescription>
-          Each rule watches this element’s value (a number, or the message’s <code>value</code> field, after the
-          pipeline) and notifies the webhooks subscribed to its severity once when it fires and once when it resolves.
+          Each rule watches one numeric attribute of this element’s messages (its value, or another one such as{' '}
+          <code>humidity</code>), after the pipeline, and notifies the webhooks subscribed to its severity once when it
+          fires and once when it resolves.
         </SheetDescription>
       </SheetHeader>
 
@@ -271,6 +275,13 @@ function AlertRules({ element }: { element: AdminElement }) {
             </Field>
           </div>
 
+          <AttributeField
+            value={form.field}
+            onChange={(field) => set({ field })}
+            attributes={attributes.data}
+            changed={editing && rules.find((r) => r.id === form.id)?.field !== form.field.trim()}
+          />
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Condition" htmlFor="alert-cond">
               <Select value={form.condition} onValueChange={(v) => set({ condition: v as AlertCondition })}>
@@ -342,5 +353,46 @@ function AlertRules({ element }: { element: AdminElement }) {
       </SheetBody>
       {confirm.dialog}
     </>
+  )
+}
+
+/** The attribute a rule watches, with the ones the element's messages carry as suggestions. */
+function AttributeField({
+  value,
+  onChange,
+  attributes,
+  changed,
+}: {
+  value: string
+  onChange: (field: string) => void
+  attributes: ElementAttribute[] | undefined
+  /** Editing a rule to watch another attribute (it then starts over). */
+  changed: boolean
+}) {
+  const field = value.trim() || 'value'
+  const seen = attributes?.find((a) => a.field === field)
+  let hint = 'The message attribute to watch: value (the element\u2019s value), or a path like temperature, gps.lat, sensors[0].t.'
+  if (seen) hint = `Now ${seen.value}. ` + hint
+  else if (attributes && attributes.length > 0) hint = `Not in the element\u2019s recent messages. ` + hint
+  if (changed) hint += ' Changing it starts the rule over (not firing).'
+  return (
+    <Field label="Attribute" htmlFor="alert-field" description={hint}>
+      <Input
+        id="alert-field"
+        list="alert-attributes"
+        className="font-mono text-xs"
+        value={value}
+        placeholder="value"
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+      />
+      <datalist id="alert-attributes">
+        {(attributes ?? []).map((a) => (
+          <option key={a.field} value={a.field}>
+            {String(a.value)}
+          </option>
+        ))}
+      </datalist>
+    </Field>
   )
 }

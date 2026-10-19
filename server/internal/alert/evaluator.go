@@ -28,6 +28,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/db"
 	"github.com/taha2samy/quackquack/server/internal/events"
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/store"
 	"github.com/taha2samy/quackquack/server/internal/webhook"
@@ -72,27 +73,18 @@ func Next(r store.ElementAlertRule, firing bool, v float64) bool {
 	return firing
 }
 
-// Number extracts the value an alert compares: a bare number, a boolean
-// (1/0), or the "value" field of an object holding one of those. Anything
-// else (text, objects without a numeric value, NaN) isn't evaluated.
-func Number(msg json.RawMessage) (float64, bool) {
-	var v any
-	if err := json.Unmarshal(msg, &v); err != nil {
-		return 0, false
+// Values returns the numeric attributes of a device message, named and read
+// exactly as history stores them (history.Points), so a rule watches the same
+// series its chart shows: "value" (the element's value: a bare number,
+// message.value, or a chart's y), "temperature", "gps.lat", "sensors[0].t".
+// Numbers, booleans (1/0) and numeric strings count.
+func Values(msg json.RawMessage) map[string]float64 {
+	pts := history.Points(history.Event{Payload: msg, Value: history.NumericValue(msg)})
+	out := make(map[string]float64, len(pts))
+	for _, p := range pts {
+		out[p.Field] = p.Value
 	}
-	if m, ok := v.(map[string]any); ok {
-		v = m["value"]
-	}
-	switch x := v.(type) {
-	case float64:
-		return x, !math.IsNaN(x) && !math.IsInf(x, 0)
-	case bool:
-		if x {
-			return 1, true
-		}
-		return 0, true
-	}
-	return 0, false
+	return out
 }
 
 // Engine evaluates rules on the element events of its partitions.
@@ -158,11 +150,12 @@ func (e *Engine) process(ctx context.Context, recs []*kgo.Record) error {
 		if len(rules) == 0 {
 			continue
 		}
-		v, ok := Number(m.Message)
-		if !ok {
-			continue
-		}
+		values := Values(m.Message)
 		for _, r := range rules {
+			v, ok := values[r.Field]
+			if !ok {
+				continue // this message doesn't carry the rule's attribute
+			}
 			if err := e.evaluate(ctx, r, v, ev.Time.Time); err != nil {
 				metrics.AlertErrors.Inc()
 				return fmt.Errorf("rule %s: %w", r.ID, err)
@@ -202,17 +195,25 @@ func Enqueue(ctx context.Context, tx store.DBTX, r store.ActiveAlertRule, state 
 	evt := webhook.NotificationEvent{
 		ID: uuid.Must(uuid.NewV7()), Type: "io.quack.alert.threshold", Severity: webhook.Severity(r.Severity), State: state,
 		RuleID: &ruleID, RuleName: r.Name, DeviceID: &deviceID, DeviceName: r.DeviceName,
-		ElementID: &elementID, ElementName: r.ElementName, Value: v, Timestamp: at.UTC(),
+		ElementID: &elementID, ElementName: r.ElementName, Field: r.Field, Value: v, Timestamp: at.UTC(),
 	}
+	// what was measured: "Cold room temperature", or "Climate humidity" for an attribute
+	what := r.DeviceName + " " + r.ElementName
+	subject := r.ElementName
+	if r.Field != "" && r.Field != history.ValueField {
+		what += " " + r.Field
+		subject += " " + r.Field
+	}
+	num := strconv.FormatFloat(v, 'f', -1, 64)
 	if state == webhook.StateFiring {
 		evt.Title = "Alert: " + r.Name
 		evt.Message = r.Message
 		if evt.Message == "" {
-			evt.Message = fmt.Sprintf("%s is %s (%s %s)", strconv.FormatFloat(v, 'f', -1, 64), describe(r.ElementAlertRule), r.DeviceName, r.ElementName)
+			evt.Message = fmt.Sprintf("%s is %s (%s)", num, describe(r.ElementAlertRule), what)
 		}
 	} else {
 		evt.Title = "Resolved: " + r.Name
-		evt.Message = fmt.Sprintf("%s is back to normal (%s)", r.ElementName, strconv.FormatFloat(v, 'f', -1, 64))
+		evt.Message = fmt.Sprintf("%s is back to normal (%s)", subject, num)
 	}
 	payload, err := json.Marshal(evt)
 	if err != nil {
@@ -220,6 +221,22 @@ func Enqueue(ctx context.Context, tx store.DBTX, r store.ActiveAlertRule, state 
 	}
 	endpoints, err := store.ListWebhookEndpoints(ctx, tx)
 	if err != nil {
+		return err
+	}
+	// integration streams hear it too, on every gateway (exactly once with
+	// the state change: same transaction)
+	ev, err := events.New(events.TypeAlertChanged, events.SourceAPI, r.ElementID.String(), events.AlertChanged{
+		RuleID: r.ID, RuleName: r.Name, State: state, Severity: r.Severity, ElementID: r.ElementID, ElementName: r.ElementName,
+		DeviceID: r.DeviceID, DeviceName: r.DeviceName, Field: r.Field, Value: v, Message: evt.Message, Time: at.UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	if err := store.EnqueueOutbox(ctx, tx, events.TopicControlEvents, ev.PartitionKey, b); err != nil {
 		return err
 	}
 	for _, ep := range endpoints {

@@ -249,3 +249,20 @@ func TestRedactURL(t *testing.T) {
 		}
 	}
 }
+
+// A rule on an attribute names it next to the value in every chat format.
+func TestFormatsNameTheAttribute(t *testing.T) {
+	evt := sampleEvent()
+	evt.Field = "climate.humidity"
+	for _, f := range []string{"slack", "discord", "teams", "telegram"} {
+		body, _, err := FormatPayload(Target{Format: f, ChatID: "-1"}, evt, time.Now())
+		if err != nil || !strings.Contains(string(body), "Value (climate.humidity)") {
+			t.Errorf("%s: %v %s", f, err, body)
+		}
+	}
+	evt.Field = "value"
+	body, _, _ := FormatPayload(Target{Format: "slack"}, evt, time.Now())
+	if strings.Contains(string(body), "Value (") {
+		t.Errorf("the element's own value needs no name: %s", body)
+	}
+}

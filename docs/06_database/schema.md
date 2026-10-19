@@ -16,6 +16,9 @@ Two stores, both migrated by `quack migrate`:
 | `00009_webhooks.sql` | Webhook endpoints and deliveries (`webhook_endpoints`, `webhook_deliveries`) |
 | `00010_element_alerts.sql` | Per-element alert rules with thresholds, hysteresis and severities (`element_alert_rules`) |
 | `00011_alerts_webhooks_hardening.sql` | Alert state (`element_alert_state`), webhook `options`, delivery leases (`locked_until`), 8 attempts by default, one delivery per endpoint and event |
+| `00012_alert_rule_field.sql` | `element_alert_rules.field`: the message attribute a rule watches (default `value`) |
+| `00013_api_tokens.sql` | Machine users (`users.kind`) and their `api_tokens` |
+| `00014_commands.sql` | `commands`: commands sent through the integration API and what became of them |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -348,11 +351,24 @@ Migration `00008_element_pipelines.sql`. These tables store the per-element in-m
 
 ## Alerts and webhooks
 
-Migrations `00009_webhooks.sql`, `00010_element_alerts.sql` and `00011_alerts_webhooks_hardening.sql`. See [Alerts and webhooks](../05_core_concepts/webhooks_and_alerts.md).
+Migrations `00009_webhooks.sql`, `00010_element_alerts.sql`, `00011_alerts_webhooks_hardening.sql` and `00012_alert_rule_field.sql`. See [Alerts and webhooks](../05_core_concepts/webhooks_and_alerts.md).
 
 | Table | Holds |
 |---|---|
-| `element_alert_rules` | Per element: `name`, `condition` (`above`, `below`, `outside_range`, `equals`), `threshold`, `threshold_max`, `hysteresis`, `severity`, `message`, `enabled`. Cascades on element delete. |
+| `element_alert_rules` | Per element: `name`, `field` (the attribute watched, named as history names it; `value` by default), `condition` (`above`, `below`, `outside_range`, `equals`), `threshold`, `threshold_max`, `hysteresis`, `severity`, `message`, `enabled`. Cascades on element delete. |
 | `element_alert_state` | Per rule: `firing`, `last_value`, `changed_at`. Changed only in the transaction that queues the notifications of that change, and only if it still holds the value read, so a restart neither repeats an alert nor loses a recovery. |
 | `webhook_endpoints` | `name`, `url`, `format`, `secret`, `severities`, `headers`, `custom_template`, `options` (Telegram's `chat_id`), `enabled`. `url`, `secret` and header values are stored encrypted (`enc:v1:…`, with `QUACK_SECRETS_KEY`), as `env:`/`file:` references, or as written when no key is set. |
 | `webhook_deliveries` | One per endpoint and notification (unique `(endpoint_id, event_id)`): `payload`, `status` (`pending`, `delivering`, `retrying`, `delivered`, `failed`), `attempts` / `max_attempts` (8), `last_status_code`, `last_error`, `latency_ms`, `next_retry_at`, `locked_until` (the lease of the worker sending it), `delivered_at`. Delivered and failed rows are purged after `QUACK_WEBHOOK_RETENTION`. Cascades on endpoint delete. |
+
+## API tokens
+
+Migration `00013_api_tokens.sql`. See [API tokens](../04_api_reference/api_tokens.md).
+
+| Table / column | Holds |
+|---|---|
+| `users.kind` | `human`, or `service` for a machine user (no password; a check keeps it from being an admin) |
+| `api_tokens` | A machine user's tokens: `name`, `prefix` (the first characters, to recognize it), `token_hash` (SHA-256; the token itself isn't stored), `scopes` (`read`, `control`, `alerts`), `expires_at`, `created_by`, `last_used_at`. Cascades on user delete. |
+
+## Commands
+
+Migration `00014_commands.sql`: the commands sent through the [integration API](../04_api_reference/integration_api.md#what-became-of-a-command), keyed by their element event id: `element_id`, `user_id` (the sender), `actor`, `message`, `status` (`accepted`, `delivered`, `failed`, `superseded`), `reason`, `created_at`, `updated_at`. A status moves on from `accepted` only once (the first report wins). Rows older than `QUACK_COMMAND_RETENTION` are purged hourly.

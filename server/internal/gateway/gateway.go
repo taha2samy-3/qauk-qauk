@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/ratelimit"
 	"github.com/taha2samy/quackquack/server/internal/registry"
+	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
 // publisher sends events to the bus (a *bus.Producer; fakes in tests).
@@ -167,7 +169,8 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 			return
 		}
 		dev, br := renderMessage(&m, ev.Time, g.pipelineOf(m.DeviceID, m.ElementID))
-		g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
+		sent, refused := g.hub.Deliver(&m, id, ev.Time.Time, dev, br, "")
+		g.trackDelivery(&m, id, sent, refused)
 		g.notifyCommand(&m, id, ev.Time.Time)
 	case events.TypeDevicePresence:
 		var p events.DevicePresence
@@ -175,6 +178,16 @@ func (g *Gateway) onBusEvent(ctx context.Context, _ string, ev *events.Event) {
 			return
 		}
 		g.hub.PresenceChanged(p.DeviceID, p.Connected)
+	case events.TypeCommandStatus:
+		var cs events.CommandStatus
+		if err := ev.DecodeData(&cs); err == nil {
+			g.streamCommandStatus(cs)
+		}
+	case events.TypeAlertChanged:
+		var a events.AlertChanged
+		if err := ev.DecodeData(&a); err == nil {
+			g.streamAlert(a)
+		}
 	case events.TypeCommandFailed:
 		var f events.CommandFailed
 		if err := ev.DecodeData(&f); err == nil {
@@ -205,6 +218,13 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 		}
 		return ""
 	}
+	g.publishElementEvent(ev, m, localOrigin, done, pipelineVersion)
+	return ev.ID
+}
+
+// publishElementEvent delivers locally, then publishes an element event
+// built by the caller (who may need its id first: tracked commands).
+func (g *Gateway) publishElementEvent(ev *events.Event, m *events.ElementMessage, localOrigin string, done func(error), pipelineVersion int) {
 	if strings.HasPrefix(localOrigin, viaMQTT) {
 		ev.QuackVia = localOrigin
 	}
@@ -213,14 +233,57 @@ func (g *Gateway) publishElementDone(m *events.ElementMessage, localOrigin strin
 	}
 	dev, br := renderMessage(m, ev.Time, g.pipelineOf(m.DeviceID, m.ElementID))
 	id := uuid.MustParse(ev.ID)
-	g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
+	sent, refused := g.hub.Deliver(m, id, ev.Time.Time, dev, br, localOrigin)
+	g.trackDelivery(m, id, sent, refused)
 	g.notifyCommand(m, id, ev.Time.Time)
 	if done != nil {
 		g.producer.PublishDurable(g.produceCtx(), events.TopicElementEvents, ev, done)
 	} else {
 		g.producer.Publish(g.produceCtx(), events.TopicElementEvents, ev)
 	}
-	return ev.ID
+}
+
+// trackDelivery reports a tracked command handed to device sockets here (or
+// that the element's pipeline couldn't convert for them).
+func (g *Gateway) trackDelivery(m *events.ElementMessage, id uuid.UUID, sent, refused int) {
+	if !m.Track || m.Source != events.SourceUser {
+		return
+	}
+	switch {
+	case sent > 0:
+		g.commandStatus(id, events.CommandStatusDelivered, "handed to a device connection")
+	case refused > 0:
+		g.commandStatus(id, events.CommandStatusFailed, "the element's pipeline can't convert it for the device")
+	}
+}
+
+// commandStatus records what became of a tracked command (the first report
+// wins) and tells its sender's streams, on every gateway. It doesn't block.
+func (g *Gateway) commandStatus(id uuid.UUID, status, reason string) {
+	if g.pool == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(g.produceCtx(), 10*time.Second)
+		defer cancel()
+		c, ok, err := store.SetCommandStatus(ctx, g.pool, id, status, reason)
+		if err != nil {
+			g.log.Warn("gateway: command status", "command", id, "err", err)
+			return
+		}
+		if !ok {
+			return // not tracked, or already reported
+		}
+		user := ""
+		if c.UserID != nil {
+			user = strconv.FormatInt(*c.UserID, 10)
+		}
+		ev, err := events.New(events.TypeCommandStatus, events.GatewaySource(g.cfg.GatewayID), c.ElementID.String(), events.CommandStatus{
+			CommandID: id, ElementID: c.ElementID, UserID: user, Status: status, Reason: reason, GatewayID: g.cfg.GatewayID})
+		if err == nil && g.producer != nil {
+			g.producer.Publish(g.produceCtx(), events.TopicControlEvents, ev)
+		}
+	}()
 }
 
 // pipelineOf returns an element's pipeline with the names its steps see.

@@ -51,9 +51,9 @@ var steps = map[string]time.Duration{"1m": time.Minute, "5m": 5 * time.Minute, "
 func (a *API) registerMe(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "my-elements", Method: http.MethodGet, Path: "/api/v1/me/elements", Tags: []string{"dashboard"},
-		Summary: "Elements the current user can read, with effective permission, details and styles",
+		Summary: "Elements the current user (or API token, read scope) can read, with effective permission, details and styles",
 	}, func(ctx context.Context, _ *struct{}) (*MyElementsOutput, error) {
-		u, err := currentUser(ctx)
+		u, err := caller(ctx, store.ScopeRead)
 		if err != nil {
 			return nil, err
 		}
@@ -66,12 +66,12 @@ func (a *API) registerMe(api huma.API) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "element-history", Method: http.MethodGet, Path: "/api/v1/elements/{id}/history", Tags: []string{"dashboard"},
-		Summary: "Historical values of an element (requires read permission)",
+		Summary: "Historical values of an element (requires read permission; API tokens need the read scope)",
 	}, a.history)
 }
 
 func (a *API) history(ctx context.Context, in *HistoryInput) (*HistoryOutput, error) {
-	u, err := currentUser(ctx)
+	u, err := caller(ctx, store.ScopeRead)
 	if err != nil {
 		return nil, err
 	}
