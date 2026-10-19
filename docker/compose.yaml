@@ -120,6 +120,12 @@ services:
     environment:
       <<: *quack-env
       QUACK_ROLES: api,gateway
+      # one instance and no load balancer: nothing to wait for, a short drain
+      QUACK_DRAIN_PROPAGATION_WAIT: 0s
+      QUACK_DRAIN_DURATION: 5s
+    # covers drain (5s) + in-flight requests (10s) + background loops (15s) +
+    # producer flush (10s); Docker's default 10s would kill it mid-drain
+    stop_grace_period: 45s
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -128,6 +134,7 @@ services:
     image: quack:dev
     profiles: [app]
     command: ["ingest"]
+    stop_grace_period: 30s # finish the batch and flush
     environment:
       <<: *quack-env
       QUACK_HTTP_ADDR: ":9100"
