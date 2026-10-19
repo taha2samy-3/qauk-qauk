@@ -90,10 +90,11 @@ func TestAlertsEndToEnd(t *testing.T) {
 	defer stopWorker()
 	go (&webhook.Worker{DB: pool, Dispatcher: webhook.NewDispatcher(box, true), Workers: 2, Poll: 100 * time.Millisecond, Log: logger}).Run(workerCtx)
 	group := bus.TopicName("quack-alerts-it-" + uuid.NewString()[:8])
+	// the group starts where the test does: a slow join can't skip the first readings
+	skipBacklog(t, group)
 	startEngine := func() context.CancelFunc {
 		ectx, cancel := context.WithCancel(ctx)
 		go func() { _ = (&alert.Engine{Pool: pool, Brokers: brokers, Group: group, Log: logger}).Run(ectx) }()
-		time.Sleep(3 * time.Second) // joins the group (a new group starts at the end)
 		return cancel
 	}
 	stopEngine := startEngine()
@@ -176,12 +177,11 @@ func TestAlertOnAttribute(t *testing.T) {
 	wctx, stopWorker := context.WithCancel(ctx)
 	defer stopWorker()
 	go (&webhook.Worker{DB: pool, Dispatcher: webhook.NewDispatcher(box, true), Workers: 1, Poll: 100 * time.Millisecond, Log: logger}).Run(wctx)
+	group := bus.TopicName("quack-alerts-it-" + uuid.NewString()[:8])
+	skipBacklog(t, group)
 	ectx, stopEngine := context.WithCancel(ctx)
 	defer stopEngine()
-	go func() {
-		_ = (&alert.Engine{Pool: pool, Brokers: brokers, Group: bus.TopicName("quack-alerts-it-" + uuid.NewString()[:8]), Log: logger}).Run(ectx)
-	}()
-	time.Sleep(3 * time.Second)
+	go func() { _ = (&alert.Engine{Pool: pool, Brokers: brokers, Group: group, Log: logger}).Run(ectx) }()
 
 	c := newClient(t, inst.URL)
 	auth := deviceHeader(t, fix.key, fix.device.ID.String()).Get("Authorization")
