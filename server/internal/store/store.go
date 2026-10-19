@@ -80,6 +80,8 @@ type User struct {
 	PasswordHash string     `db:"password_hash" json:"-"`
 	IsActive     bool       `db:"is_active" json:"is_active"`
 	IsAdmin      bool       `db:"is_admin" json:"is_admin"`
+	// Kind is "human", or "service" for a machine user (API tokens only).
+	Kind string `db:"kind" json:"kind" enum:"human,service"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 	LastLoginAt  *time.Time `db:"last_login_at" json:"last_login_at"`
 }

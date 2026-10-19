@@ -337,6 +337,58 @@ export interface paths {
         patch: operations["update-key"];
         trace?: never;
     };
+    "/api/v1/admin/machine-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Machine users (accounts for integrations) with their API tokens */
+        get: operations["list-machine-users"];
+        put?: never;
+        /** Create a machine user: no password, never admin; grant it elements, then give it tokens */
+        post: operations["create-machine-user"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machine-users/{id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an API token for a machine user (the token is returned once) */
+        post: operations["create-api-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/machine-users/{id}/tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an API token */
+        delete: operations["revoke-api-token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/mqtt/connections": {
         parameters: {
             query?: never;
@@ -896,7 +948,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Historical values of an element (requires read permission) */
+        /** Historical values of an element (requires read permission; API tokens need the read scope) */
         get: operations["element-history"];
         put?: never;
         post?: never;
@@ -913,7 +965,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Elements the current user can read, with effective permission, details and styles */
+        /** Elements the current user (or API token, read scope) can read, with effective permission, details and styles */
         get: operations["my-elements"];
         put?: never;
         post?: never;
@@ -927,6 +979,63 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIToken: {
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** Format: date-time */
+            expires_at?: string;
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description The token's first characters, to recognize it */
+            prefix: string;
+            scopes: string[] | null;
+            /** Format: int64 */
+            user_id: number;
+        };
+        APITokenCreateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/APITokenCreateInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description Optional; the token stops working then
+             */
+            expires_at?: string;
+            /** @description What the token is for, e.g. wallboard */
+            name: string;
+            /** @description read: elements, values, history; control: commands (elements granted RC); alerts: alert events */
+            scopes: ("read" | "control" | "alerts")[] | null;
+        };
+        APITokenCreatedOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/APITokenCreatedOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            /** Format: date-time */
+            expires_at?: string;
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description The token's first characters, to recognize it */
+            prefix: string;
+            scopes: string[] | null;
+            /** @description The token, shown once: send it as Authorization: Bearer <token> */
+            token: string;
+            /** Format: int64 */
+            user_id: number;
+        };
         AlertRuleView: {
             condition: string;
             /** Format: date-time */
@@ -1697,6 +1806,33 @@ export interface components {
             /** @description MQTT topic filter, + and # allowed */
             topic_filter: string;
         };
+        MachineUser: {
+            /** Format: date-time */
+            created_at: string;
+            email: string;
+            /** Format: int64 */
+            id: number;
+            is_active: boolean;
+            is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
+            /** Format: date-time */
+            last_login_at: string | null;
+            tokens: components["schemas"]["APIToken"][] | null;
+            username: string;
+        };
+        MachineUserCreateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/MachineUserCreateInBody.json
+             */
+            readonly $schema?: string;
+            /** @description Who to contact about it */
+            email?: string;
+            /** @description The account's username, e.g. greenhouse-dashboard */
+            name: string;
+        };
         MeBody: {
             /**
              * Format: uri
@@ -1712,6 +1848,8 @@ export interface components {
             id: number;
             is_active: boolean;
             is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
             /** Format: date-time */
             last_login_at: string | null;
             username: string;
@@ -1947,6 +2085,8 @@ export interface components {
             id: number;
             is_active: boolean;
             is_admin: boolean;
+            /** @enum {string} */
+            kind: "human" | "service";
             /** Format: date-time */
             last_login_at: string | null;
             username: string;
@@ -3263,6 +3403,133 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Key"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-machine-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineUser"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-machine-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MachineUserCreateInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-api-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["APITokenCreateInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APITokenCreatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "revoke-api-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

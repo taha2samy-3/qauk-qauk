@@ -20,6 +20,7 @@ import { PermissionsPage } from '@/features/admin/PermissionsPage'
 import { PresencePage } from '@/features/admin/PresencePage'
 import { UsersPage } from '@/features/admin/UsersPage'
 import { WebhooksPage } from '@/features/admin/webhooks/WebhooksPage'
+import { ApiTokensPage } from '@/features/admin/tokens/ApiTokensPage'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
               { path: 'mqtt/:id', element: <MqttConnectionPage /> },
               { path: 'presence', element: <PresencePage /> },
               { path: 'webhooks', element: <WebhooksPage /> },
+              { path: 'api-tokens', element: <ApiTokensPage /> },
               { path: 'audit', element: <AuditPage /> },
             ],
           },

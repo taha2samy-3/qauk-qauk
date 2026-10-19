@@ -112,8 +112,21 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 				}
 			}
 		}
+		// API-token requests carry no cookie the browser adds on its own, so
+		// they can't be forged cross-site: they skip the check (and their
+		// cookies are ignored).
+		csrf := func(next http.Handler) http.Handler {
+			checked := cop.Handler(next)
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, ok := api.BearerToken(r); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+				checked.ServeHTTP(w, r)
+			})
+		}
 		r.Group(func(r chi.Router) {
-			r.Use(cop.Handler, a.SessionMiddleware)
+			r.Use(csrf, a.SessionMiddleware)
 			humaAPI := humachi.New(r, api.Config())
 			a.Register(humaAPI)
 		})

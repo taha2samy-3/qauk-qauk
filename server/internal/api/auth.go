@@ -96,12 +96,12 @@ func (a *API) login(ctx context.Context, in *LoginInput) (*LoginOutput, error) {
 	}
 	invalid := huma.Error401Unauthorized("invalid username or password")
 	u, err := store.GetUserByUsername(ctx, a.pool, in.Body.Username)
-	if err != nil {
+	if err != nil || u.PasswordHash == "" { // machine users have no password
 		authn.DummyVerify(in.Body.Password)
 		return nil, invalid
 	}
 	ok, rehash, err := authn.VerifyPassword(u.PasswordHash, in.Body.Password)
-	if err != nil || !ok || !u.IsActive {
+	if err != nil || !ok || !u.IsActive || u.Kind == store.UserService {
 		return nil, invalid
 	}
 	if rehash {

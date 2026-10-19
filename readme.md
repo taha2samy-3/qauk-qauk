@@ -78,6 +78,8 @@
 - **Three device transports, one core.** The [WebSocket](docs/04_api_reference/device_api.md) (legacy v1, unchanged), [REST](docs/04_api_reference/device_rest_api.md) (batches, SenML, long-poll commands, retry-safe message ids) and [gRPC](docs/04_api_reference/device_grpc_api.md) (unary and streams; gRPC-Web and Connect too). Same token, elements and rules on all three, at 6–7 ms median latency across instances ([measured](docs/refactor/baseline.md#device-transports-2026-10-09)).
 - **MQTT 5 connections.** Devices that already talk to a broker need no firmware change: the gateways subscribe to your Mosquitto, EMQX or AWS IoT broker, spread the connections between themselves with rendezvous hashing, and lose nothing on failover. A JavaScript decoder (TTN/ChirpStack codecs work as is) and a field map turn one message into many element values, and dashboard commands go back as downlinks. See [MQTT connections](docs/10_mqtt.md).
 - **Element pipelines.** Pre-bus in-memory transformations per element: scale, offset, deadband, clamp, round, map, drop_if, and JavaScript scripts (Goja sandbox). Filtered messages do not consume rate limit tokens, and commands sent to hardware are automatically inverted while dashboards and history keep engineering units. Interactive pipeline builder with preview and version rollback. See [Element pipeline](docs/05_core_concepts/element_pipeline.md).
+- **Alerts and webhooks.** Threshold rules on any attribute of an element's messages (`value`, `climate.humidity`, `sensors[0].t`) with hysteresis, notifying once when they fire and once when they resolve, even across restarts. Webhooks post to Slack, Discord, Teams, Telegram, signed JSON (Standard Webhooks) or your own template, with retries, encrypted secrets and no access to private networks. See [Alerts and webhooks](docs/05_core_concepts/webhooks_and_alerts.md).
+- **API tokens for integrations.** Machine users with scoped, expiring tokens (`read`, `control`, `alerts`) let your own dashboards, scripts and automations use the platform without a browser session, limited to the elements they are granted. See [API tokens](docs/04_api_reference/api_tokens.md).
 - **Rate limits per element.** Each element (data stream) has its own limit, and over the limit it either drops or keeps only the latest value. A per-device guard sits on top, and changes apply live. See [Rate limits](docs/05_core_concepts/rate_limits.md).
 - **Drag-and-drop dashboards.** A React app with a responsive grid. Widgets: gauge, line chart, stat, switch, slider and device status. Dashboards are private or shared, and sharing never bypasses element permissions.
 - **RBAC per element.** `R` / `RC` grants for users and groups, resolved to the highest grant. Permission and group changes reach open sockets live: they upgrade, downgrade or unsubscribe.
@@ -198,6 +200,11 @@ Run `task --list` to see every task.
 | **MQTT dashboard**: two elements from one JSON message, a battery decoded from a binary frame, a compressor switch sent as a downlink | **MQTT admin**: which gateway owns each slot, granted devices, uplink rules and downlinks |
 | ![Testing a rule and capturing live MQTT messages](docs/imgs/screenshots/mqtt-test-capture-light.webp) | ![Rejected MQTT messages with their reasons](docs/imgs/screenshots/mqtt-rejected-light.webp) |
 | **Test & capture**: run a sample through the decoder and field map, watch raw messages | **Rejected messages**: ungranted devices, decoder errors, bad payloads |
+
+| | |
+|---|---|
+| ![Alert rules on an element, on its value or any attribute](docs/imgs/screenshots/admin-alerts-light.webp) | ![API tokens: machine users with scoped, expiring tokens](docs/imgs/screenshots/admin-api-tokens-dark.webp) |
+| **Alert rules**: on the value or any attribute, with hysteresis, firing state and the attribute's current value | **API tokens**: machine users for integrations, scoped and expiring tokens, last use |
 
 ![Node-RED with the Quack Quack nodes next to the live dashboard they feed](docs/imgs/screenshots/nodered-with-dashboard.webp)
 

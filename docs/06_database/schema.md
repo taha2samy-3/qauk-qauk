@@ -17,6 +17,7 @@ Two stores, both migrated by `quack migrate`:
 | `00010_element_alerts.sql` | Per-element alert rules with thresholds, hysteresis and severities (`element_alert_rules`) |
 | `00011_alerts_webhooks_hardening.sql` | Alert state (`element_alert_state`), webhook `options`, delivery leases (`locked_until`), 8 attempts by default, one delivery per endpoint and event |
 | `00012_alert_rule_field.sql` | `element_alert_rules.field`: the message attribute a rule watches (default `value`) |
+| `00013_api_tokens.sql` | Machine users (`users.kind`) and their `api_tokens` |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -357,3 +358,12 @@ Migrations `00009_webhooks.sql`, `00010_element_alerts.sql`, `00011_alerts_webho
 | `element_alert_state` | Per rule: `firing`, `last_value`, `changed_at`. Changed only in the transaction that queues the notifications of that change, and only if it still holds the value read, so a restart neither repeats an alert nor loses a recovery. |
 | `webhook_endpoints` | `name`, `url`, `format`, `secret`, `severities`, `headers`, `custom_template`, `options` (Telegram's `chat_id`), `enabled`. `url`, `secret` and header values are stored encrypted (`enc:v1:…`, with `QUACK_SECRETS_KEY`), as `env:`/`file:` references, or as written when no key is set. |
 | `webhook_deliveries` | One per endpoint and notification (unique `(endpoint_id, event_id)`): `payload`, `status` (`pending`, `delivering`, `retrying`, `delivered`, `failed`), `attempts` / `max_attempts` (8), `last_status_code`, `last_error`, `latency_ms`, `next_retry_at`, `locked_until` (the lease of the worker sending it), `delivered_at`. Delivered and failed rows are purged after `QUACK_WEBHOOK_RETENTION`. Cascades on endpoint delete. |
+
+## API tokens
+
+Migration `00013_api_tokens.sql`. See [API tokens](../04_api_reference/api_tokens.md).
+
+| Table / column | Holds |
+|---|---|
+| `users.kind` | `human`, or `service` for a machine user (no password; a check keeps it from being an admin) |
+| `api_tokens` | A machine user's tokens: `name`, `prefix` (the first characters, to recognize it), `token_hash` (SHA-256; the token itself isn't stored), `scopes` (`read`, `control`, `alerts`), `expires_at`, `created_by`, `last_used_at`. Cascades on user delete. |

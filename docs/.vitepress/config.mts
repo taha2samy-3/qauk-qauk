@@ -27,6 +27,7 @@ const rewrites: Record<string, string> = {
   'refactor/DEVICE_ADAPTERS_PLAN.md': 'design/device-adapters-plan.md',
   'refactor/MQTT_ADAPTER_PLAN.md': 'design/mqtt-adapter-plan.md',
   'refactor/ELEMENT_PIPELINE_PLAN.md': 'design/element-pipeline-plan.md',
+  'refactor/INTEGRATION_API_PLAN.md': 'design/integration-api-plan.md',
 }
 
 /** Site URL (without base) for a source file path relative to docs/. */
@@ -137,6 +138,7 @@ export default withMermaid(
             { text: 'Device gRPC', link: '/api/device_grpc_api' },
             { text: 'Browser WebSocket', link: '/api/browser_api' },
             { text: 'REST', link: '/api/rest_api' },
+            { text: 'API tokens', link: '/api/api_tokens' },
           ],
         },
         { text: 'Database', items: [{ text: 'Schema', link: '/database/schema' }] },
@@ -151,6 +153,7 @@ export default withMermaid(
             { text: 'Device adapters plan', link: '/design/device-adapters-plan' },
             { text: 'MQTT adapter plan', link: '/design/mqtt-adapter-plan' },
             { text: 'Element pipeline plan', link: '/design/element-pipeline-plan' },
+            { text: 'Integration API plan', link: '/design/integration-api-plan' },
           ],
         },
       ],

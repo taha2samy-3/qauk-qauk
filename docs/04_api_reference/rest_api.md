@@ -31,6 +31,7 @@ curl -b jar.txt http://127.0.0.1:8080/api/v1/auth/me
 - **Logout** (`POST /api/v1/auth/logout`, `204`) deletes the session and clears the cookie.
 - **Password change** (`POST /api/v1/auth/password`, `{old_password, new_password}`, at least 8 characters) ends **all** of your sessions, and open WebSockets are closed with 4000.
 - **Admin endpoints** (`/api/v1/admin/*`) need `is_admin`; otherwise you get `403 admin privileges required`. Every other endpoint needs a valid session (`401 authentication required`).
+- **API tokens** (`Authorization: Bearer qk_…`) belong to machine users, for integrations. Only the endpoints that say so accept them (today `GET /api/v1/me/elements` and `GET /api/v1/elements/{id}/history`, scope `read`); the others answer `403`. See [API tokens](./api_tokens.md).
 
 Details: [Authentication](../05_core_concepts/authentication.md).
 
@@ -146,6 +147,7 @@ Every mutation below writes an `audit_log` row and emits a control event in the 
 | Permissions | `GET /api/v1/admin/permissions?element_id=&user_id=&group_id=`<br/>`PUT /api/v1/admin/permissions`<br/>`DELETE /api/v1/admin/permissions/{id}` | `PUT {element_id, user_id \| group_id, permission: "R"\|"RC"}` creates or updates one grant (idempotent). Exactly one of `user_id` / `group_id`. |
 | Connections | `GET /api/v1/admin/connections?device_id=&limit=` | Device connection audit log, newest first (limit 1–1000, default 100) |
 | Presence | `GET /api/v1/admin/presence` | Live presence leases (`device_id`, `gateway_id`, `conn_id`, `connected_at`, `last_seen_at`) |
+| Machine users and API tokens | `GET, POST /api/v1/admin/machine-users`<br/>`POST /api/v1/admin/machine-users/{id}/tokens`<br/>`DELETE /api/v1/admin/machine-users/{id}/tokens/{tokenId}` | `POST {name, email?}` creates a machine user (no password, never admin). A token `{name, scopes: read\|control\|alerts, expires_at?}` is returned once (`201`). Users list them with `kind: "service"`. See [API tokens](./api_tokens.md). |
 | Audit log | `GET /api/v1/admin/audit?limit=` | Admin actions, newest first: actor, action, entity, data |
 
 Lists are not paginated, except the log endpoints, which take `limit`. For exact request and response schemas, see `/api/docs`.

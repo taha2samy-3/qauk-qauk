@@ -83,6 +83,14 @@ func (s *Service) UpdateUser(ctx context.Context, a Actor, id int64, p UserPatch
 		if p.Email != nil {
 			u.Email = *p.Email
 		}
+		if u.Kind == store.UserService {
+			switch {
+			case p.Password != nil:
+				return invalid("password", "a machine user has no password; it uses API tokens")
+			case p.IsAdmin != nil && *p.IsAdmin:
+				return invalid("is_admin", "a machine user can't be an admin")
+			}
+		}
 		if p.Password != nil {
 			if u.PasswordHash, err = hashNew(*p.Password); err != nil {
 				return err
