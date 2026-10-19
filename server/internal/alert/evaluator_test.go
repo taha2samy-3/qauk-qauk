@@ -60,15 +60,31 @@ func TestUnknownConditionKeepsState(t *testing.T) {
 	}
 }
 
-func TestNumber(t *testing.T) {
-	for in, want := range map[string]float64{`21.5`: 21.5, `{"value": 3}`: 3, `true`: 1, `{"value": false}`: 0} {
-		if v, ok := Number(json.RawMessage(in)); !ok || v != want {
-			t.Errorf("%s: %v %v", in, v, ok)
+// Values names attributes as history does, so a rule watches its chart's series.
+func TestValues(t *testing.T) {
+	for in, want := range map[string]map[string]float64{
+		`21.5`:             {"value": 21.5},
+		`"21"`:             {"value": 21},
+		`true`:             {"value": 1},
+		`{"value": false}`: {"value": 0},
+		`{"y": 4}`:         {"value": 4, "y": 4},
+		`{"t": 21.5, "climate": {"humidity": "85"}, "sensors": [{"t": 3}]}`: {
+			"t": 21.5, "climate.humidity": 85, "sensors[0].t": 3},
+	} {
+		got := Values(json.RawMessage(in))
+		if len(got) != len(want) {
+			t.Errorf("%s: got %v, want %v", in, got, want)
+			continue
+		}
+		for f, v := range want {
+			if got[f] != v {
+				t.Errorf("%s: %s = %v, want %v", in, f, got[f], v)
+			}
 		}
 	}
-	for _, in := range []string{`"21"`, `{"temperature": 3}`, `null`, `{"value": "x"}`, `nope`} {
-		if _, ok := Number(json.RawMessage(in)); ok {
-			t.Errorf("%s must not be evaluated", in)
+	for _, in := range []string{`"text"`, `null`, `{"value": "x"}`, `nope`, `{"a.b": 1}`} {
+		if v := Values(json.RawMessage(in)); len(v) != 0 {
+			t.Errorf("%s must give no attributes, got %v", in, v)
 		}
 	}
 }

@@ -137,6 +137,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/elements/{id}/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The numeric attributes of an element's newest stored messages, for picking what an alert rule watches */
+        get: operations["list-element-attributes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/elements/{id}/pipeline": {
         parameters: {
             query?: never;
@@ -916,6 +933,8 @@ export interface components {
             created_at: string;
             element_id: string;
             enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
             firing: boolean;
             /** Format: double */
             hysteresis: number;
@@ -1107,6 +1126,8 @@ export interface components {
             created_at: string;
             element_id: string;
             enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
             /** Format: double */
             hysteresis: number;
             id: string;
@@ -1133,6 +1154,8 @@ export interface components {
              */
             condition: "above" | "below" | "outside_range" | "equals";
             enabled?: boolean;
+            /** @description The message attribute to watch, as history names it: temperature, gps.lat, sensors[0].t (default value, the element's value) */
+            field?: string;
             /**
              * Format: double
              * @description How far back past the threshold the value must go before the alert resolves
@@ -1159,6 +1182,20 @@ export interface components {
              * @description High end for outside_range (required there, greater than threshold)
              */
             threshold_max?: number;
+        };
+        ElementAttribute: {
+            /** @description As alert rules and history name it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
+            /**
+             * Format: date-time
+             * @description When that value was stored
+             */
+            time: string;
+            /**
+             * Format: double
+             * @description Its newest value
+             */
+            value: number;
         };
         ElementCreateInBody: {
             /**
@@ -2586,6 +2623,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-element-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementAttribute"][] | null;
+                };
             };
             /** @description Error */
             default: {

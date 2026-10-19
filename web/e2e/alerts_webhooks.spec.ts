@@ -160,9 +160,13 @@ test('alert rules: add, edit, disable and delete', async ({ page, baseURL }) => 
 
   await sheet.getByRole('button', { name: `Edit ${E2E_RULE}` }).click()
   await expect(sheet.locator('#alert-thresh')).toHaveValue('50')
+  await expect(sheet.locator('#alert-field')).toHaveValue('value')
   await sheet.locator('#alert-thresh').fill('60')
+  // watch another attribute of the message
+  await sheet.locator('#alert-field').fill('probe.depth')
+  await expect(sheet.getByText(/starts the rule over/)).toBeVisible()
   await sheet.getByRole('button', { name: 'Save rule' }).click()
-  await expect(sheet.getByText('value > 60')).toBeVisible()
+  await expect(sheet.getByText('probe.depth > 60')).toBeVisible()
 
   await sheet.getByRole('switch', { name: `${E2E_RULE} enabled` }).click()
   await expect(sheet.getByRole('switch', { name: `${E2E_RULE} enabled` })).not.toBeChecked()
@@ -172,18 +176,19 @@ test('alert rules: add, edit, disable and delete', async ({ page, baseURL }) => 
     const id = await elementId(api)
     const rules = (await (await api.get(`/api/v1/admin/elements/${id}/alerts`)).json()) as {
       name: string
+      field: string
       threshold: number
       enabled: boolean
     }[]
     const saved = rules.filter((r) => r.name === E2E_RULE)
-    expect(saved).toEqual([expect.objectContaining({ threshold: 60, enabled: false })]) // edited, not duplicated
+    expect(saved).toEqual([expect.objectContaining({ field: 'probe.depth', threshold: 60, enabled: false })]) // edited, not duplicated
   } finally {
     await api.dispose()
   }
 
   await sheet.getByRole('button', { name: `Delete ${E2E_RULE}` }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: /Delete|Confirm/ }).click()
-  await expect(sheet.getByText('value > 60')).toHaveCount(0)
+  await expect(sheet.getByText('probe.depth > 60')).toHaveCount(0)
 })
 
 test('webhooks: a signed test delivery reaches the receiver', async ({ page }) => {

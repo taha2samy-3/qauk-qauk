@@ -10,8 +10,11 @@ export type AlertSeverity = 'info' | 'warning' | 'critical'
 export type ElementAlertRule = Schemas['AlertRuleView']
 export type AlertRuleBody = Schemas['ElementAlertSaveInBody']
 
+export type ElementAttribute = Schemas['ElementAttribute']
+
 export const alertKeys = {
   elementAlerts: (elementId: string) => qk.admin('alerts', elementId),
+  attributes: (elementId: string) => qk.admin('element-attributes', elementId),
 }
 
 export const alertApi = {
@@ -22,6 +25,11 @@ export const alertApi = {
   /** Creates a rule, or changes the one named by id. */
   save: ({ elementId, ...body }: AlertRuleBody & { elementId: string }) =>
     unwrap(api.POST('/api/v1/admin/elements/{id}/alerts', { params: { path: { id: elementId } }, body })),
+  /** The numeric attributes of the element's newest stored messages. */
+  attributes: (elementId: string) =>
+    unwrap(api.GET('/api/v1/admin/elements/{id}/attributes', { params: { path: { id: elementId } } })).then(
+      (d) => d ?? [],
+    ),
   delete: ({ elementId, ruleId }: { elementId: string; ruleId: string }) =>
     unwrap(
       api.DELETE('/api/v1/admin/elements/{id}/alerts/{ruleId}', {
@@ -34,6 +42,8 @@ export const alertApi = {
 export interface AlertRuleForm {
   id?: string
   name: string
+  /** The attribute watched; "value" is the element's value. */
+  field: string
   condition: AlertCondition
   threshold: string
   thresholdMax: string
@@ -45,6 +55,7 @@ export interface AlertRuleForm {
 
 export const NEW_RULE: AlertRuleForm = {
   name: '',
+  field: 'value',
   condition: 'above',
   threshold: '',
   thresholdMax: '',
@@ -58,6 +69,7 @@ export function ruleForm(r: ElementAlertRule): AlertRuleForm {
   return {
     id: r.id,
     name: r.name,
+    field: r.field || 'value',
     condition: r.condition as AlertCondition,
     threshold: String(r.threshold),
     thresholdMax: r.threshold_max === undefined ? '' : String(r.threshold_max),
@@ -70,15 +82,23 @@ export function ruleForm(r: ElementAlertRule): AlertRuleForm {
 
 const number = (t: string) => (t.trim() === '' ? NaN : Number(t))
 
+/** An attribute path as history names it: temperature, gps.lat, sensors[0].t. */
+export const FIELD_RE = /^[A-Za-z0-9_@$-]+(\.[A-Za-z0-9_@$-]+|\[[0-9]+\])*$/
+
 /** The request body, or the first problem; the same checks the server makes. */
 export function ruleBody(f: AlertRuleForm): { body: AlertRuleBody; error?: undefined } | { body?: undefined; error: string } {
   const threshold = number(f.threshold)
   const hysteresis = f.hysteresis.trim() === '' ? 0 : Number(f.hysteresis)
+  const field = f.field.trim() || 'value'
   if (!f.name.trim()) return { error: 'Name is required' }
+  if (field.length > 200 || !FIELD_RE.test(field)) {
+    return { error: 'The attribute must be a path like temperature, gps.lat or sensors[0].t' }
+  }
   if (!Number.isFinite(threshold)) return { error: 'The threshold must be a number' }
   if (!Number.isFinite(hysteresis) || hysteresis < 0) return { error: 'The hysteresis must be a number ≥ 0' }
   const body: AlertRuleBody = {
     name: f.name.trim(),
+    field,
     condition: f.condition,
     threshold,
     hysteresis,
@@ -99,17 +119,18 @@ export function ruleBody(f: AlertRuleForm): { body: AlertRuleBody; error?: undef
   return { body }
 }
 
-/** "> 30", "< 10 or > 30"… */
-export function describeRule(r: { condition: string; threshold: number; threshold_max?: number }): string {
+/** "value > 30", "humidity < 10 or > 30"… */
+export function describeRule(r: { field?: string; condition: string; threshold: number; threshold_max?: number }): string {
+  const f = r.field || 'value'
   switch (r.condition) {
     case 'above':
-      return `value > ${r.threshold}`
+      return `${f} > ${r.threshold}`
     case 'below':
-      return `value < ${r.threshold}`
+      return `${f} < ${r.threshold}`
     case 'outside_range':
-      return `value < ${r.threshold} or > ${r.threshold_max ?? '—'}`
+      return `${f} < ${r.threshold} or > ${r.threshold_max ?? '—'}`
     case 'equals':
-      return `value = ${r.threshold}`
+      return `${f} = ${r.threshold}`
     default:
       return r.condition
   }
@@ -134,6 +155,14 @@ export function describeResolve(r: { condition: string; threshold: number; thres
       return null
   }
 }
+
+export const useElementAttributes = (elementId: string | undefined) =>
+  useQuery({
+    queryKey: alertKeys.attributes(elementId ?? ''),
+    queryFn: () => (elementId ? alertApi.attributes(elementId) : Promise.resolve([])),
+    enabled: !!elementId,
+    staleTime: 30_000,
+  })
 
 export const useElementAlerts = (elementId: string | undefined) =>
   useQuery({

@@ -18,6 +18,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/bus"
 	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/service"
+	"github.com/taha2samy/quackquack/server/internal/store"
 	"github.com/taha2samy/quackquack/server/internal/webhook"
 )
 
@@ -147,3 +148,99 @@ func TestAlertsEndToEnd(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// A rule on an attribute other than value fires on that attribute only (a
+// numeric string counts, as in history), ignores messages without it, and the
+// notification says which attribute it read. Changing the attribute starts
+// the rule over. The attributes endpoint lists what the messages carry.
+func TestAlertOnAttribute(t *testing.T) {
+	ctx := context.Background()
+	inst := startInstance(t, "gw-alert-attr", true) // with the ingester: the attributes come from history
+	fix := setupRealtime(t, "alertattr", 10)
+	rcv := &receiver{}
+	hook := httptest.NewServer(rcv)
+	defer hook.Close()
+
+	s := svc()
+	s.WebhookAllowPrivate = true
+	if _, err := s.CreateWebhook(ctx, service.SystemActor, service.WebhookInput{Name: ptrTo("it"), URL: ptrTo(hook.URL)}); err != nil {
+		t.Fatal(err)
+	}
+	rule, err := s.SaveAlertRule(ctx, service.SystemActor, fix.elem.ID, service.AlertRuleInput{Name: "Humid", Field: "climate.humidity",
+		Condition: "above", Threshold: 80, Severity: "warning"})
+	if err != nil || rule.Field != "climate.humidity" {
+		t.Fatalf("save: %v %+v", err, rule)
+	}
+
+	box, _ := secrets.NewBox("")
+	wctx, stopWorker := context.WithCancel(ctx)
+	defer stopWorker()
+	go (&webhook.Worker{DB: pool, Dispatcher: webhook.NewDispatcher(box, true), Workers: 1, Poll: 100 * time.Millisecond, Log: logger}).Run(wctx)
+	ectx, stopEngine := context.WithCancel(ctx)
+	defer stopEngine()
+	go func() {
+		_ = (&alert.Engine{Pool: pool, Brokers: brokers, Group: bus.TopicName("quack-alerts-it-" + uuid.NewString()[:8]), Log: logger}).Run(ectx)
+	}()
+	time.Sleep(3 * time.Second)
+
+	c := newClient(t, inst.URL)
+	auth := deviceHeader(t, fix.key, fix.device.ID.String()).Get("Authorization")
+	send := func(msg map[string]any) {
+		t.Helper()
+		r := c.do(http.MethodPost, "/device/v1/messages", []any{map[string]any{"element": fix.elem.Name, "message": msg}}, "Authorization", auth)
+		if r.Status != http.StatusOK {
+			t.Fatalf("publish: %d %s", r.Status, r.Body)
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	send(map[string]any{"value": 99})                                             // value is over 80, but not the attribute
+	send(map[string]any{"value": 1, "climate": map[string]any{"humidity": "85"}}) // fires
+	send(map[string]any{"value": 2})                                              // no attribute: no change
+	send(map[string]any{"climate": map[string]any{"humidity": 70}})               // resolves
+	got := rcv.wait(t, 2)
+	time.Sleep(time.Second)
+	rcv.mu.Lock()
+	n := len(rcv.got)
+	rcv.mu.Unlock()
+	if n != 2 || got[0].State != webhook.StateFiring || got[0].Field != "climate.humidity" || got[0].Value != 85.0 ||
+		got[1].State != webhook.StateResolved || got[1].Value != 70.0 {
+		t.Fatalf("want firing at 85 then resolved at 70 on climate.humidity, got %d: %+v", n, got)
+	}
+
+	// the attributes the element's messages carry, newest values
+	mkUser(t, "attr-admin", true)
+	ac := newClient(t, inst.URL)
+	ac.login("attr-admin", "attr-admin-password")
+	have := map[string]float64{}
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		r := ac.do(http.MethodGet, "/api/v1/admin/elements/"+fix.elem.ID.String()+"/attributes", nil)
+		var attrs []struct {
+			Field string  `json:"field"`
+			Value float64 `json:"value"`
+		}
+		if r.Status != http.StatusOK || json.Unmarshal(r.Body, &attrs) != nil {
+			t.Fatalf("attributes: %d %s", r.Status, r.Body)
+		}
+		have = map[string]float64{}
+		for _, a := range attrs {
+			have[a.Field] = a.Value
+		}
+		if _, ok := have["climate.humidity"]; ok { // the ingester wrote the last message
+			break
+		}
+	}
+	if have["climate.humidity"] != 70 || have["value"] != 2 {
+		t.Fatalf("attributes: %+v", have)
+	}
+
+	// firing again, then moved to another attribute: the rule starts over
+	send(map[string]any{"climate": map[string]any{"humidity": 90}})
+	rcv.wait(t, 3)
+	if _, err := s.SaveAlertRule(ctx, service.SystemActor, fix.elem.ID, service.AlertRuleInput{ID: &rule.ID, Name: "Humid",
+		Field: "climate.dew", Condition: "above", Threshold: 80, Severity: "warning"}); err != nil {
+		t.Fatal(err)
+	}
+	if firing, _ := store.AlertFiring(ctx, pool, rule.ID); firing {
+		t.Fatal("a rule moved to another attribute must start over")
+	}
+}

@@ -24,7 +24,7 @@ flowchart LR
 3. **Queue.** One delivery is queued per enabled endpoint subscribed to the rule's severity (`webhook_deliveries`, unique per endpoint and event).
 4. **Delivery.** Workers in every api server claim deliveries with a lease, oldest first per endpoint, and send them (see [§4](#_4-delivery-and-retries)).
 
-The engine evaluates the element's value **after** the element pipeline: a bare number, a boolean (`true` = 1), or the `value` field of an object holding one. Other messages (text, objects without a numeric `value`) are ignored. Rule changes are picked up within 5 seconds.
+Each rule watches one attribute of the element's messages, **after** the element pipeline ([below](#which-attribute)). Rule changes are picked up within 5 seconds.
 
 ---
 
@@ -35,6 +35,20 @@ Rules belong to an element: **Admin → Elements → Alerts**.
 | Light | Dark |
 |---|---|
 | ![Alert rules in the light theme](../imgs/screenshots/admin-alerts-light.webp) | ![Alert rules in the dark theme](../imgs/screenshots/admin-alerts-dark.webp) |
+
+### Which attribute
+
+A rule's `field` names the attribute it watches, exactly as [history](./history.md#what-is-stored) names the series a chart can draw:
+
+| `field` | Reads, from `{"value": 21.5, "climate": {"humidity": "85"}, "sensors": [{"t": 3}]}` |
+|---|---|
+| `value` (the default) | The element's value: a bare number, `message.value`, or a chart's `y` → `21.5` |
+| `climate.humidity` | A nested attribute → `85` |
+| `sensors[0].t` | An item of a list → `3` |
+
+Numbers, booleans (`true` = 1) and numeric strings count. A message without the rule's attribute (or with a non-numeric one) leaves the rule as it is, so one element can carry several rules on different attributes of the same message. **Admin → Elements → Alerts** suggests the attributes found in the element's 50 newest stored messages, with their current values (`GET /api/v1/admin/elements/{id}/attributes`).
+
+Changing the attribute of an existing rule starts it over: it isn't firing, and no "resolved" is sent for the old attribute.
 
 ### Conditions
 
@@ -90,7 +104,7 @@ The notification (`data` of the standard format, and the fields a custom templat
   "id": "0199…", "type": "io.quack.alert.threshold", "severity": "warning", "state": "firing",
   "rule_id": "…", "rule_name": "Hot", "title": "Alert: Hot", "message": "35 is above 30 (Cold room temperature)",
   "device_id": "…", "device_name": "Cold room", "element_id": "…", "element_name": "temperature",
-  "value": 35, "timestamp": "2026-10-14T09:00:00Z"
+  "field": "value", "value": 35, "timestamp": "2026-10-14T09:00:00Z"
 }
 ```
 
@@ -98,7 +112,7 @@ A test from the admin UI (**Send test**) has `type` `io.quack.test.notification`
 
 ### Custom templates
 
-Go [`text/template`](https://pkg.go.dev/text/template) over the notification's fields (`.Title`, `.Message`, `.Severity`, `.State`, `.Value`, `.RuleName`, `.ElementName`, `.DeviceName`, `.Timestamp`…). The output must be valid JSON: write each value with `json` so it is quoted and escaped whatever it contains.
+Go [`text/template`](https://pkg.go.dev/text/template) over the notification's fields (`.Title`, `.Message`, `.Severity`, `.State`, `.Field`, `.Value`, `.RuleName`, `.ElementName`, `.DeviceName`, `.Timestamp`…). The output must be valid JSON: write each value with `json` so it is quoted and escaped whatever it contains.
 
 ```
 {"text": {{json .Title}}, "level": {{json .Severity}}, "value": {{json .Value}}}
@@ -167,6 +181,7 @@ All endpoints need an admin session.
 
 ```http
 GET    /api/v1/admin/elements/{id}/alerts            # the rules, each with "firing"
+GET    /api/v1/admin/elements/{id}/attributes        # numeric attributes of the 50 newest messages: field, value, time
 POST   /api/v1/admin/elements/{id}/alerts            # create, or update the rule named by "id"
 DELETE /api/v1/admin/elements/{id}/alerts/{ruleId}
 ```
@@ -176,6 +191,13 @@ curl -X POST http://127.0.0.1:8080/api/v1/admin/elements/$ELEMENT_ID/alerts -b c
   -H 'Content-Type: application/json' \
   -d '{"name": "High motor temperature", "condition": "above", "threshold": 75, "hysteresis": 2,
        "severity": "critical", "message": "Motor temperature over its rated limit"}'
+```
+
+```bash
+# on an attribute of the message: {"value": …, "climate": {"humidity": 85}}
+curl -X POST http://127.0.0.1:8080/api/v1/admin/elements/$ELEMENT_ID/alerts -b cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Humid", "field": "climate.humidity", "condition": "above", "threshold": 80, "hysteresis": 5}'
 ```
 
 ### Webhooks

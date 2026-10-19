@@ -45,3 +45,12 @@ fixture.json
 *.swp
 .DS_Store
 docker/mqtt/certs/
+
+# --- Isolated 3D Digital Twin Dashboard ---
+digital-twin-3d/
+docs/go_architecture_refactor_plan.md
+.gitignore
+docs/component_decomposition_plan.md
+docs/quack_components_architecture.svg
+.gitignore
+docs/go_architecture_diagram.svg

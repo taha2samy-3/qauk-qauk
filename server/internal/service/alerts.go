@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 	"slices"
 	"strings"
@@ -9,13 +10,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/taha2samy/quackquack/server/internal/history"
 	"github.com/taha2samy/quackquack/server/internal/store"
 )
 
 // AlertRuleInput creates (ID nil) or changes an element's alert rule.
 type AlertRuleInput struct {
-	ID           *uuid.UUID
-	Name         string
+	ID   *uuid.UUID
+	Name string
+	// Field is the message attribute to watch, as history names it
+	// ("temperature", "gps.lat", "sensors[0].t"); "" means "value".
+	Field        string
 	Condition    string
 	Threshold    float64
 	ThresholdMax *float64
@@ -32,6 +37,8 @@ func validateAlertRule(in AlertRuleInput) error {
 	switch {
 	case strings.TrimSpace(in.Name) == "" || len(in.Name) > 100:
 		return invalid("name", "1-100 characters")
+	case in.Field != "" && !history.ValidField(in.Field):
+		return invalid("field", "an attribute path like temperature, gps.lat or sensors[0].t (letters, digits, _ @ $ -, dots between keys, [n] for list items)")
 	case !slices.Contains(alertConditions, in.Condition):
 		return invalid("condition", "one of above, below, outside_range, equals")
 	case !slices.Contains(severities, in.Severity):
@@ -88,10 +95,14 @@ func (s *Service) SaveAlertRule(ctx context.Context, a Actor, elementID uuid.UUI
 		in.Severity = "warning"
 	}
 	in.Name = strings.TrimSpace(in.Name)
+	in.Field = strings.TrimSpace(in.Field)
 	if err := validateAlertRule(in); err != nil {
 		return store.ElementAlertRule{}, err
 	}
-	r := store.ElementAlertRule{ElementID: elementID, Name: in.Name, Condition: in.Condition, Threshold: in.Threshold,
+	if in.Field == "" {
+		in.Field = history.ValueField
+	}
+	r := store.ElementAlertRule{ElementID: elementID, Name: in.Name, Field: in.Field, Condition: in.Condition, Threshold: in.Threshold,
 		ThresholdMax: in.ThresholdMax, Hysteresis: in.Hysteresis, Severity: in.Severity, Message: in.Message, Enabled: true}
 	action := "create"
 	if in.ID != nil && *in.ID != uuid.Nil {
@@ -105,9 +116,18 @@ func (s *Service) SaveAlertRule(ctx context.Context, a Actor, elementID uuid.UUI
 		if _, err := store.GetElement(ctx, tx, elementID); err != nil {
 			return err
 		}
-		var err error
+		prev, err := store.GetElementAlertRule(ctx, tx, r.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		if out, err = store.SaveElementAlertRule(ctx, tx, r); err != nil {
 			return err // a rule id of another element: not found
+		}
+		// whether it fires was about the old attribute: start over
+		if prev.ID != uuid.Nil && prev.Field != out.Field {
+			if err := store.ResetAlertState(ctx, tx, out.ID); err != nil {
+				return err
+			}
 		}
 		return record(ctx, tx, a, action, "alert_rule", out.ID.String(), out)
 	})

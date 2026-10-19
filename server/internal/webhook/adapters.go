@@ -110,7 +110,7 @@ func formatSlack(evt NotificationEvent) ([]byte, error) {
 		fields = append(fields, "*Element:* "+slackEscape(evt.ElementName))
 	}
 	if evt.Value != nil {
-		fields = append(fields, fmt.Sprintf("*Value:* `%s`", slackEscape(fmt.Sprint(evt.Value))))
+		fields = append(fields, fmt.Sprintf("*%s:* `%s`", slackEscape(valueLabel(evt)), slackEscape(fmt.Sprint(evt.Value))))
 	}
 	payload := map[string]any{
 		"text": slackEscape(fmt.Sprintf("[%s] %s: %s", strings.ToUpper(string(evt.Severity)), evt.Title, evt.Message)),
@@ -146,7 +146,7 @@ func formatDiscord(evt NotificationEvent) ([]byte, error) {
 		fields = append(fields, map[string]any{"name": "Element", "value": evt.ElementName, "inline": true})
 	}
 	if evt.Value != nil {
-		fields = append(fields, map[string]any{"name": "Value", "value": fmt.Sprint(evt.Value), "inline": true})
+		fields = append(fields, map[string]any{"name": valueLabel(evt), "value": fmt.Sprint(evt.Value), "inline": true})
 	}
 	payload := map[string]any{
 		"allowed_mentions": map[string]any{"parse": []string{}}, // names can't @everyone
@@ -171,7 +171,7 @@ func formatTeams(evt NotificationEvent) ([]byte, error) {
 		facts = append(facts, map[string]string{"title": "Element", "value": evt.ElementName})
 	}
 	if evt.Value != nil {
-		facts = append(facts, map[string]string{"title": "Value", "value": fmt.Sprint(evt.Value)})
+		facts = append(facts, map[string]string{"title": valueLabel(evt), "value": fmt.Sprint(evt.Value)})
 	}
 	payload := map[string]any{
 		"type": "message",
@@ -212,7 +212,7 @@ func formatTelegram(evt NotificationEvent, chatID string) ([]byte, error) {
 		fmt.Fprintf(&sb, "<b>Element:</b> %s\n", esc(evt.ElementName))
 	}
 	if evt.Value != nil {
-		fmt.Fprintf(&sb, "<b>Value:</b> <code>%s</code>\n", esc(fmt.Sprint(evt.Value)))
+		fmt.Fprintf(&sb, "<b>%s:</b> <code>%s</code>\n", esc(valueLabel(evt)), esc(fmt.Sprint(evt.Value)))
 	}
 	fmt.Fprintf(&sb, "<i>%s</i>", evt.Timestamp.UTC().Format(time.RFC1123))
 	return json.Marshal(map[string]any{"chat_id": chatID, "text": sb.String(), "parse_mode": "HTML"})
@@ -306,6 +306,14 @@ func RenderTemplate(src string, evt NotificationEvent) ([]byte, error) {
 }
 
 // SampleEvent is the event test sends and template checks use.
+// valueLabel names the value: "Value", or the attribute it was read from.
+func valueLabel(evt NotificationEvent) string {
+	if evt.Field == "" || evt.Field == "value" {
+		return "Value"
+	}
+	return "Value (" + evt.Field + ")"
+}
+
 func SampleEvent(severity Severity) NotificationEvent {
 	if severity == "" {
 		severity = SeverityInfo

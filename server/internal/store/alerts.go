@@ -13,6 +13,7 @@ type ElementAlertRule struct {
 	ID           uuid.UUID `json:"id"`
 	ElementID    uuid.UUID `json:"element_id"`
 	Name         string    `json:"name"`
+	Field        string    `json:"field" doc:"The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t"`
 	Condition    string    `json:"condition"` // above, below, outside_range, equals
 	Threshold    float64   `json:"threshold"`
 	ThresholdMax *float64  `json:"threshold_max,omitempty"`
@@ -24,7 +25,7 @@ type ElementAlertRule struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-const alertRuleCols = `id, element_id, name, condition, threshold, threshold_max, hysteresis, severity, message, enabled, created_at, updated_at`
+const alertRuleCols = `id, element_id, name, field, condition, threshold, threshold_max, hysteresis, severity, message, enabled, created_at, updated_at`
 
 func ListElementAlertRules(ctx context.Context, db DBTX, elementID uuid.UUID) ([]ElementAlertRule, error) {
 	return many[ElementAlertRule](db.Query(ctx, `SELECT `+alertRuleCols+` FROM element_alert_rules WHERE element_id = $1 ORDER BY created_at ASC`, elementID))
@@ -41,10 +42,11 @@ func SaveElementAlertRule(ctx context.Context, db DBTX, r ElementAlertRule) (Ele
 		r.ID = uuid.New()
 	}
 	return one[ElementAlertRule](db.Query(ctx, `
-		INSERT INTO element_alert_rules (id, element_id, name, condition, threshold, threshold_max, hysteresis, severity, message, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
+		INSERT INTO element_alert_rules (id, element_id, name, field, condition, threshold, threshold_max, hysteresis, severity, message, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $11, $4, $5, $6, $7, $8, $9, $10, now(), now())
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
+			field = EXCLUDED.field,
 			condition = EXCLUDED.condition,
 			threshold = EXCLUDED.threshold,
 			threshold_max = EXCLUDED.threshold_max,
@@ -55,7 +57,7 @@ func SaveElementAlertRule(ctx context.Context, db DBTX, r ElementAlertRule) (Ele
 			updated_at = now()
 		WHERE element_alert_rules.element_id = EXCLUDED.element_id
 		RETURNING `+alertRuleCols,
-		r.ID, r.ElementID, r.Name, r.Condition, r.Threshold, r.ThresholdMax, r.Hysteresis, r.Severity, r.Message, r.Enabled,
+		r.ID, r.ElementID, r.Name, r.Condition, r.Threshold, r.ThresholdMax, r.Hysteresis, r.Severity, r.Message, r.Enabled, r.Field,
 	))
 }
 
@@ -75,7 +77,7 @@ type ActiveAlertRule struct {
 // ListActiveAlertRules lists enabled rules with their element and device names.
 func ListActiveAlertRules(ctx context.Context, db DBTX) ([]ActiveAlertRule, error) {
 	return many[ActiveAlertRule](db.Query(ctx, `
-		SELECT r.id, r.element_id, r.name, r.condition, r.threshold, r.threshold_max, r.hysteresis, r.severity,
+		SELECT r.id, r.element_id, r.name, r.field, r.condition, r.threshold, r.threshold_max, r.hysteresis, r.severity,
 			r.message, r.enabled, r.created_at, r.updated_at,
 			e.name AS element_name, d.id AS device_id, d.name AS device_name
 		FROM element_alert_rules r
@@ -92,6 +94,13 @@ func AlertFiring(ctx context.Context, db DBTX, ruleID uuid.UUID) (bool, error) {
 		return false, nil
 	}
 	return firing, mapErr(err)
+}
+
+// ResetAlertState forgets whether a rule is firing (it starts over, not
+// firing), e.g. when it now watches another attribute.
+func ResetAlertState(ctx context.Context, db DBTX, ruleID uuid.UUID) error {
+	_, err := db.Exec(ctx, `DELETE FROM element_alert_state WHERE rule_id = $1`, ruleID)
+	return mapErr(err)
 }
 
 // SetAlertFiring moves a rule from !firing to firing (or back) if it is
