@@ -44,7 +44,7 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "node-red": "^5.0.7",
+    "node-red": "^5.0.8",
     "node-red-node-test-helper": "^0.3.6"
   }
 }
