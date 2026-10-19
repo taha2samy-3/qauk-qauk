@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.alert.changed.v1",
+  "title": "Alert changed",
+  "description": "An alert rule started firing or resolved (on control-events.v1).",
+  "type": "object",
+  "required": ["rule_id", "rule_name", "state", "severity", "element_id", "element_name", "device_id", "device_name", "field", "value", "message", "time"],
+  "additionalProperties": false,
+  "properties": {
+    "rule_id": {"type": "string", "format": "uuid"},
+    "rule_name": {"type": "string"},
+    "state": {"enum": ["firing", "resolved"]},
+    "severity": {"enum": ["info", "warning", "critical"]},
+    "element_id": {"type": "string", "format": "uuid"},
+    "element_name": {"type": "string"},
+    "device_id": {"type": "string", "format": "uuid"},
+    "device_name": {"type": "string"},
+    "field": {"type": "string", "minLength": 1, "description": "The message attribute the rule watches"},
+    "value": {"type": "number"},
+    "message": {"type": "string"},
+    "time": {"type": "string", "format": "date-time"}
+  }
+}

@@ -839,6 +839,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert rules of the elements the caller may read, with whether each is firing (API tokens: alerts scope) */
+        get: operations["list-alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -907,6 +924,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/commands/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What became of a command the caller sent: accepted, delivered, failed or superseded (API tokens: control scope) */
+        get: operations["get-command"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dashboards": {
         parameters: {
             query?: never;
@@ -941,6 +975,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/elements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Elements the caller may read, with their device and, optionally, their newest value (API tokens: read scope) */
+        get: operations["list-visible-elements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/elements/{id}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a command to an element's device, like a dashboard (needs RC; API tokens: control scope) */
+        post: operations["send-command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/elements/{id}/history": {
         parameters: {
             query?: never;
@@ -950,6 +1018,23 @@ export interface paths {
         };
         /** Historical values of an element (requires read permission; API tokens need the read scope) */
         get: operations["element-history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/elements/{id}/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An element's newest stored device message (API tokens: read scope) */
+        get: operations["element-latest"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1082,6 +1167,53 @@ export interface components {
             n: number;
             /** Format: date-time */
             t: string;
+        };
+        Command: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/Command.json
+             */
+            readonly $schema?: string;
+            actor: string;
+            command_id: string;
+            /** Format: date-time */
+            created_at: string;
+            element_id: string;
+            message: unknown;
+            reason?: string;
+            /** @enum {string} */
+            status: "accepted" | "delivered" | "failed" | "superseded";
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CommandAccepted: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/CommandAccepted.json
+             */
+            readonly $schema?: string;
+            /** @description The id of the element event the command became */
+            command_id: string;
+            element_id: string;
+            /**
+             * @description accepted: on its way to the device; GET /api/v1/commands/{id} and the stream tell what became of it
+             * @enum {string}
+             */
+            status: "accepted";
+            /** Format: date-time */
+            time: string;
+        };
+        CommandInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/CommandInBody.json
+             */
+            readonly $schema?: string;
+            /** @description The command, in the element's (engineering) units, e.g. {"value": 1} */
+            message: unknown;
         };
         Connection: {
             /** Format: date-time */
@@ -1489,6 +1621,22 @@ export interface components {
             events?: components["schemas"]["HistoryEvent"][] | null;
             step: string;
         };
+        IntegrationElement: {
+            description: string;
+            /** @description Free-form widget settings (unit, range…) */
+            details: unknown;
+            device_id: string;
+            device_name: string;
+            id: string;
+            /** @description With latest=true: the newest stored device message, if any */
+            latest?: components["schemas"]["LatestValue"];
+            name: string;
+            /**
+             * @description R: read; RC: read and send commands
+             * @enum {string}
+             */
+            permission: "R" | "RC";
+        };
         Key: {
             /**
              * Format: uri
@@ -1526,6 +1674,27 @@ export interface components {
             readonly $schema?: string;
             is_active?: boolean;
             name?: string;
+        };
+        LatestOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/schemas/LatestOutBody.json
+             */
+            readonly $schema?: string;
+            element_id: string;
+            /** @description null when the element has no stored device message yet */
+            latest: components["schemas"]["LatestValue"];
+        };
+        LatestValue: {
+            message: unknown;
+            /** Format: date-time */
+            time: string;
+            /**
+             * Format: double
+             * @description The element's numeric value (message.value, a chart's y, or a bare number), if it has one
+             */
+            value?: number;
         };
         LoginInputBody: {
             /**
@@ -2154,6 +2323,41 @@ export interface components {
             is_admin?: boolean;
             password?: string;
             username?: string;
+        };
+        VisibleAlert: {
+            /**
+             * Format: date-time
+             * @description When it last started firing or resolved
+             */
+            changed_at?: string;
+            condition: string;
+            /** Format: date-time */
+            created_at: string;
+            device_id: string;
+            device_name: string;
+            element_id: string;
+            element_name: string;
+            enabled: boolean;
+            /** @description The message attribute the rule watches, as history stores it: value, temperature, gps.lat, sensors[0].t */
+            field: string;
+            firing: boolean;
+            /** Format: double */
+            hysteresis: number;
+            id: string;
+            /**
+             * Format: double
+             * @description The value of the last change of state
+             */
+            last_value?: number;
+            message: string;
+            name: string;
+            severity: string;
+            /** Format: double */
+            threshold: number;
+            /** Format: double */
+            threshold_max?: number;
+            /** Format: date-time */
+            updated_at: string;
         };
         WebhookBody: {
             /**
@@ -4807,6 +5011,38 @@ export interface operations {
             };
         };
     };
+    "list-alerts": {
+        parameters: {
+            query?: {
+                /** @description firing: the enabled rules firing now; all: every rule */
+                state?: "firing" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisibleAlert"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     login: {
         parameters: {
             query?: never;
@@ -4917,6 +5153,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Command"];
+                };
             };
             /** @description Error */
             default: {
@@ -5086,6 +5353,73 @@ export interface operations {
             };
         };
     };
+    "list-visible-elements": {
+        parameters: {
+            query?: {
+                /** @description Include each element's newest stored device message */
+                latest?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationElement"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "send-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommandInBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandAccepted"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "element-history": {
         parameters: {
             query?: {
@@ -5117,6 +5451,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "element-latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestOutBody"];
                 };
             };
             /** @description Error */

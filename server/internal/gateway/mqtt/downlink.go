@@ -10,6 +10,7 @@ import (
 
 	"github.com/eclipse/paho.golang/paho"
 
+	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/mqttspec"
 	"github.com/taha2samy/quackquack/server/internal/sourcepipe"
@@ -63,8 +64,9 @@ func (t *Transport) downlink(cmd Command) {
 	for _, k := range keys {
 		q := &t.dl
 		q.mu.Lock()
-		if _, waiting := q.pending[k]; waiting {
+		if old, waiting := q.pending[k]; waiting {
 			metrics.MQTTDownlinks.WithLabelValues("superseded").Inc()
+			t.reportStatus(old, events.CommandStatusSuperseded, "a newer command for the element replaced it before it was sent")
 		}
 		q.pending[k] = cmd
 		if q.running[k] {
@@ -79,6 +81,7 @@ func (t *Transport) downlink(cmd Command) {
 			if cmd.UserID != "" {
 				t.o.Core.SendUserError(cmd.UserID, "delivery_failed", "MQTT downlink buffer full", cmd.ElementID)
 			}
+			t.reportStatus(cmd, events.CommandStatusFailed, "MQTT downlink buffer full")
 			continue
 		}
 		q.running[k] = true
@@ -132,6 +135,7 @@ func (t *Transport) deliverDownlink(k downlinkKey, cmd Command) {
 		if cmd.UserID != "" {
 			t.o.Core.SendUserError(cmd.UserID, "delivery_failed", reason, cmd.ElementID)
 		}
+		t.reportStatus(cmd, events.CommandStatusFailed, reason)
 	}
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -152,6 +156,7 @@ func (t *Transport) deliverDownlink(k downlinkKey, cmd Command) {
 			lastErr = errors.New("this gateway no longer owns the connection's slot 0")
 		} else if lastErr = s.publishCommand(c, d, k.dev, cmd); lastErr == nil {
 			metrics.MQTTDownlinks.WithLabelValues("ok").Inc()
+			t.reportStatus(cmd, events.CommandStatusDelivered, "published to the MQTT broker")
 			return
 		}
 		var perm permanentError
@@ -169,10 +174,18 @@ func (t *Transport) deliverDownlink(k downlinkKey, cmd Command) {
 		}
 		if t.superseded(k) {
 			metrics.MQTTDownlinks.WithLabelValues("superseded").Inc()
+			t.reportStatus(cmd, events.CommandStatusSuperseded, "a newer command for the element replaced it while it was retried")
 			return // a newer command for this element is waiting
 		}
 	}
 	fail(fmt.Sprintf("MQTT downlink not delivered after %d attempts: %v", maxRetries+1, lastErr))
+}
+
+// reportStatus tells the gateway what became of a tracked command.
+func (t *Transport) reportStatus(cmd Command, status, reason string) {
+	if cmd.Track {
+		t.o.Core.CommandStatus(cmd.ID, status, reason)
+	}
 }
 
 func (s *slot) publishCommand(c *connConfig, d *downlink, devExt string, cmd Command) error {

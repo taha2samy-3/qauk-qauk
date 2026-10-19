@@ -80,7 +80,7 @@ Docs (an AsyncAPI document for the stream), small TypeScript and Python clients,
 | Step | Status |
 |---|---|
 | 1. API tokens, machine users, scopes | Done: [API tokens](../04_api_reference/api_tokens.md) |
-| 2. REST endpoints + CORS | Planned |
-| 3. Stream | Planned |
-| 4. Alerts on the bus | Planned |
-| 5. Command results (X2) | Planned |
+| 2. REST endpoints + CORS | Done: [integration API](../04_api_reference/integration_api.md); commands go through the outbox, audited, rate-limited |
+| 3. Stream | Done: [`/api/v1/stream`](../04_api_reference/integration_api.md#stream) (values, presence, commands, replay with `since`, live grants and revocation) |
+| 4. Alerts on the bus | Done: `io.quack.alert.changed.v1` through the outbox, forwarded to streams |
+| 5. Command results (X2) | Done: [`GET /api/v1/commands/{id}`](../04_api_reference/integration_api.md#what-became-of-a-command), status frames on the stream; delivered by sockets, REST polls and MQTT |

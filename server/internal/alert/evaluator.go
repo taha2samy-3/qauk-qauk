@@ -223,6 +223,22 @@ func Enqueue(ctx context.Context, tx store.DBTX, r store.ActiveAlertRule, state 
 	if err != nil {
 		return err
 	}
+	// integration streams hear it too, on every gateway (exactly once with
+	// the state change: same transaction)
+	ev, err := events.New(events.TypeAlertChanged, events.SourceAPI, r.ElementID.String(), events.AlertChanged{
+		RuleID: r.ID, RuleName: r.Name, State: state, Severity: r.Severity, ElementID: r.ElementID, ElementName: r.ElementName,
+		DeviceID: r.DeviceID, DeviceName: r.DeviceName, Field: r.Field, Value: v, Message: evt.Message, Time: at.UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	if err := store.EnqueueOutbox(ctx, tx, events.TopicControlEvents, ev.PartitionKey, b); err != nil {
+		return err
+	}
 	for _, ep := range endpoints {
 		if !ep.Enabled || !subscribed(ep.Severities, r.Severity) {
 			continue

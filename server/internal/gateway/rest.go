@@ -18,6 +18,7 @@ import (
 
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/elementpipe"
+	"github.com/taha2samy/quackquack/server/internal/events"
 	"github.com/taha2samy/quackquack/server/internal/metrics"
 	"github.com/taha2samy/quackquack/server/internal/registry"
 )
@@ -374,6 +375,11 @@ func (g *Gateway) RESTSyncHandler() http.Handler {
 			found := g.hub.CommandsSince(ids, cursor)
 			if len(found) > 0 || wait <= 0 {
 				writeJSON(w, http.StatusOK, syncResponse(dev, found, cursor))
+				for _, e := range found {
+					if e.track {
+						g.commandStatus(e.id, events.CommandStatusDelivered, "taken by the device's REST poll")
+					}
+				}
 				return
 			}
 			select {

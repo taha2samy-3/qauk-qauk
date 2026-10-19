@@ -433,11 +433,26 @@ function TokenRevealDialog({ created, onClose }: { created: APITokenCreated | nu
 
 function UsageNote() {
   return (
-    <div className="text-muted-foreground mt-6 rounded-lg border border-dashed p-4 text-sm">
-      Send the token as <code className="text-foreground">Authorization: Bearer qk_…</code>. Today it reads
-      the account&apos;s elements (<code>GET /api/v1/me/elements</code>) and their history (
-      <code>GET /api/v1/elements/&#123;id&#125;/history</code>); live values, commands and alerts come with
-      the integration API&apos;s next steps. Everything a token does is in the audit log.
+    <div className="text-muted-foreground mt-6 grid gap-2 rounded-lg border border-dashed p-4 text-sm">
+      <p>
+        Send the token as <code className="text-foreground">Authorization: Bearer qk_…</code>. Commands a token
+        sends are in the audit log, under its machine user and token name.
+      </p>
+      <ul className="grid gap-1 font-mono text-xs">
+        <li>GET /api/v1/elements?latest=true · read</li>
+        <li>GET /api/v1/elements/&#123;id&#125;/latest · read</li>
+        <li>GET /api/v1/elements/&#123;id&#125;/history · read</li>
+        <li>GET /api/v1/alerts?state=firing · alerts</li>
+        <li>POST /api/v1/elements/&#123;id&#125;/commands · control (needs RC)</li>
+        <li>WebSocket /api/v1/stream · live values, presence and commands; alerts with the alerts scope</li>
+      </ul>
+      <p>
+        Details in the{' '}
+        <a className="text-foreground underline" href="/api/docs" target="_blank" rel="noreferrer">
+          API reference
+        </a>
+        .
+      </p>
     </div>
   )
 }

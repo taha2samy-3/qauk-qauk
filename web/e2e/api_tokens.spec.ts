@@ -87,13 +87,28 @@ test('create a machine user and a token, then use it from outside', async ({ pag
     expect(((await r.json()) as { name: string }[]).map((e) => e.name)).toEqual([ELEMENT])
     expect((await outside.get(`/api/v1/elements/${el.id}/history`)).status()).toBe(200)
     expect((await outside.get('/api/v1/admin/users')).status()).toBe(403) // never admin
+    // the integration API: elements with newest values, alerts (scope chosen above), no commands (no control scope)
+    const list = (await (await outside.get('/api/v1/elements?latest=true')).json()) as {
+      name: string
+      device_name: string
+    }[]
+    expect(list.map((e) => e.name)).toEqual([ELEMENT])
+    expect(list[0]!.device_name).toBeTruthy()
+    expect((await outside.get('/api/v1/alerts?state=all')).status()).toBe(200)
+    expect(
+      (
+        await outside.post(`/api/v1/elements/${el.id}/commands`, { data: { message: { value: 1 } } })
+      ).status(),
+    ).toBe(403)
   } finally {
     await outside.dispose()
   }
   await page.reload()
   // its last use shows (and its 90-day default expiry)
   await expect(card.getByRole('table', { name: `Tokens of ${MACHINE}` })).toContainText('just now')
-  await expect(card.getByRole('table', { name: `Tokens of ${MACHINE}` })).toContainText(/in 3 months|in \d+ days/)
+  await expect(card.getByRole('table', { name: `Tokens of ${MACHINE}` })).toContainText(
+    /in 3 months|in \d+ days/,
+  )
 })
 
 for (const theme of ['light', 'dark'] as const) {
@@ -105,6 +120,34 @@ for (const theme of ['light', 'dark'] as const) {
     await snap(page, `admin-api-tokens-${theme}`)
   })
 }
+
+test('the stream from a browser page (first-frame auth)', async ({ page }) => {
+  await page.goto('/login')
+  const frames = await page.evaluate(async (tok) => {
+    const url = `${location.origin.replace(/^http/, 'ws')}/api/v1/stream`
+    const got: { type: string; elements?: { name: string }[]; protocol?: number }[] = []
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(url)
+      const timer = setTimeout(() => reject(new Error('timeout: ' + JSON.stringify(got))), 10_000)
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: tok }))
+      ws.onmessage = (e) => {
+        const f = JSON.parse(e.data)
+        got.push(f)
+        if (f.type === 'welcome')
+          ws.send(JSON.stringify({ type: 'subscribe', id: '1', all: true, alerts: true }))
+        if (f.type === 'subscribed') {
+          clearTimeout(timer)
+          ws.close()
+          resolve()
+        }
+      }
+    })
+    return got
+  }, token)
+  expect(frames[0]).toMatchObject({ type: 'welcome', protocol: 1 })
+  const sub = frames.find((f) => f.type === 'subscribed')!
+  expect(sub.elements!.map((e) => e.name)).toEqual([ELEMENT])
+})
 
 test('a revoked token stops working at once', async ({ page, baseURL }) => {
   await login(page, ADMIN)

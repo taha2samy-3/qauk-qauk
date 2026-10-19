@@ -354,6 +354,9 @@ All configuration comes from environment variables. Durations use Go syntax (`30
 | `QUACK_MQTT_WEIGHT` | `1` | serve (`mqtt`) | This gateway's weight in the MQTT slot assignment: a gateway with weight 2 owns about twice as many slots. |
 | `QUACK_MQTT_CONNECTION_MSG_RATE` | `5000` | serve (`mqtt`) | Messages per second one MQTT connection may turn into values on one gateway. The excess is rejected (dead-lettered). |
 | `QUACK_ALLOW_INSECURE_TLS` | `false` | serve | Lets MQTT connections use passwords without TLS and `insecure_skip_verify`. For development brokers only. |
+| `QUACK_API_CORS_ORIGINS` | *(empty)* | serve (`api`) | Origins whose web pages may call the [integration API](./04_api_reference/integration_api.md) with an API token (`https://wall.example.com`, or `*`). Cookies are never allowed cross-origin. |
+| `QUACK_API_COMMAND_RATE` | `10` | serve (`api`) | Commands per second one caller may send through the REST API, per instance (burst: twice that). `0` disables the limit. |
+| `QUACK_COMMAND_RETENTION` | `168h` | serve (`api`) | How long commands sent through the integration API, and their status, are kept. |
 | `QUACK_SECRETS_KEY` | *(unset)* | serve | Base64 of 32 random bytes (`openssl rand -base64 32`). Encrypts webhook URLs, signing secrets and header values in the database (AES-256-GCM). Unset, they are stored as written and a warning is logged. Keep it: without it, stored secrets can't be read. `task dev` sets a fixed development key. |
 | `QUACK_WEBHOOK_ALLOW_PRIVATE` | `false` | serve (`api`) | Lets webhooks reach loopback, private and link-local addresses and plain `http`. Development only (`task dev` sets it). |
 | `QUACK_WEBHOOK_WORKERS` | `4` | serve (`api`) | Webhook deliveries one api server sends at a time. |

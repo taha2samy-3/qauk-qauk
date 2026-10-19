@@ -139,6 +139,7 @@ export default withMermaid(
             { text: 'Browser WebSocket', link: '/api/browser_api' },
             { text: 'REST', link: '/api/rest_api' },
             { text: 'API tokens', link: '/api/api_tokens' },
+            { text: 'Integration API', link: '/api/integration_api' },
           ],
         },
         { text: 'Database', items: [{ text: 'Schema', link: '/database/schema' }] },

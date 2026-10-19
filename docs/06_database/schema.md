@@ -18,6 +18,7 @@ Two stores, both migrated by `quack migrate`:
 | `00011_alerts_webhooks_hardening.sql` | Alert state (`element_alert_state`), webhook `options`, delivery leases (`locked_until`), 8 attempts by default, one delivery per endpoint and event |
 | `00012_alert_rule_field.sql` | `element_alert_rules.field`: the message attribute a rule watches (default `value`) |
 | `00013_api_tokens.sql` | Machine users (`users.kind`) and their `api_tokens` |
+| `00014_commands.sql` | `commands`: commands sent through the integration API and what became of them |
 
 Migrations 00002 and 00004 used to create the time series in the core schema. They now live in the TimescaleDB driver (`server/internal/history/timescale/migrations/`, version table `goose_history_version`). A database that already ran them upgrades in place: the existing `element_event` table is reused, and the old `element_value_1m` aggregate is replaced.
 
@@ -367,3 +368,7 @@ Migration `00013_api_tokens.sql`. See [API tokens](../04_api_reference/api_token
 |---|---|
 | `users.kind` | `human`, or `service` for a machine user (no password; a check keeps it from being an admin) |
 | `api_tokens` | A machine user's tokens: `name`, `prefix` (the first characters, to recognize it), `token_hash` (SHA-256; the token itself isn't stored), `scopes` (`read`, `control`, `alerts`), `expires_at`, `created_by`, `last_used_at`. Cascades on user delete. |
+
+## Commands
+
+Migration `00014_commands.sql`: the commands sent through the [integration API](../04_api_reference/integration_api.md#what-became-of-a-command), keyed by their element event id: `element_id`, `user_id` (the sender), `actor`, `message`, `status` (`accepted`, `delivered`, `failed`, `superseded`), `reason`, `created_at`, `updated_at`. A status moves on from `accepted` only once (the first report wins). Rows older than `QUACK_COMMAND_RETENTION` are purged hourly.

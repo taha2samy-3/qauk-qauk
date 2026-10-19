@@ -9,6 +9,7 @@ import { defineConfig } from 'vite'
 const backend = process.env.QUACK_BACKEND ?? 'http://127.0.0.1:8080'
 
 const proxy = {
+  '/api/v1/stream': { target: backend, ws: true },
   '/api/': { target: backend },
   '/browser/': { target: backend, ws: true },
   '/device/': { target: backend, ws: true },

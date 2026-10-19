@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quack:schema:io.quack.command.status.v1",
+  "title": "Command status",
+  "description": "A tracked command (integration API) was delivered, failed or superseded (on control-events.v1).",
+  "type": "object",
+  "required": ["command_id", "element_id", "user_id", "status", "reason", "gateway_id"],
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {"type": "string", "format": "uuid"},
+    "element_id": {"type": "string", "format": "uuid"},
+    "user_id": {"type": "string"},
+    "status": {"enum": ["delivered", "failed", "superseded"]},
+    "reason": {"type": "string"},
+    "gateway_id": {"type": "string", "minLength": 1}
+  }
+}

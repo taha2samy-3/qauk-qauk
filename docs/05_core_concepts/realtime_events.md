@@ -9,7 +9,7 @@ There are ten topics, all created by `quack migrate`. Topic auto-creation is dis
 | Topic | Partitions | Retention | Key | Event type | Producers | Consumers |
 |---|---|---|---|---|---|---|
 | `element-events.v1` | 12 | 7 days | `element_id` | `io.quack.element.message.v1` | gateways | every gateway (broadcast), `quack ingest` and the [alert engine](./webhooks_and_alerts.md) (consumer groups) |
-| `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1`; `io.quack.command.failed.v1` ([below](#failed-commands)) | outbox relay (`api` role); gateways (failed commands) | every gateway (broadcast) |
+| `control-events.v1` | 3 | 7 days | entity id | `io.quack.control.changed.v1`; `io.quack.alert.changed.v1` ([below](#alert-changes)); `io.quack.command.status.v1` ([below](#command-status)); `io.quack.command.failed.v1` ([below](#failed-commands)) | outbox relay (`api` role); gateways (failed commands) | every gateway (broadcast) |
 | `presence.v1` | 3 | compacted | `device_id` | `io.quack.device.presence.v1` | gateways | every gateway (broadcast) |
 | `element-state.v1` | 12 | compacted | `element_id` | `io.quack.element.message.v1` (the newest stored device message) | `quack ingest`, after each batch | every gateway, read in full on start to warm the latest values |
 | `device-config.v1` | 3 | compacted (tombstones kept 1 day) | `device_id` | `io.quack.device.config.v1` (a full device snapshot); a deleted device gets a tombstone | outbox relay, in the transaction of every device, element or key change | every gateway, read in full on start and followed ([below](#device-config-v1)) |
@@ -94,6 +94,25 @@ Type `io.quack.control.changed.v1`. These are written to the `outbox` table **in
 | `jwt_key` | Key update, delete | `update`, `delete` | | Close every device socket using that key (1000 `key changed`) |
 
 Renaming a group, creating a key and editing styles emit no control event (an audit row only). Every admin mutation, including those, writes `audit_log` in the same transaction.
+
+### Alert changes
+
+Type `io.quack.alert.changed.v1`, on `control-events.v1`: an [alert rule](./webhooks_and_alerts.md) started firing or resolved. The alert engine writes it through the outbox, in the transaction that changes the rule's state, so it is published exactly once per change. Every gateway forwards it to the [integration streams](../04_api_reference/integration_api.md#stream) subscribed to alerts that may read the element.
+
+```json
+{ "rule_id": "…", "rule_name": "Humid", "state": "firing", "severity": "warning", "element_id": "…", "element_name": "Climate",
+  "device_id": "…", "device_name": "Greenhouse A", "field": "climate.humidity", "value": 85, "message": "…", "time": "2026-10-19T08:58:02Z" }
+```
+
+### Command status
+
+Type `io.quack.command.status.v1`, on `control-events.v1`, published by the gateway that delivered a tracked command (one sent through the [integration API](../04_api_reference/integration_api.md#what-became-of-a-command)), or found it couldn't. The status is first written to the `commands` table, and only the first report of a command is published. Gateways forward it to the sender's streams.
+
+```json
+{ "command_id": "…", "element_id": "…", "user_id": "7", "status": "delivered", "reason": "handed to a device connection", "gateway_id": "gw-7f3a" }
+```
+
+Tracked commands are element messages with `"track": true`; their event id is the command id.
 
 ### Failed commands
 

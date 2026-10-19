@@ -226,6 +226,20 @@ type browserClient struct {
 	subs map[uuid.UUID]string // element -> permission (R / RC)
 
 	limiter
+
+	// stream, when set, makes this an integration-API stream (/api/v1/stream):
+	// the hub's frames (browser protocol) are rendered in the stream protocol.
+	stream *streamState
+}
+
+// Send queues a frame, rendered for streams (nil: nothing to send).
+func (b *browserClient) Send(frame []byte) {
+	if b.stream != nil {
+		if frame = b.stream.render(frame, false); frame == nil {
+			return
+		}
+	}
+	b.client.Send(frame)
 }
 
 func (b *browserClient) Perm(id uuid.UUID) (string, bool) {

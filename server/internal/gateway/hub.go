@@ -19,6 +19,7 @@ type ringEntry struct {
 	at    time.Time
 	frame []byte       // browser message_element frame
 	msg   *lazyMessage // the device message, for element pipelines; may be nil
+	track bool         // a tracked command (REST sync reports its delivery)
 }
 
 // lazyMessage is a device message decoded on first use: only elements with a
@@ -206,16 +207,17 @@ func (h *Hub) ensure(id, deviceID uuid.UUID, points int) *elementState {
 // Deliver fans a message out to every local socket in the element's audience
 // except the origin socket, and appends device data to the history window.
 // deviceFrame is called when a device needs the message; nil means the
-// message can't be given to the device (see renderMessage).
-func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame func() []byte, browserFrame []byte, localOrigin string) {
+// message can't be given to the device (see renderMessage). It returns how
+// many device sockets got it, and how many couldn't (no device frame).
+func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time, deviceFrame func() []byte, browserFrame []byte, localOrigin string) (sent, refused int) {
 	if m.Source == events.SourceDevice {
 		h.Remember(m.ElementID, ringEntry{id: eventID, at: at, frame: browserFrame, msg: newLazyMessage(m.Message)})
 	} else if f := deviceFrame(); f != nil {
-		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: f})
+		h.rememberCommand(m.DeviceID, m.ElementID, ringEntry{id: eventID, at: at, frame: f, track: m.Track})
 	}
 	st := h.get(m.ElementID)
 	if st == nil {
-		return
+		return 0, 0
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -227,6 +229,9 @@ func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time,
 		if id != localOrigin {
 			if f := deviceFrame(); f != nil {
 				d.Send(f)
+				sent++
+			} else {
+				refused++
 			}
 		}
 	}
@@ -235,6 +240,7 @@ func (h *Hub) Deliver(m *events.ElementMessage, eventID uuid.UUID, at time.Time,
 			b.Send(browserFrame)
 		}
 	}
+	return sent, refused
 }
 
 // --- Devices ---
@@ -409,13 +415,18 @@ func (h *Hub) Subscribe(b *browserClient, e elementInfo, confirm []byte, stored 
 		st.ring = mergeHistory(st.ring, []ringEntry{latest}, st.points)
 	}
 	b.Send(confirm)
-	switch {
-	case len(st.ring) > 0:
-		for _, r := range st.ring {
+	replay := st.ring
+	if len(replay) == 0 && hasLatest {
+		replay = []ringEntry{latest}
+	}
+	if b.stream != nil {
+		for _, f := range b.stream.replay(replay) {
+			b.client.Send(f)
+		}
+	} else {
+		for _, r := range replay {
 			b.Send(r.frame)
 		}
-	case hasLatest:
-		b.Send(latest.frame)
 	}
 	st.browsers[b.id] = b
 }

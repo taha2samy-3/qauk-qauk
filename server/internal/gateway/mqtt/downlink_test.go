@@ -13,6 +13,7 @@ import (
 type testCore struct {
 	mu         sync.Mutex
 	userErrors []userErr
+	statuses   map[uuid.UUID]string
 }
 
 type userErr struct {
@@ -24,6 +25,21 @@ type userErr struct {
 
 func (c *testCore) Publish(p Publication, done func(Outcome, error)) error { return nil }
 func (c *testCore) OnCommand(fn func(Command)) func()                      { return func() {} }
+func (c *testCore) CommandStatus(id uuid.UUID, status, reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.statuses == nil {
+		c.statuses = map[uuid.UUID]string{}
+	}
+	c.statuses[id] = status
+}
+
+func (c *testCore) status(id uuid.UUID) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.statuses[id]
+}
+
 func (c *testCore) SendUserError(userID string, code, description string, elementID uuid.UUID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -245,5 +261,45 @@ func TestDownlinkPermanentErrorIsNotRetried(t *testing.T) {
 	errs := core.getErrors()
 	if len(errs) != 1 || !strings.Contains(errs[0].Description, "can't be built") {
 		t.Fatalf("want an immediate 'can't be built' error (no 1 s retries), got %+v", errs)
+	}
+}
+
+// Tracked commands report what became of them; untracked ones don't.
+func TestDownlinkReportsTrackedCommands(t *testing.T) {
+	core := &testCore{}
+	tr := New(Options{GatewayID: "gw-1", Core: core, Log: quiet, MaxRetries: 3,
+		RetryInitialBackoff: 20 * time.Millisecond, RetryMaxBackoff: 20 * time.Millisecond})
+	snap := snapshot()
+	cfg := compile(snap, quiet)
+	devID := snap.Devices[0].DeviceID
+	tr.mu.Lock()
+	tr.conns["c1"] = cfg
+	tr.devIdx[devID] = []*connConfig{cfg}
+	tr.slots[slotKey{"c1", 0}] = &slot{t: tr, key: slotKey{"c1", 0}} // no broker: every attempt fails
+	tr.mu.Unlock()
+
+	cmd := func(track bool) Command {
+		return Command{ID: uuid.New(), Track: track, DeviceID: devID, ElementID: uuid.New(), Element: "Fan",
+			Message: json.RawMessage(`{"value": true}`), UserID: "42", Time: time.Now()}
+	}
+	first, second, untracked := cmd(true), cmd(true), cmd(false)
+	tr.downlink(first)
+	time.Sleep(5 * time.Millisecond)
+	tr.downlink(second) // replaces the first while it is retried
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && (core.status(first.ID) == "" || core.status(second.ID) == "") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := core.status(first.ID); got != "superseded" {
+		t.Errorf("first: %q, want superseded", got)
+	}
+	if got := core.status(second.ID); got != "failed" {
+		t.Errorf("second: %q, want failed", got)
+	}
+	tr.downlink(untracked) // the same element: it fails too, silently
+	time.Sleep(200 * time.Millisecond)
+	if got := core.status(untracked.ID); got != "" {
+		t.Errorf("an untracked command reported %q", got)
 	}
 }

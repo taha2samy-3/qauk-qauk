@@ -41,6 +41,8 @@ type Publication struct {
 
 // Command is a user's command for an element (any gateway sees all of them).
 type Command struct {
+	ID        uuid.UUID // the command's element event id
+	Track     bool      // its delivery is reported (Core.CommandStatus)
 	DeviceID  uuid.UUID
 	ElementID uuid.UUID
 	Element   string
@@ -71,6 +73,9 @@ type Core interface {
 	OnCommand(fn func(Command)) (cancel func())
 	// SendUserError routes a real-time error frame to the originating user's dashboard sessions.
 	SendUserError(userID string, code, description string, elementID uuid.UUID)
+	// CommandStatus reports what became of a tracked command: delivered,
+	// failed or superseded (events.CommandStatus*).
+	CommandStatus(id uuid.UUID, status, reason string)
 }
 
 // Cluster lists the live gateways that have the mqtt role.

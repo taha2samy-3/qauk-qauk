@@ -57,7 +57,7 @@ func (g *Gateway) notifyCommand(m *events.ElementMessage, id uuid.UUID, at time.
 		}
 		msg = inv
 	}
-	cmd := mqtt.Command{DeviceID: m.DeviceID, ElementID: m.ElementID, Element: pc.element, Message: msg,
+	cmd := mqtt.Command{ID: id, Track: m.Track, DeviceID: m.DeviceID, ElementID: m.ElementID, Element: pc.element, Message: msg,
 		UserID: m.Actor.ID, UserName: m.Actor.Name, Time: at}
 	for _, h := range g.cmds.hooks {
 		h(cmd)
@@ -152,6 +152,10 @@ func (c mqttCore) OnCommand(fn func(mqtt.Command)) func() {
 		delete(h.hooks, id)
 		h.mu.Unlock()
 	}
+}
+
+func (c mqttCore) CommandStatus(id uuid.UUID, status, reason string) {
+	c.g.commandStatus(id, status, reason)
 }
 
 func (c mqttCore) SendUserError(userID string, code, description string, elementID uuid.UUID) {

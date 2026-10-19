@@ -8,7 +8,7 @@ API tokens let systems outside the platform use it without a browser session: yo
 
 ![API tokens: a machine user with its tokens, scopes, expiry and last use](../imgs/screenshots/admin-api-tokens-light.webp)
 
-> This is step 1 of the [integration API](../refactor/INTEGRATION_API_PLAN.md). Today a token can **read** the elements its account is granted and their history. A live stream (values, presence, alerts), commands and command results come next, with the same tokens.
+> Tokens authenticate the [integration API](./integration_api.md): elements with their newest values, history, alerts and commands over REST, and a live [stream](./integration_api.md#stream) of values, presence and alerts over WebSocket.
 
 ## Machine users
 
@@ -34,14 +34,14 @@ In **Admin → API tokens**: create a machine user, grant it elements in Permiss
   | Scope | Allows |
   |---|---|
   | `read` | Listing the account's elements, their live values and history |
-  | `control` | Sending commands to elements the account is granted `RC` (with the next steps) |
-  | `alerts` | Alert events of elements the account can read (with the next steps) |
+  | `control` | Sending commands to elements the account is granted `RC` |
+  | `alerts` | Alerts of the elements the account can read |
 
 - **Expiry**: never, 30 or 90 days, or a year. An expired token stops working; the page marks it.
 - The token (`qk_` followed by 43 characters) is shown **once**. Only its SHA-256 is stored, with its first characters (`qk_zDp8eC…`) so you can recognize it.
 - **Last used** is updated at most once a minute.
 - **Revoke** deletes it: the next request with it fails.
-- A machine user has at most 20 tokens. Creating and revoking tokens is in the audit log, without the token.
+- A machine user has at most 20 tokens. Creating and revoking tokens, and every command a token sends, are in the audit log, without the token.
 
 ## Using a token
 
@@ -65,8 +65,15 @@ for el in s.get(f"{BASE}/api/v1/me/elements").json():
 
 | Endpoint | Scope |
 |---|---|
-| `GET /api/v1/me/elements` | `read` |
+| `GET /api/v1/elements` (`?latest=true`) | `read` |
+| `GET /api/v1/elements/{id}/latest` | `read` |
 | `GET /api/v1/elements/{id}/history` | `read` |
+| `GET /api/v1/me/elements` | `read` |
+| `GET /api/v1/alerts` | `alerts` |
+| `POST /api/v1/elements/{id}/commands` | `control` |
+| `GET /api/v1/stream` (WebSocket) | `read` for values, `alerts` for alerts, `control` for commands |
+
+See the [integration API](./integration_api.md) for each one.
 
 Every other endpoint answers `403 this endpoint isn't available to API tokens`, so a token can't reach dashboards, passwords or administration by accident. Each endpoint has to accept tokens explicitly.
 

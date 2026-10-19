@@ -24,7 +24,9 @@ const TokenPrefix = "qk_"
 const MaxTokensPerUser = 20
 
 // IsAPIToken reports whether s looks like an API token.
-func IsAPIToken(s string) bool { return strings.HasPrefix(s, TokenPrefix) && len(s) > len(TokenPrefix)+20 }
+func IsAPIToken(s string) bool {
+	return strings.HasPrefix(s, TokenPrefix) && len(s) > len(TokenPrefix)+20
+}
 
 // newAPIToken returns a token and the hash stored for it.
 func newAPIToken() (token string, hash []byte, err error) {

@@ -31,7 +31,7 @@ curl -b jar.txt http://127.0.0.1:8080/api/v1/auth/me
 - **Logout** (`POST /api/v1/auth/logout`, `204`) deletes the session and clears the cookie.
 - **Password change** (`POST /api/v1/auth/password`, `{old_password, new_password}`, at least 8 characters) ends **all** of your sessions, and open WebSockets are closed with 4000.
 - **Admin endpoints** (`/api/v1/admin/*`) need `is_admin`; otherwise you get `403 admin privileges required`. Every other endpoint needs a valid session (`401 authentication required`).
-- **API tokens** (`Authorization: Bearer qk_…`) belong to machine users, for integrations. Only the endpoints that say so accept them (today `GET /api/v1/me/elements` and `GET /api/v1/elements/{id}/history`, scope `read`); the others answer `403`. See [API tokens](./api_tokens.md).
+- **API tokens** (`Authorization: Bearer qk_…`) belong to machine users, for integrations. Only the [integration API](./integration_api.md) endpoints accept them (`/api/v1/elements…`, `/api/v1/alerts`, commands, `/api/v1/me/elements`), each with a scope; the others answer `403`. See [API tokens](./api_tokens.md).
 
 Details: [Authentication](../05_core_concepts/authentication.md).
 

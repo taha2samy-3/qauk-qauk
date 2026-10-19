@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -78,6 +79,17 @@ func TestEventsMatchSchemas(t *testing.T) {
 	noKey, _ := events.New(events.TypeDeviceConfig, events.SourceAPI, dev.String(), events.DeviceConfig{
 		Device: events.DeviceInfo{ID: dev, Name: "d"}, Elements: []events.ElementConfig{}})
 	validate(t, c, noKey)
+	al, _ := events.New(events.TypeAlertChanged, events.SourceAPI, el.String(), events.AlertChanged{RuleID: uuid.New(), RuleName: "Hot",
+		State: "firing", Severity: "warning", ElementID: el, ElementName: "t", DeviceID: dev, DeviceName: "d", Field: "value", Value: 31,
+		Message: "31 is above 30", Time: time.Now()})
+	validate(t, c, al)
+	cs, _ := events.New(events.TypeCommandStatus, events.GatewaySource("gw-1"), el.String(), events.CommandStatus{CommandID: uuid.New(),
+		ElementID: el, UserID: "3", Status: events.CommandStatusDelivered, Reason: "handed to a device connection", GatewayID: "gw-1"})
+	validate(t, c, cs)
+	tracked, _ := events.New(events.TypeElementMessage, events.SourceAPI, el.String(), events.ElementMessage{ElementID: el, DeviceID: dev,
+		Source: events.SourceUser, Actor: events.Actor{ID: "3", Name: "bot (token t)"}, Origin: events.Origin{GatewayID: "api", ConnID: "rest"},
+		Message: json.RawMessage(`{"value":1}`), Track: true})
+	validate(t, c, tracked)
 	if _, err := uuid.Parse(m.ID); err != nil || uuid.MustParse(m.ID).Version() != 7 {
 		t.Fatalf("event id must be UUIDv7: %s", m.ID)
 	}

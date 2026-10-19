@@ -46,6 +46,14 @@ const (
 	// user's command could not be delivered, so the user's dashboards hear
 	// about it whichever gateway they are connected to.
 	TypeCommandFailed = "io.quack.command.failed.v1"
+	// TypeAlertChanged (on control-events.v1) is an alert rule that started
+	// firing or resolved, published with the state change (through the
+	// outbox) so every gateway can tell its integration streams.
+	TypeAlertChanged = "io.quack.alert.changed.v1"
+	// TypeCommandStatus (on control-events.v1): a tracked command was
+	// delivered, failed or superseded, so its sender hears it wherever it is
+	// connected.
+	TypeCommandStatus = "io.quack.command.status.v1"
 
 	SourceAPI         = "/quack/api"
 	ContentTypeHeader = "application/cloudevents+json"
@@ -150,6 +158,9 @@ type ElementMessage struct {
 	Origin    Origin          `json:"origin"`
 	Message   json.RawMessage `json:"message"`
 	ClientTS  *Time           `json:"client_ts"`
+	// Track: a user command whose delivery is reported (integration API);
+	// its event id is the command id.
+	Track bool `json:"track,omitempty"`
 }
 
 // Control kinds and ops.
@@ -244,6 +255,40 @@ type CommandFailed struct {
 	Code      string    `json:"code"`
 	Reason    string    `json:"reason"`
 	GatewayID string    `json:"gateway_id"`
+}
+
+// Command statuses.
+const (
+	CommandStatusAccepted   = "accepted"   // on the bus, on its way
+	CommandStatusDelivered  = "delivered"  // handed to a device connection, a REST poll or the MQTT broker
+	CommandStatusFailed     = "failed"     // can't be converted or sent (reason says why)
+	CommandStatusSuperseded = "superseded" // a newer command for the element replaced it before delivery
+)
+
+// CommandStatus is the data of TypeCommandStatus.
+type CommandStatus struct {
+	CommandID uuid.UUID `json:"command_id"`
+	ElementID uuid.UUID `json:"element_id"`
+	UserID    string    `json:"user_id"`
+	Status    string    `json:"status"`
+	Reason    string    `json:"reason"`
+	GatewayID string    `json:"gateway_id"`
+}
+
+// AlertChanged is the data of TypeAlertChanged.
+type AlertChanged struct {
+	RuleID      uuid.UUID `json:"rule_id"`
+	RuleName    string    `json:"rule_name"`
+	State       string    `json:"state"` // firing or resolved
+	Severity    string    `json:"severity"`
+	ElementID   uuid.UUID `json:"element_id"`
+	ElementName string    `json:"element_name"`
+	DeviceID    uuid.UUID `json:"device_id"`
+	DeviceName  string    `json:"device_name"`
+	Field       string    `json:"field"`
+	Value       float64   `json:"value"`
+	Message     string    `json:"message"`
+	Time        time.Time `json:"time"`
 }
 
 // Control is a convenience constructor for control-change events from the API.

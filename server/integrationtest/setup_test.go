@@ -130,7 +130,7 @@ func startInstance(t *testing.T, gatewayID string, withIngest bool, tweak ...fun
 	cfg := &config.Config{
 		DatabaseURL: dbURL, KafkaBrokers: brokers, KafkaAcksAll: true,
 		Roles: []string{"api", "gateway"}, GatewayID: gatewayID,
-		SessionTTL: time.Hour, DeviceJWTMaxLifetime: 24 * time.Hour, DeviceMsgRate: 1000, BrowserMsgRate: 1000,
+		SessionTTL: time.Hour, DeviceJWTMaxLifetime: 24 * time.Hour, DeviceMsgRate: 1000, BrowserMsgRate: 1000, APICommandRate: 10,
 		ElementMsgRate: 1000, ElementMsgRateMax: 1000, RateLimitDriver: "local", SyncMaxWait: 10 * time.Second, StreamMaxAge: time.Hour,
 		PresenceHeartbeat: time.Second, PresenceTTL: 3 * time.Second,
 		HistoryQueryTimeout: 10 * time.Second, HistoryMaxQueries: 8, HistoryMaxBuckets: 1500, HistoryReplayWindow: 30 * 24 * time.Hour,

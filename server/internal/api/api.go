@@ -15,6 +15,7 @@ import (
 	"github.com/taha2samy/quackquack/server/internal/authn"
 	"github.com/taha2samy/quackquack/server/internal/config"
 	"github.com/taha2samy/quackquack/server/internal/history"
+	"github.com/taha2samy/quackquack/server/internal/ratelimit"
 	"github.com/taha2samy/quackquack/server/internal/secrets"
 	"github.com/taha2samy/quackquack/server/internal/service"
 	"github.com/taha2samy/quackquack/server/internal/store"
@@ -28,6 +29,8 @@ type API struct {
 	svc     *service.Service
 	log     *slog.Logger
 	limiter *loginLimiter
+	// commands bounds REST commands per caller (QUACK_API_COMMAND_RATE)
+	commands ratelimit.Limiter
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.Logger) *API {
@@ -41,7 +44,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, log *slog.L
 		svc.ElementRateMax = cfg.ElementMsgRateMax
 	}
 	return &API{cfg: cfg, pool: pool, hist: hist, histSem: make(chan struct{}, max(cfg.HistoryMaxQueries, 1)),
-		svc: svc, log: log, limiter: newLoginLimiter(10, 5*time.Minute)}
+		svc: svc, log: log, limiter: newLoginLimiter(10, 5*time.Minute), commands: ratelimit.NewLocal()}
 }
 
 type ctxKey int
@@ -114,6 +117,14 @@ func caller(ctx context.Context, scope string) (store.User, error) {
 	return store.User{}, unauthorized(ctx)
 }
 
+// callerActor is how the caller appears in the audit log and on its commands.
+func callerActor(ctx context.Context, u store.User) service.Actor {
+	if p, ok := ctx.Value(tokenKey).(store.TokenPrincipal); ok {
+		return service.TokenActor(p)
+	}
+	return service.UserActor(u)
+}
+
 func unauthorized(ctx context.Context) error {
 	if r := requestFrom(ctx); r != nil {
 		if _, ok := BearerToken(r); ok {
@@ -171,6 +182,7 @@ func (a *API) Register(api huma.API) {
 	a.registerAdminWebhooks(api)
 	a.registerAdminAlerts(api)
 	a.registerAdminTokens(api)
+	a.registerIntegration(api)
 }
 
 func Config() huma.Config {

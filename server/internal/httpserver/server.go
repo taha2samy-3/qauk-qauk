@@ -99,6 +99,8 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 		for _, p := range []string{"/browser/simple/", "/browser/simple"} {
 			r.Handle(p, gw.BrowserHandler())
 		}
+		// the integration stream (API tokens): docs/04_api_reference/integration_api.md
+		r.Handle("/api/v1/stream", gw.StreamHandler())
 	}
 
 	if cfg.HasRole("api") {
@@ -126,7 +128,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 			})
 		}
 		r.Group(func(r chi.Router) {
-			r.Use(csrf, a.SessionMiddleware)
+			r.Use(apiCORS(cfg.APICORSOrigins), csrf, a.SessionMiddleware)
 			humaAPI := humachi.New(r, api.Config())
 			a.Register(humaAPI)
 		})
@@ -137,6 +139,42 @@ func New(cfg *config.Config, pool *pgxpool.Pool, hist history.Store, gw *gateway
 		}
 	}
 	return r
+}
+
+// apiCORS lets browser pages on the configured origins call the API with an
+// API token (QUACK_API_CORS_ORIGINS; "*" for any). Credentials are never
+// allowed, so a session cookie can't ride along: only the token's header.
+func apiCORS(origins []string) func(http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	for _, o := range origins {
+		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+			allowed[o] = true
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		if len(allowed) == 0 {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin == "" || !strings.HasPrefix(r.URL.Path, "/api/v1/") || (!allowed["*"] && !allowed[origin]) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			h := w.Header()
+			h.Add("Vary", "Origin")
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Set("Access-Control-Expose-Headers", "Retry-After")
+			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+				h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+				h.Set("Access-Control-Max-Age", "600")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // spa serves static files and falls back to index.html for client-side routes.
