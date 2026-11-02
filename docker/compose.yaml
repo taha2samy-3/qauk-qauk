@@ -59,7 +59,7 @@ services:
   # QUACK_HISTORY_URL=clickhouse://quack:quack@127.0.0.1:19000/quack (host) or
   # clickhouse://quack:quack@clickhouse:9000/quack (containers).
   clickhouse:
-    image: clickhouse/clickhouse-server:26.8
+    image: clickhouse/clickhouse-server:26.10
     profiles: [clickhouse]
     environment:
       CLICKHOUSE_USER: quack

@@ -4,11 +4,11 @@ go 1.26.4
 
 require (
 	connectrpc.com/connect v1.21.1
-	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/coder/websocket v1.8.15
-	github.com/danielgtaylor/huma/v2 v2.39.1
+	github.com/danielgtaylor/huma/v2 v2.40.0
 	github.com/dop251/goja v0.0.0-20261009133625-a4bedf5f6000
 	github.com/eclipse/paho.golang v0.23.0
 	github.com/go-chi/chi/v5 v5.5.0
